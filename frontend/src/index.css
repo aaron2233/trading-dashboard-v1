@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg-base text-text-primary;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-bg-panel border border-bg-border rounded-md;
+  }
+  .panel-header {
+    @apply px-4 py-2 border-b border-bg-border text-text-secondary text-xs uppercase tracking-wider;
+  }
+  .panel-body {
+    @apply p-4;
+  }
+  .badge {
+    @apply inline-block px-2 py-0.5 rounded text-xs font-semibold;
+  }
+  .badge-bull {
+    @apply bg-signal-bull/20 text-signal-bull;
+  }
+  .badge-bear {
+    @apply bg-signal-bear/20 text-signal-bear;
+  }
+  .badge-flag {
+    @apply bg-signal-flag/20 text-signal-flag;
+  }
+  .badge-info {
+    @apply bg-signal-info/20 text-signal-info;
+  }
+  .badge-muted {
+    @apply bg-text-muted/20 text-text-muted;
+  }
+  .btn {
+    @apply px-3 py-1.5 rounded border border-bg-border bg-bg-elevated text-text-primary text-sm hover:bg-bg-border transition;
+  }
+  .btn-primary {
+    @apply bg-signal-info/20 border-signal-info/50 text-signal-info hover:bg-signal-info/30;
+  }
+  .input {
+    @apply bg-bg-elevated border border-bg-border rounded px-2 py-1 text-text-primary text-sm focus:outline-none focus:border-signal-info;
+  }
+  .label {
+    @apply text-text-secondary text-xs uppercase tracking-wider block mb-1;
+  }
+}

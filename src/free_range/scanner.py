@@ -1,0 +1,219 @@
+"""Free-range scanner — 3-phase orchestrator.
+
+Implements the workflow from ~/CLAUDE.md "Free-Range Scan" section:
+
+    Phase 1: QQQ + GLD baseline (Tier 1 + Tier 2)
+    Phase 2: User-submitted tickers analyzed against Tier 1/2 criteria
+    Phase 3: Free-range scan, up to 5 candidates max, tagged Tier 1/Tier 2/both
+
+Hard cap 5; if fewer pass filters, scan returns fewer with an explicit note.
+Padding to fill the slot count is forbidden.
+
+The orchestrator is parameterized by a `scan_fn` (defaults to scan_ticker
+from src/scan.py) so tests can inject deterministic fixtures without yfinance.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Callable
+
+from free_range.filters import (
+    FREE_RANGE_MIN_SCORE,
+    best_direction,
+    build_why_now,
+    price_band_violation,
+)
+from free_range.snapshot import CandidateSnapshot, FreeRangeScan
+from free_range.universe import free_range_universe, is_etf
+
+
+BASELINE_TICKERS: tuple[str, ...] = ("QQQ", "GLD")
+
+
+def _tier_tag(direction: str, scan_row: dict[str, Any]) -> str:
+    """Tag a snapshot with the tier(s) it qualifies for.
+
+    Heuristic for V1:
+      - Strong directional setup (score-driving signals on both Stoch + Stack)
+        → "1+2" (qualifies for both weekly trend trader and lotto)
+      - Otherwise → "2" (lotto-style short-horizon read on the Daily timeframe)
+
+    True Tier 1 qualification requires Weekly TF — V1 surfaces from the same
+    Daily read with the user expected to verify Weekly alignment via the
+    `/scan` view before pulling the trigger.
+    """
+    stack = (scan_row.get("ma_ribbon") or {}).get("stack_state") or ""
+    signal = (scan_row.get("stochastic") or {}).get("signal") or ""
+    sqn = (scan_row.get("sqn") or {}).get("regime") or ""
+
+    strong_stack = stack.lower() in ("full_bull", "full_bear", "bull_developing", "bear_developing")
+    strong_signal = signal.lower() in (
+        "bull_cross_oversold", "bear_cross_overbought",
+        "bullish_divergence", "bearish_divergence",
+        "bull_continuation", "bear_continuation",
+    )
+    aligned_regime = (
+        (direction == "long" and sqn.lower() in ("bull", "strong_bull"))
+        or (direction == "short" and sqn.lower() in ("bear", "strong_bear"))
+    )
+
+    if strong_stack and (strong_signal or aligned_regime):
+        return "1+2"
+    return "2"
+
+
+def build_snapshot(
+    ticker: str,
+    phase: str,
+    scan_row: dict[str, Any],
+    *,
+    notes: list[str] | None = None,
+) -> CandidateSnapshot | None:
+    """Construct a CandidateSnapshot from a scan_ticker() row.
+
+    Returns None when the row's score falls below FREE_RANGE_MIN_SCORE on the
+    free_range or baseline phase. User-submitted snapshots ignore the floor —
+    if the user named the ticker, surface the read regardless.
+    """
+    direction, score, blockers = best_direction(scan_row)
+    if phase != "user" and score < FREE_RANGE_MIN_SCORE:
+        return None
+
+    snap_notes = list(notes or [])
+    snap_notes.extend(blockers)
+    if is_etf(ticker):
+        snap_notes.append("ETF — price band exempt")
+
+    return CandidateSnapshot(
+        ticker=ticker.upper(),
+        phase=phase,  # type: ignore[arg-type]
+        tier=_tier_tag(direction, scan_row),
+        direction=direction,  # type: ignore[arg-type]
+        is_etf=is_etf(ticker),
+        current_price=scan_row.get("close"),
+        ma_stack=(scan_row.get("ma_ribbon") or {}).get("stack_state"),
+        stoch_zone=(scan_row.get("stochastic") or {}).get("zone"),
+        stoch_signal=(scan_row.get("stochastic") or {}).get("signal"),
+        sqn_100_regime=(scan_row.get("sqn") or {}).get("regime"),
+        sqn_20_regime=(scan_row.get("sqn") or {}).get("regime_20"),
+        score=score,
+        why_now=build_why_now(direction, scan_row),
+        notes=snap_notes,
+    )
+
+
+def _scan_one(
+    ticker: str,
+    phase: str,
+    scan_fn: Callable[[str], dict[str, Any]],
+    errors: dict[str, str],
+    *,
+    enforce_price_band: bool,
+) -> CandidateSnapshot | None:
+    """Single-ticker scan + filters. Errors get logged, not raised."""
+    try:
+        scan_row = scan_fn(ticker)
+    except Exception as exc:
+        errors[ticker.upper()] = str(exc)
+        return None
+
+    if enforce_price_band:
+        price_violation = price_band_violation(ticker, scan_row.get("close"))
+        if price_violation:
+            errors[ticker.upper()] = price_violation
+            return None
+
+    return build_snapshot(ticker, phase, scan_row)
+
+
+def run_free_range_scan(
+    user_tickers: list[str] | None = None,
+    *,
+    scan_fn: Callable[[str], dict[str, Any]] | None = None,
+    free_range_cap: int = 5,
+    universe_override: tuple[str, ...] | None = None,
+    enable_free_range: bool = True,
+) -> FreeRangeScan:
+    """Run the 3-phase free-range scan (price + indicator only).
+
+    Options liquidity is NOT auto-gated — yfinance options data is stale
+    relative to brokerage feeds and using it would smuggle bad data into a
+    discipline-engine claim. Per-candidate manual options entry happens at
+    the kill-sheet layer (paste-from-brokerage or screenshot upload via
+    src/options_input + src/vision/options_extractor).
+
+    `scan_fn` defaults to scan_ticker from src/scan.py — left lazy here to
+    avoid a circular import on module load.
+
+    `universe_override` lets callers (mostly tests) supply a custom candidate
+    universe instead of NASDAQ_100.
+
+    `enable_free_range=False` skips Phase 3 entirely — returns baseline +
+    user-submitted only. Used by views that want a fast read on the QQQ+GLD
+    baseline (LottoView verdict banner) without paying the ~30s NASDAQ 100
+    sweep cost.
+    """
+    if scan_fn is None:
+        from scan import scan_ticker
+        scan_fn = scan_ticker
+
+    user_tickers_norm = [t.upper() for t in (user_tickers or [])]
+    errors: dict[str, str] = {}
+    notes: list[str] = []
+
+    # ─ Phase 1: baseline ─
+    baseline: list[CandidateSnapshot] = []
+    for tkr in BASELINE_TICKERS:
+        snap = _scan_one(tkr, "baseline", scan_fn, errors, enforce_price_band=False)
+        if snap is not None:
+            baseline.append(snap)
+
+    # ─ Phase 2: user-submitted ─
+    user_snaps: list[CandidateSnapshot] = []
+    for tkr in user_tickers_norm:
+        if tkr in BASELINE_TICKERS:
+            continue  # already covered in baseline
+        snap = _scan_one(tkr, "user", scan_fn, errors, enforce_price_band=False)
+        if snap is not None:
+            user_snaps.append(snap)
+
+    # ─ Phase 3: free-range top-N (skipped when enable_free_range=False) ─
+    if enable_free_range:
+        excluded = frozenset(BASELINE_TICKERS) | frozenset(user_tickers_norm)
+        universe = (
+            universe_override if universe_override is not None
+            else free_range_universe(excluded)
+        )
+        free_range: list[CandidateSnapshot] = []
+        for tkr in universe:
+            snap = _scan_one(tkr, "free_range", scan_fn, errors, enforce_price_band=True)
+            if snap is None:
+                continue
+            free_range.append(snap)
+        universe_size = len(universe)
+    else:
+        free_range = []
+        universe_size = 0
+        notes.append("Free-range Phase 3 skipped (baseline + user-submitted only)")
+
+    # Rank by score desc and apply hard cap. Padding is forbidden — if fewer
+    # than `free_range_cap` candidates pass, return what we have with a note.
+    free_range.sort(key=lambda s: s.score, reverse=True)
+    if enable_free_range and len(free_range) < free_range_cap:
+        notes.append(
+            f"Only {len(free_range)} free-range candidate(s) passed filters "
+            f"(cap is {free_range_cap}). Padding the slot count is forbidden — "
+            "the scan does not invent setups."
+        )
+    free_range = free_range[:free_range_cap]
+
+    return FreeRangeScan(
+        scan_time_utc=datetime.now(timezone.utc).isoformat(),
+        baseline=baseline,
+        user_submitted=user_snaps,
+        free_range=free_range,
+        universe_size=universe_size,
+        free_range_cap=free_range_cap,
+        notes=notes,
+        errors=errors,
+    )

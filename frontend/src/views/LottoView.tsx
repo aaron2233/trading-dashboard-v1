@@ -1,0 +1,521 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../api/client";
+import type {
+  CandidateSnapshot,
+  FreeRangeScanResponse,
+  LottoCooldownReason,
+  LottoState,
+  LottoTradeSummary,
+} from "../api/types";
+
+/** Candidate is "lotto-actionable" when:
+ *   - Tier tag includes Tier 2 (lotto playbook), AND
+ *   - Direction is long or short (not "none"), AND
+ *   - Score clears the FREE_RANGE_MIN_SCORE floor (already enforced upstream
+ *     for free_range/baseline phases — this is belt-and-suspenders for the UI)
+ */
+function isLottoActionable(c: CandidateSnapshot): boolean {
+  return (c.tier === "2" || c.tier === "1+2") && c.direction !== "none";
+}
+
+
+function fmtUsd(n: number | null | undefined, sign = false): string {
+  if (n === null || n === undefined) return "—";
+  return n.toLocaleString(undefined, {
+    style: "currency", currency: "USD",
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+    signDisplay: sign ? "exceptZero" : "auto",
+  });
+}
+
+function fmtPct(v: number | null): string {
+  if (v === null) return "—";
+  return `${(v * 100).toFixed(0)}%`;
+}
+
+function fmtHours(h: number | null): string {
+  if (h === null) return "—";
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  return `${h.toFixed(1)}h`;
+}
+
+function cooldownCopy(reason: LottoCooldownReason | null): { title: string; body: string } {
+  if (reason === "post_big_win") {
+    return {
+      title: "24h cooldown — post-300%-winner",
+      body: "Bank the win, reset the head, then trade. Per anti-greed protocol.",
+    };
+  }
+  if (reason === "post_loss_streak") {
+    return {
+      title: "48h cooldown — post-3-loss-streak",
+      body: "Review the 3 kill sheets — variance or process problem? Don't trade until you know.",
+    };
+  }
+  return { title: "Cooldown active", body: "" };
+}
+
+function CooldownBanner({ state }: { state: LottoState }) {
+  const cd = state.cooldown;
+  if (!cd.active) {
+    return (
+      <div className="panel p-3 mb-4 border-signal-bull/40 bg-signal-bull/5">
+        <span className="text-sm text-signal-bull">
+          ✓ No cooldown active — anti-greed protocol clear.
+        </span>
+      </div>
+    );
+  }
+  const { title, body } = cooldownCopy(cd.reason);
+  return (
+    <div className="panel p-4 mb-4 border-signal-bear/50 bg-signal-bear/10">
+      <div className="flex items-baseline justify-between mb-1">
+        <h3 className="text-sm font-semibold text-signal-bear">{title}</h3>
+        <span className="text-xs text-text-secondary font-mono">
+          {fmtHours(cd.hours_remaining)} remaining
+        </span>
+      </div>
+      <p className="text-xs text-text-secondary mb-2">{body}</p>
+      {cd.expires_at && (
+        <p className="text-xs text-text-muted">
+          Expires {new Date(cd.expires_at).toLocaleString()}
+        </p>
+      )}
+      {cd.triggering_position_ids.length > 0 && (
+        <p className="text-xs text-text-muted mt-1">
+          Triggered by: {cd.triggering_position_ids.map((id) => (
+            <span key={id} className="font-mono mr-2">{id.slice(0, 12)}…</span>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SizeLockBanner({ state }: { state: LottoState }) {
+  if (!state.size_lock_active) return null;
+  return (
+    <div className="panel p-3 mb-4 border-signal-flag/40 bg-signal-flag/5">
+      <p className="text-sm text-signal-flag">
+        ⚠ Size lock active — {state.size_lock_reason}
+      </p>
+    </div>
+  );
+}
+
+function AccountHeader({ state }: { state: LottoState }) {
+  const realizedClass =
+    state.realized_pnl_usd > 0 ? "text-signal-bull"
+    : state.realized_pnl_usd < 0 ? "text-signal-bear"
+    : "text-text-secondary";
+  const reserveClass =
+    state.cash_reserve_status === "ok" ? "text-signal-bull" : "text-signal-bear";
+  return (
+    <div className="panel mb-4">
+      <div className="panel-header flex items-baseline justify-between">
+        <span>Lotto account</span>
+        <span className="text-xs text-text-secondary">
+          {state.closed_count_last_7d} trade{state.closed_count_last_7d === 1 ? "" : "s"} last 7 days
+          (target tempo: 2-4/week)
+        </span>
+      </div>
+      <div className="panel-body grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div>
+          <div className="label">Account balance</div>
+          <div className="font-mono text-lg">{fmtUsd(state.account_balance_usd)}</div>
+          <div className="text-xs text-text-muted">
+            base {fmtUsd(state.base_balance_usd)} + realized{" "}
+            <span className={realizedClass}>{fmtUsd(state.realized_pnl_usd, true)}</span>
+          </div>
+        </div>
+        <div>
+          <div className="label">Open premium</div>
+          <div className="font-mono text-lg">{fmtUsd(state.open_premium_usd)}</div>
+          <div className="text-xs text-text-muted">
+            capital tied up in open lottos
+          </div>
+        </div>
+        <div>
+          <div className="label">Cash available</div>
+          <div className={`font-mono text-lg ${reserveClass}`}>
+            {fmtUsd(state.cash_available_usd)}
+          </div>
+          <div className="text-xs text-text-muted">
+            $200 floor — {state.cash_reserve_status === "ok" ? "ok" : "BELOW FLOOR"}
+          </div>
+        </div>
+        <div>
+          <div className="label">Growth ladder</div>
+          <div className="text-xs leading-snug">{state.growth_ladder_stage}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function returnClass(t: LottoTradeSummary): string {
+  if (t.is_big_win) return "text-signal-bull font-semibold";
+  if (t.is_loss) return "text-signal-bear";
+  return "text-text-primary";
+}
+
+function RecentTrades({ trades }: { trades: LottoTradeSummary[] }) {
+  if (trades.length === 0) {
+    return (
+      <div className="panel p-3 text-sm text-text-secondary">
+        No closed lotto trades yet.
+      </div>
+    );
+  }
+  return (
+    <div className="panel">
+      <div className="panel-header">Recent lotto trades</div>
+      <div className="panel-body p-0">
+        <table className="w-full text-sm">
+          <thead className="text-xs text-text-secondary border-b border-bg-border">
+            <tr>
+              <th className="text-left px-3 py-2">Closed</th>
+              <th className="text-left px-3 py-2">Ticker</th>
+              <th className="text-left px-3 py-2">Dir</th>
+              <th className="text-right px-3 py-2">P&amp;L</th>
+              <th className="text-right px-3 py-2">Return</th>
+              <th className="text-left px-3 py-2">Flags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trades.map((t) => (
+              <tr key={t.position_id} className="border-b border-bg-border/40">
+                <td className="px-3 py-2 text-text-secondary text-xs">
+                  {t.closed_date ? new Date(t.closed_date).toLocaleDateString() : "—"}
+                </td>
+                <td className="px-3 py-2 font-mono">{t.ticker}</td>
+                <td className="px-3 py-2 text-text-secondary text-xs uppercase">{t.direction}</td>
+                <td className="px-3 py-2 text-right font-mono">{fmtUsd(t.pnl_usd, true)}</td>
+                <td className={`px-3 py-2 text-right font-mono ${returnClass(t)}`}>
+                  {fmtPct(t.return_pct)}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {t.is_big_win && (
+                    <span className="badge badge-bull mr-1">300%+ winner</span>
+                  )}
+                  {t.is_loss && <span className="badge badge-bear">loss</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OpenLottoPositions({ ids }: { ids: string[] }) {
+  if (ids.length === 0) return null;
+  return (
+    <div className="panel p-3 mb-4">
+      <div className="text-sm font-semibold mb-1">
+        {ids.length} open lotto position{ids.length === 1 ? "" : "s"}
+      </div>
+      <div className="text-xs text-text-secondary">
+        Manage from{" "}
+        <Link to="/positions" className="underline">Positions</Link>
+        . Lotto-specific exit rules: 300%+ trim 75%, 50% drop hard stop.
+      </div>
+    </div>
+  );
+}
+
+
+type Verdict = "go" | "watch" | "no_go";
+
+interface VerdictRead {
+  verdict: Verdict;
+  headline: string;
+  detail: string;
+}
+
+function deriveVerdict(
+  state: LottoState | null,
+  setups: CandidateSnapshot[] | null,
+  scanLoading: boolean,
+): VerdictRead {
+  // Hard NO-GO conditions first — these block trading regardless of setups
+  if (state?.cooldown.active) {
+    const reason = state.cooldown.reason === "post_big_win"
+      ? "24h cooldown after a 300%+ winner"
+      : "48h cooldown after 3 consecutive losses";
+    const remain = state.cooldown.hours_remaining;
+    return {
+      verdict: "no_go",
+      headline: "NO-GO — anti-greed cooldown active",
+      detail: `${reason}. ${remain !== null ? `${remain.toFixed(1)}h remaining.` : ""} Bank the result, walk away.`,
+    };
+  }
+  if (state?.cash_reserve_status === "below_floor") {
+    return {
+      verdict: "no_go",
+      headline: "NO-GO — cash reserve below $200 floor",
+      detail: `Cash available $${state.cash_available_usd.toFixed(2)} is below the $200 reserve. Close a position before opening a new lotto.`,
+    };
+  }
+
+  // Still scanning — show neutral state
+  if (scanLoading || setups === null) {
+    return {
+      verdict: "watch",
+      headline: "Scanning…",
+      detail: "Reading QQQ + GLD baseline for actionable lotto setups.",
+    };
+  }
+
+  const actionable = setups.filter(isLottoActionable);
+  if (actionable.length === 0) {
+    return {
+      verdict: "watch",
+      headline: "WATCH — no actionable setups right now",
+      detail: "QQQ + GLD show no Tier 2 confluence. Check back later or run the full Nasdaq 100 sweep.",
+    };
+  }
+
+  const sizeLockNote = state?.size_lock_active
+    ? " ⚠ Size lock: do not increase size after the recent loss."
+    : "";
+  return {
+    verdict: "go",
+    headline: `GO — ${actionable.length} actionable setup${actionable.length === 1 ? "" : "s"}`,
+    detail: `Pre-write the kill sheet from any candidate below.${sizeLockNote}`,
+  };
+}
+
+function VerdictBanner({ read }: { read: VerdictRead }) {
+  const styles: Record<Verdict, { border: string; bg: string; text: string; emoji: string }> = {
+    go:    { border: "border-signal-bull/60", bg: "bg-signal-bull/10",
+             text: "text-signal-bull", emoji: "🟢" },
+    watch: { border: "border-signal-flag/40", bg: "bg-signal-flag/5",
+             text: "text-signal-flag", emoji: "🟡" },
+    no_go: { border: "border-signal-bear/60", bg: "bg-signal-bear/10",
+             text: "text-signal-bear", emoji: "🔴" },
+  };
+  const s = styles[read.verdict];
+  return (
+    <div className={`panel p-4 mb-4 ${s.border} ${s.bg}`} style={{ borderWidth: 2 }}>
+      <div className={`text-base font-semibold ${s.text}`}>
+        {s.emoji} {read.headline}
+      </div>
+      <p className="text-sm text-text-primary mt-1">{read.detail}</p>
+    </div>
+  );
+}
+
+function badgeClassForStack(stack: string | null): string {
+  if (stack === "full_bull" || stack === "bull_developing") return "badge-bull";
+  if (stack === "full_bear" || stack === "bear_developing") return "badge-bear";
+  if (stack === "compression") return "badge-flag";
+  return "badge-muted";
+}
+
+function badgeClassForDirection(direction: string): string {
+  return direction === "long" ? "badge-bull" : "badge-bear";
+}
+
+function lottoKillSheetLink(c: CandidateSnapshot): string {
+  const params = new URLSearchParams({
+    ticker: c.ticker,
+    direction: c.direction,
+    account: "lotto",
+    intent: "SCALP",
+    trigger_tf: "2H",
+    conviction: "high",
+  });
+  return `/kill-sheet?${params.toString()}`;
+}
+
+function ActionableCandidateCard({ candidate }: { candidate: CandidateSnapshot }) {
+  return (
+    <div className="panel p-3 border-signal-bull/30">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-semibold text-base">{candidate.ticker}</span>
+          <span className={`badge ${badgeClassForDirection(candidate.direction)} text-xs`}>
+            {candidate.direction.toUpperCase()}
+          </span>
+          <span className={`badge ${badgeClassForStack(candidate.ma_stack)} text-xs`}>
+            {candidate.ma_stack ?? "—"}
+          </span>
+          {candidate.tier === "1+2" && (
+            <span className="badge badge-info text-xs">also Tier 1</span>
+          )}
+        </div>
+        <Link to={lottoKillSheetLink(candidate)} className="btn btn-primary text-xs">
+          Pre-write lotto kill sheet →
+        </Link>
+      </div>
+      <p className="text-xs text-text-secondary mb-1">{candidate.why_now}</p>
+      {candidate.notes.length > 0 && (
+        <ul className="text-[11px] text-text-muted space-y-0.5">
+          {candidate.notes.slice(0, 2).map((n, i) => (
+            <li key={i}>· {n}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ActionableSetupsSection({ setups, scanLoading, onFullScan, fullScanLoading }: {
+  setups: CandidateSnapshot[] | null;
+  scanLoading: boolean;
+  onFullScan: () => void;
+  fullScanLoading: boolean;
+}) {
+  const actionable = (setups ?? []).filter(isLottoActionable);
+  return (
+    <section className="mb-6">
+      <div className="flex items-baseline justify-between mb-2">
+        <h3 className="text-sm font-semibold text-text-primary">
+          Actionable setups{" "}
+          <span className="text-text-secondary font-normal">
+            (QQQ + GLD baseline)
+          </span>
+        </h3>
+        <button
+          type="button"
+          className="btn text-xs"
+          onClick={onFullScan}
+          disabled={fullScanLoading}
+        >
+          {fullScanLoading ? "Sweeping Nasdaq 100…" : "Run full Nasdaq 100 scan"}
+        </button>
+      </div>
+      {scanLoading && setups === null ? (
+        <div className="panel p-3 text-sm text-text-secondary">
+          Scanning QQQ + GLD…
+        </div>
+      ) : actionable.length === 0 ? (
+        <div className="panel p-3 text-sm text-text-secondary">
+          No Tier 2 confluence on the baseline. Try the full Nasdaq 100 sweep
+          or check back after the next 2H candle.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {actionable.map((c) => (
+            <ActionableCandidateCard key={`${c.phase}-${c.ticker}`} candidate={c} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function LottoView() {
+  const [state, setState] = useState<LottoState | null>(null);
+  const [setups, setSetups] = useState<CandidateSnapshot[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [fullScanLoading, setFullScanLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await api.lottoState();
+      setState(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const runBaselineScan = useCallback(async () => {
+    setScanLoading(true);
+    try {
+      // Baseline-only: skip the Nasdaq 100 sweep. ~3s vs ~30s.
+      const result = await api.freeRangeScan({ enable_free_range: false });
+      // Combine baseline + user-submitted (none for the auto-load) candidates
+      setSetups([...result.baseline, ...result.user_submitted]);
+    } catch (err) {
+      // Don't blow up the page if the scan fails — verdict falls back to "scanning"
+      // eslint-disable-next-line no-console
+      console.error("Baseline lotto scan failed:", err);
+    } finally {
+      setScanLoading(false);
+    }
+  }, []);
+
+  const runFullScan = useCallback(async () => {
+    setFullScanLoading(true);
+    try {
+      const result = await api.freeRangeScan({ enable_free_range: true });
+      setSetups([
+        ...result.baseline,
+        ...result.user_submitted,
+        ...result.free_range,
+      ]);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Full Nasdaq 100 scan failed:", err);
+    } finally {
+      setFullScanLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    void runBaselineScan();
+  }, [refresh, runBaselineScan]);
+
+  const verdict = deriveVerdict(state, setups, scanLoading);
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6">
+      <div className="flex items-baseline justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold">Lotto Dashboard</h2>
+          <p className="text-xs text-text-secondary">
+            $1K small-account playbook — anti-greed enforced. Per{" "}
+            <code>~/.claude/skills/user/lotto-options/SKILL.md</code>.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn text-xs"
+          onClick={() => {
+            void refresh();
+            void runBaselineScan();
+          }}
+          disabled={loading || scanLoading}
+        >
+          {loading || scanLoading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="panel p-3 mb-4 border-signal-bear/50">
+          <span className="text-signal-bear text-sm">{error}</span>
+        </div>
+      )}
+
+      <VerdictBanner read={verdict} />
+
+      <ActionableSetupsSection
+        setups={setups}
+        scanLoading={scanLoading}
+        onFullScan={runFullScan}
+        fullScanLoading={fullScanLoading}
+      />
+
+      {state && (
+        <>
+          <AccountHeader state={state} />
+          <CooldownBanner state={state} />
+          <SizeLockBanner state={state} />
+          <OpenLottoPositions ids={state.open_position_ids} />
+          <RecentTrades trades={state.recent_trades} />
+        </>
+      )}
+    </div>
+  );
+}

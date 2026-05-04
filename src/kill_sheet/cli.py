@@ -1,0 +1,448 @@
+"""CLI for `python -m kill_sheet`."""
+from __future__ import annotations
+
+import argparse
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+from config import load_config
+from kill_sheet.builder import build_standard
+from kill_sheet.options import OptionsStructure, compute_dte
+from positions import (
+    FOCUS_TICKERS,
+    PositionStore,
+    check_focus_options_structure,
+    check_focus_trade,
+    check_proposed_trade,
+)
+from trade_devil import AGGREGATE_KILL, run_devil
+
+
+KILL_SHEETS_DIR = Path.home() / ".trading-dashboard" / "kill_sheets"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="kill_sheet",
+        description=(
+            "Generate a Standard kill sheet for a ticker. Auto-fills indicator "
+            "readings from a fresh scan + position sizing from your account config. "
+            "Target/trigger/invalidation/notes are placeholders for you to fill in."
+        ),
+    )
+    p.add_argument("ticker", help="Ticker symbol (e.g. SPY, AAPL)")
+    p.add_argument(
+        "--direction",
+        choices=["long", "short"],
+        required=True,
+        help="Trade direction.",
+    )
+    p.add_argument(
+        "--account",
+        default="main",
+        help="Account key in config.yaml (default: main; also: lotto, weekly).",
+    )
+    p.add_argument(
+        "--intent",
+        choices=["SCALP", "SWING", "TREND CAPTURE", "POSITION"],
+        default="SWING",
+        help="Trade intent (default: SWING). POSITION = weekly-trend-trader profile.",
+    )
+    p.add_argument(
+        "--trigger-tf",
+        choices=["2H", "4H", "Daily", "Weekly"],
+        default="Daily",
+        help="Trigger timeframe (default: Daily).",
+    )
+    p.add_argument(
+        "--conviction",
+        choices=["high", "medium", "speculative", "default"],
+        default="high",
+        help="Risk-conviction tier (controls risk-per-trade %%; default: high).",
+    )
+    p.add_argument(
+        "--no-persist",
+        action="store_true",
+        help=f"Skip writing the kill sheet to {KILL_SHEETS_DIR}.",
+    )
+    p.add_argument(
+        "--no-multi-tf",
+        action="store_true",
+        help="Skip Weekly and 4H bar fetches (those sections render as [TBD]).",
+    )
+    p.add_argument(
+        "--skip-devil",
+        action="store_true",
+        help="Skip the trade devil gate (it auto-runs when max_risk_usd > $150).",
+    )
+    p.add_argument(
+        "--force-devil",
+        action="store_true",
+        help="Force trade devil to run regardless of the $150 risk threshold.",
+    )
+    p.add_argument(
+        "--skip-rules",
+        action="store_true",
+        help="Skip the account-rules pre-check (max positions, premium-at-risk, "
+             "cash floor). Discouraged.",
+    )
+    p.add_argument(
+        "--bypass-rules",
+        action="store_true",
+        help="Run the rules check but allow the kill sheet to render even on a "
+             "violation (logged to stderr).",
+    )
+    p.add_argument(
+        "--focus",
+        action="store_true",
+        help=(
+            "qqq-gld-focus mode: ticker must be QQQ or GLD; applies focus rules "
+            "(one open position per asset, no same-direction QQQ+GLD pair, "
+            "3-trading-day cool-off after a stop). See "
+            "~/.claude/skills/user/qqq-gld-focus/."
+        ),
+    )
+    p.add_argument(
+        "--period",
+        default=None,
+        help="yfinance period for the Daily scan (default: timeframe-appropriate).",
+    )
+    apex = p.add_argument_group(
+        "Apex options template",
+        "Pass --strike + --premium + --expiry to render the full Apex options block. "
+        "Without these flags, the Standard template renders.",
+    )
+    apex.add_argument("--strike", type=float, help="Option strike price")
+    apex.add_argument("--premium", type=float, help="Option premium (per share)")
+    apex.add_argument("--expiry", help="Expiry as ISO date YYYY-MM-DD")
+    apex.add_argument(
+        "--type", dest="contract_type", choices=["call", "put"],
+        help="Contract type (default inferred from --direction: long→call, short→put)",
+    )
+    apex.add_argument("--delta", type=float, help="Option delta")
+    apex.add_argument("--iv-rank", type=float, help="IV Rank percentile (0-100)")
+    apex.add_argument("--oi", type=int, help="Open interest")
+    apex.add_argument("--spread", type=float, help="Bid-ask spread (in dollars)")
+    apex.add_argument(
+        "--screenshot",
+        help=(
+            "Path to a broker screenshot (PNG/JPG). Sends the image to Claude "
+            "vision via the Anthropic API to auto-extract strike/premium/IV/OI/"
+            "spread/expiry. Requires ANTHROPIC_API_KEY env var. Explicit --strike "
+            "/--premium/etc on the CLI override anything extracted from the image."
+        ),
+    )
+
+    manual = p.add_argument_group(
+        "Manual fill (optional)",
+        "Fields that are normally [TBD] until you fill them in. Combine with "
+        "--interactive to be prompted for any you didn't pass on the CLI.",
+    )
+    manual.add_argument("--target", type=float, help="Target price")
+    manual.add_argument("--invalidation", type=float, help="Invalidation price")
+    manual.add_argument("--trigger-desc", help="Trigger condition description")
+    manual.add_argument("--notes", help="Free-form notes to attach to the kill sheet")
+    manual.add_argument(
+        "-i", "--interactive", action="store_true",
+        help="Prompt for any --target/--invalidation/--trigger-desc/--notes and "
+             "options fields not passed on the CLI.",
+    )
+    return p
+
+
+def _prompt(message: str, optional: bool = False, validator=None,
+            input_fn=input):
+    """Prompt the user; re-prompt on validation error. Returns parsed value or None."""
+    while True:
+        suffix = " (blank to skip)" if optional else ""
+        raw = input_fn(f"{message}{suffix}: ").strip()
+        if not raw:
+            if optional:
+                return None
+            print("required, please enter a value")
+            continue
+        if validator is None:
+            return raw
+        try:
+            return validator(raw)
+        except (ValueError, TypeError) as exc:
+            print(f"  invalid: {exc}")
+
+
+def _maybe_interactive_fill(args, input_fn=input) -> None:
+    """Mutate args in place, prompting for missing fields when --interactive."""
+    if not args.interactive:
+        return
+
+    if args.target is None:
+        args.target = _prompt("Target price (USD)", optional=True,
+                              validator=float, input_fn=input_fn)
+    if args.invalidation is None:
+        args.invalidation = _prompt("Invalidation price (USD)", optional=True,
+                                    validator=float, input_fn=input_fn)
+    if args.trigger_desc is None:
+        args.trigger_desc = _prompt("Trigger condition", optional=True,
+                                    input_fn=input_fn)
+    if args.notes is None:
+        args.notes = _prompt("Notes", optional=True, input_fn=input_fn)
+
+    # Apex options block: only prompt if any of the core options fields are set
+    # OR the user explicitly says yes to "add options data?"
+    any_apex = any(v is not None for v in (args.strike, args.premium, args.expiry))
+    if not any_apex:
+        ans = _prompt("Add options data (Apex template)? [y/N]",
+                      optional=True, input_fn=input_fn)
+        if ans is None or ans.lower() not in {"y", "yes"}:
+            return
+
+    if args.strike is None:
+        args.strike = _prompt("Strike price", validator=float, input_fn=input_fn)
+    if args.premium is None:
+        args.premium = _prompt("Premium per share (USD)", validator=float,
+                               input_fn=input_fn)
+    if args.expiry is None:
+        args.expiry = _prompt("Expiry (YYYY-MM-DD)", input_fn=input_fn)
+    if args.contract_type is None:
+        ans = _prompt("Contract type [call/put] (blank → inferred from direction)",
+                      optional=True, input_fn=input_fn)
+        if ans:
+            args.contract_type = ans.lower()
+    if args.delta is None:
+        args.delta = _prompt("Delta", optional=True, validator=float,
+                             input_fn=input_fn)
+    if args.iv_rank is None:
+        args.iv_rank = _prompt("IV Rank percentile (0-100)", optional=True,
+                               validator=float, input_fn=input_fn)
+    if args.oi is None:
+        args.oi = _prompt("Open interest", optional=True, validator=int,
+                          input_fn=input_fn)
+    if args.spread is None:
+        args.spread = _prompt("Bid-ask spread (USD)", optional=True,
+                              validator=float, input_fn=input_fn)
+
+
+def _maybe_apply_screenshot(args) -> None:
+    """If --screenshot was passed, fill in any unset apex fields from vision."""
+    if not getattr(args, "screenshot", None):
+        return
+
+    from vision import ExtractError, extract_options_chain
+    try:
+        extracted = extract_options_chain(
+            image_path=args.screenshot,
+            ticker=args.ticker,
+            target_strike=args.strike,
+            target_expiry=args.expiry,
+            contract_type=args.contract_type,
+        )
+    except ExtractError as exc:
+        print(f"⚠ Screenshot extraction failed: {exc}", file=sys.stderr)
+        return
+
+    # CLI flags win — only fill if not already set on args.
+    def _apply(field: str, key: str, cast=None):
+        if getattr(args, field, None) is None and extracted.get(key) is not None:
+            value = extracted[key]
+            if cast is not None:
+                try:
+                    value = cast(value)
+                except (TypeError, ValueError):
+                    return
+            setattr(args, field, value)
+
+    _apply("strike", "strike", float)
+    _apply("premium", "premium", float)
+    _apply("expiry", "expiry")
+    _apply("contract_type", "contract_type")
+    _apply("iv_rank", "iv_rank", float)
+    _apply("oi", "open_interest", int)
+    _apply("spread", "bid_ask_spread", float)
+
+    print("✓ Screenshot data merged with CLI flags.", file=sys.stderr)
+
+
+def _build_options_from_args(args) -> OptionsStructure | None:
+    """Construct OptionsStructure if user passed apex flags; else None."""
+    has_apex = (args.strike is not None and args.premium is not None
+                and args.expiry is not None)
+    if not has_apex:
+        return None
+
+    contract_type = args.contract_type
+    if contract_type is None:
+        contract_type = "call" if args.direction == "long" else "put"
+
+    return OptionsStructure(
+        strike=float(args.strike),
+        contract_type=contract_type,
+        expiry=args.expiry,
+        dte=compute_dte(args.expiry),
+        premium=float(args.premium),
+        delta=args.delta,
+        iv_rank=args.iv_rank,
+        open_interest=args.oi,
+        bid_ask_spread=args.spread,
+    )
+
+
+def persist(sheet, scans_dir: Path | None = None,
+            devil_report=None) -> tuple[Path, Path]:
+    if scans_dir is None:
+        scans_dir = KILL_SHEETS_DIR
+    scans_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    base = f"{stamp}-{sheet.ticker.lower()}-{sheet.direction.lower()}"
+    json_path = scans_dir / f"{base}.json"
+    md_path = scans_dir / f"{base}.md"
+
+    payload = {"kill_sheet": sheet.to_dict()}
+    if devil_report is not None:
+        payload["trade_devil"] = devil_report.to_dict()
+
+    import json as _json
+    json_path.write_text(_json.dumps(payload, indent=2, default=str))
+
+    md_text = f"```\n{sheet.to_text()}\n```\n"
+    if devil_report is not None:
+        md_text += f"\n```\n{devil_report.to_text()}\n```\n"
+    md_path.write_text(md_text)
+    return json_path, md_path
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    config = load_config()
+    try:
+        account = config.account(args.account)
+    except KeyError as exc:
+        print(f"⚠ {exc}", file=sys.stderr)
+        return 2
+
+    if args.focus and args.ticker.upper() not in FOCUS_TICKERS:
+        print(
+            f"⚠ --focus restricts tickers to {', '.join(sorted(FOCUS_TICKERS))}; "
+            f"got {args.ticker.upper()}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Lazy import to keep import-time light when only --help is run
+    from scan import compute_multi_tf, scan_ticker
+
+    try:
+        scan_row = scan_ticker(args.ticker.upper(), period=args.period)
+    except Exception as exc:
+        print(f"⚠ Scan failed for {args.ticker}: {exc}", file=sys.stderr)
+        return 1
+
+    multi_tf: dict | None = None
+    if not args.no_multi_tf:
+        multi_tf = compute_multi_tf(args.ticker.upper(), timeframes=("1wk", "4h"))
+        # If both auxiliary TFs failed, surface a soft warning but continue.
+        for tf_key, row in multi_tf.items():
+            if "error" in row:
+                print(
+                    f"⚠ {tf_key} bars unavailable: {row['error']}",
+                    file=sys.stderr,
+                )
+
+    _maybe_apply_screenshot(args)
+    _maybe_interactive_fill(args)
+
+    options = _build_options_from_args(args)
+
+    sheet = build_standard(
+        scan_row=scan_row,
+        direction=args.direction,
+        account=account,
+        account_key=args.account,
+        intent=args.intent,
+        trigger_tf=args.trigger_tf,
+        risk_conviction=args.conviction,
+        multi_tf=multi_tf,
+        options=options,
+        target_price=args.target,
+        invalidation_price=args.invalidation,
+        trigger_description=args.trigger_desc,
+        notes=args.notes,
+    )
+
+    # ─ Pre-check: account rules ─
+    rules_blocked = False
+    open_positions: list = []
+    if not args.skip_rules:
+        store = PositionStore()
+        open_positions = store.list_open()
+        violations = check_proposed_trade(
+            proposed_max_loss_usd=sheet.max_risk_usd,
+            account=account,
+            account_key=args.account,
+            open_positions=open_positions,
+        )
+        if args.focus:
+            all_positions = store.list_all()
+            closed_positions = [p for p in all_positions if p.status == "closed"]
+            violations.extend(check_focus_trade(
+                ticker=args.ticker,
+                direction=args.direction,
+                open_positions=open_positions,
+                closed_positions=closed_positions,
+            ))
+            violations.extend(check_focus_options_structure(
+                ticker=args.ticker,
+                direction=args.direction,
+                max_loss_usd=sheet.max_risk_usd,
+                dte=sheet.options.dte if sheet.options else None,
+            ))
+        if violations:
+            print(
+                "\n⚠ Account-rules violations:",
+                file=sys.stderr,
+            )
+            for v in violations:
+                print(f"  [{v.rule}] {v.message}", file=sys.stderr)
+            if args.bypass_rules:
+                print(
+                    "  (proceeding anyway — --bypass-rules)",
+                    file=sys.stderr,
+                )
+            else:
+                rules_blocked = True
+
+    print(sheet.to_text())
+
+    devil_report = None
+    if not args.skip_devil and not rules_blocked:
+        devil_report = run_devil(
+            sheet, force=args.force_devil, open_positions=open_positions,
+        )
+        if devil_report is not None:
+            print()
+            print(devil_report.to_text())
+
+    if not args.no_persist:
+        try:
+            json_path, md_path = persist(sheet, devil_report=devil_report)
+            print(f"\nSaved: {md_path}")
+            print(f"       {json_path}")
+        except Exception as exc:
+            print(f"\n⚠ Failed to persist kill sheet: {exc}", file=sys.stderr)
+            return 1
+
+    if rules_blocked:
+        # PRD FR33-FR35: hard gates. Distinct exit code from devil-kill so
+        # scripts can tell them apart.
+        return 4
+    if devil_report is not None and devil_report.aggregate == AGGREGATE_KILL:
+        # Hard blocker per PRD FR31. The kill sheet still saves so the user
+        # has the audit trail; the non-zero exit makes scripts know the trade
+        # didn't survive.
+        return 3
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

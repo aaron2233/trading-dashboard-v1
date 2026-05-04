@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Dashboard — UI Preview</title>
+  <style>
+    /* Trading-terminal palette mirrors frontend/tailwind.config.js */
+    :root {
+      --bg-base: #0b0d10;
+      --bg-panel: #13171c;
+      --bg-elevated: #1a1f26;
+      --bg-border: #252b33;
+      --text-primary: #e6e9ef;
+      --text-secondary: #9aa3b2;
+      --text-muted: #5a6373;
+      --signal-bull: #22c55e;
+      --signal-bear: #ef4444;
+      --signal-flag: #f59e0b;
+      --signal-info: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+      font-size: 14px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .layout { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* Regime header */
+    .regime { background: var(--bg-panel); border-bottom: 1px solid var(--bg-border); padding: 12px 16px; }
+    .regime-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .regime-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.15em; margin-right: 8px; }
+    .regime-tickers { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+    .regime-ticker { display: flex; align-items: center; gap: 6px; }
+
+    /* Nav */
+    nav { background: var(--bg-base); border-bottom: 1px solid var(--bg-border); padding: 8px 16px; display: flex; align-items: center; gap: 4px; }
+    .nav-title { font-weight: 600; margin-right: 16px; }
+    .nav-link { padding: 6px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; color: var(--text-secondary); border: 1px solid transparent; user-select: none; }
+    .nav-link:hover { color: var(--text-primary); }
+    .nav-link.active { background: rgba(59,130,246,0.2); color: var(--signal-info); border-color: rgba(59,130,246,0.4); }
+
+    /* Panels */
+    main { flex: 1; padding: 24px 16px; max-width: 1100px; margin: 0 auto; width: 100%; }
+    .panel { background: var(--bg-panel); border: 1px solid var(--bg-border); border-radius: 6px; margin-bottom: 16px; }
+    .panel-header { padding: 8px 16px; border-bottom: 1px solid var(--bg-border); color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; display: flex; justify-content: space-between; align-items: center; }
+    .panel-body { padding: 16px; }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-bull { background: rgba(34,197,94,0.2); color: var(--signal-bull); }
+    .badge-bear { background: rgba(239,68,68,0.2); color: var(--signal-bear); }
+    .badge-flag { background: rgba(245,158,11,0.2); color: var(--signal-flag); }
+    .badge-info { background: rgba(59,130,246,0.2); color: var(--signal-info); }
+    .badge-muted { background: rgba(90,99,115,0.2); color: var(--text-muted); }
+
+    /* Buttons / inputs */
+    .btn { padding: 6px 12px; border-radius: 4px; border: 1px solid var(--bg-border); background: var(--bg-elevated); color: var(--text-primary); font-size: 13px; cursor: pointer; font-family: inherit; }
+    .btn:hover { background: var(--bg-border); }
+    .btn-primary { background: rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.5); color: var(--signal-info); }
+    .btn-primary:hover { background: rgba(59,130,246,0.3); }
+    .input, .select { background: var(--bg-elevated); border: 1px solid var(--bg-border); border-radius: 4px; padding: 6px 10px; color: var(--text-primary); font-size: 13px; font-family: inherit; width: 100%; }
+    .input:focus, .select:focus { outline: none; border-color: var(--signal-info); }
+    .label { display: block; color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+    .grid { display: grid; gap: 12px; }
+    .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .row { display: flex; justify-content: space-between; }
+    .row .label-inline { color: var(--text-secondary); }
+    .stack-rows > div { padding: 2px 0; }
+    .muted { color: var(--text-muted); font-size: 12px; }
+    .secondary { color: var(--text-secondary); }
+    h2 { margin-top: 0; font-size: 16px; }
+    h1 { margin-top: 0; font-size: 22px; }
+    pre { background: transparent; color: var(--text-primary); font-size: 12px; line-height: 1.6; overflow-x: auto; white-space: pre; margin: 0; padding: 16px; }
+    .form-row { margin-bottom: 12px; }
+    .form-actions { padding: 12px 16px; border-top: 1px solid var(--bg-border); display: flex; justify-content: flex-end; }
+    .preview-banner { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); padding: 10px 16px; border-radius: 6px; color: var(--signal-flag); font-size: 12px; margin-bottom: 16px; }
+    .preview-banner b { color: var(--signal-flag); }
+
+    /* Hide non-active views */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    @media (max-width: 720px) {
+      .grid-3, .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+
+    <!-- Regime header (matches RegimeHeader.tsx) -->
+    <div class="regime">
+      <div class="regime-row">
+        <div style="display:flex; align-items:center;">
+          <span class="regime-label">Regime</span>
+          <div class="regime-tickers">
+            <span class="regime-ticker">
+              <span class="secondary">SPY</span>
+              <span class="badge badge-info">neutral</span>
+              <span class="badge badge-bull">full_bull</span>
+              <span class="muted">(0.52)</span>
+            </span>
+            <span class="regime-ticker">
+              <span class="secondary">QQQ</span>
+              <span class="badge badge-info">neutral</span>
+              <span class="badge badge-bull">full_bull</span>
+              <span class="muted">(0.67)</span>
+            </span>
+            <span class="regime-ticker">
+              <span class="secondary">IWM</span>
+              <span class="badge badge-bull">bull</span>
+              <span class="badge badge-bull">full_bull</span>
+              <span class="muted">(0.99)</span>
+            </span>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="muted">2026-04-26 09:14</span>
+          <button class="btn" title="Refresh regime data" onclick="refreshFlash(this)">↻</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nav (matches App.tsx) -->
+    <nav>
+      <span class="nav-title">Trading Dashboard</span>
+      <span class="nav-link active" data-view="home" onclick="show('home', this)">Home</span>
+      <span class="nav-link" data-view="scan" onclick="show('scan', this)">Scan</span>
+      <span class="nav-link" data-view="kill-sheet" onclick="show('kill-sheet', this)">Kill Sheet</span>
+    </nav>
+
+    <main>
+      <div class="preview-banner">
+        <b>Preview mode.</b> This is a static HTML preview with mock data — no backend, no live yfinance calls. To run the real app:
+        <code style="color:var(--text-primary); font-family:inherit;">python -m api</code> +
+        <code style="color:var(--text-primary); font-family:inherit;">cd frontend && npm run dev</code>
+      </div>
+
+      <!-- ─── Home ──────────────────────────────────────────────── -->
+      <div class="view active" id="view-home">
+        <h1>Trading Dashboard</h1>
+        <p class="secondary">The trading dashboard that won't let you break your own rules.</p>
+        <div class="grid grid-2" style="margin-top: 24px;">
+          <div class="panel" style="cursor:pointer;" onclick="show('scan', document.querySelector('[data-view=scan]'))">
+            <div class="panel-body">
+              <div style="font-weight:600; margin-bottom:4px;">Scan a ticker</div>
+              <div class="muted">MA Ribbon, Stochastic, SQN regime — full readout.</div>
+            </div>
+          </div>
+          <div class="panel" style="cursor:pointer;" onclick="show('kill-sheet', document.querySelector('[data-view=kill-sheet]'))">
+            <div class="panel-body">
+              <div style="font-weight:600; margin-bottom:4px;">Generate a kill sheet</div>
+              <div class="muted">Auto-fills indicators + sizing. Trade devil + account rules pre-flight.</div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:32px;" class="muted">
+          Backend (when running): <code style="color:var(--text-primary); font-family:inherit;">http://127.0.0.1:8000</code>
+        </div>
+      </div>
+
+      <!-- ─── Scan ──────────────────────────────────────────────── -->
+      <div class="view" id="view-scan">
+        <h2>Scan</h2>
+        <div style="display:flex; gap:8px; margin-bottom:16px;">
+          <input class="input" placeholder="Ticker (e.g. SPY, AAPL, GLD)" value="SPY" style="flex:1;">
+          <button class="btn btn-primary">Scan</button>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span>SPY — 1d bar 2026-04-24</span>
+            <span class="secondary">close $713.94</span>
+          </div>
+          <div class="panel-body grid grid-3">
+            <div>
+              <div class="label">MA Ribbon</div>
+              <div class="stack-rows">
+                <div class="row"><span class="label-inline">10</span><span>$703.87</span></div>
+                <div class="row"><span class="label-inline">20</span><span>$680.99</span></div>
+                <div class="row"><span class="label-inline">50</span><span>$676.99</span></div>
+                <div class="row"><span class="label-inline">200</span><span>$668.65</span></div>
+              </div>
+              <div style="margin-top:10px;"><span class="badge badge-bull">full_bull</span></div>
+            </div>
+            <div>
+              <div class="label">Stochastic 14/7/7</div>
+              <div class="stack-rows">
+                <div class="row"><span class="label-inline">%K</span><span>95.6</span></div>
+                <div class="row"><span class="label-inline">%D</span><span>97.0</span></div>
+              </div>
+              <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
+                <span class="badge badge-bear">overbought</span>
+                <span class="badge badge-muted">neutral</span>
+              </div>
+            </div>
+            <div>
+              <div class="label">SQN Regime (100d)</div>
+              <div class="stack-rows">
+                <div class="row"><span class="label-inline">value</span><span>0.52</span></div>
+              </div>
+              <div style="margin-top:10px;"><span class="badge badge-info">neutral</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Kill Sheet ────────────────────────────────────────── -->
+      <div class="view" id="view-kill-sheet">
+        <h2>Kill Sheet</h2>
+
+        <div class="panel">
+          <div class="panel-header">Input</div>
+          <div class="panel-body grid grid-3">
+            <div><div class="label">Ticker *</div><input class="input" value="SPY"></div>
+            <div><div class="label">Direction</div>
+              <select class="select"><option>long</option><option>short</option></select></div>
+            <div><div class="label">Account</div>
+              <select class="select"><option>main</option><option>lotto</option><option>weekly</option></select></div>
+            <div><div class="label">Intent</div>
+              <select class="select"><option>SCALP</option><option selected>SWING</option><option>TREND CAPTURE</option><option>POSITION</option></select></div>
+            <div><div class="label">Conviction</div>
+              <select class="select"><option selected>high</option><option>medium</option><option>speculative</option></select></div>
+            <div><div class="label">Target ($)</div><input class="input" value="725"></div>
+            <div><div class="label">Invalidation ($)</div><input class="input" value="700"></div>
+            <div style="grid-column: span 2;"><div class="label">Notes</div><input class="input" placeholder="(optional)"></div>
+          </div>
+          <div class="panel-header"><span>Apex options (optional)</span><button class="btn" style="font-size:11px;">show</button></div>
+          <div class="form-actions"><button class="btn btn-primary">Generate</button></div>
+        </div>
+
+        <!-- Trade Devil panel -->
+        <div class="panel">
+          <div class="panel-header">
+            <span>Trade Devil</span>
+            <span style="font-weight:600; color: var(--signal-flag);">
+              CONDITIONAL PROCEED
+              <span class="muted" style="margin-left:8px; font-weight:normal;">0K · 1F · 7P</span>
+            </span>
+          </div>
+          <div class="panel-body" style="display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-flag">FLAG</span>
+              <span style="font-weight:600; width:200px;">Regime Mismatch</span>
+              <span class="secondary">Long against neutral regime — needs strong technical / catalyst confirmation</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">Technical Invalidation</span>
+              <span class="secondary">full_bull stack with stoch neutral supports the thesis</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">IV/Premium Overpricing</span>
+              <span class="secondary">Skipped: no options data on this kill sheet (Standard template)</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">Catalyst Timing</span>
+              <span class="secondary">Skipped: earnings + news data not yet integrated</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">Account Fit</span>
+              <span class="secondary">Risk $250 on $10,000 (2.5%) — at high-conviction ceiling but within rules</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">Consensus/Crowding</span>
+              <span class="secondary">Skipped: analyst ratings + flow data not yet integrated</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">Correlation Trap</span>
+              <span class="secondary">No same-ticker overlap with 0 open position(s)</span>
+            </div>
+            <div style="display:flex; gap:12px; font-size:13px; align-items:center;">
+              <span class="badge badge-bull">PASS</span>
+              <span style="font-weight:600; width:200px;">Exit Clarity</span>
+              <span class="secondary">Target $725.00 and invalidation $700.00 both defined; R:R within bounds</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Kill Sheet</div>
+<pre>═══════════════════════════════════════════════════
+KILL SHEET: SPY
+═══════════════════════════════════════════════════
+Generated: 2026-04-26T13:14:00+00:00 | Bar: 2026-04-24 | Close: $713.94
+Direction: LONG
+Account:   Main Account ($10,000, high conviction)
+Intent:    SWING
+Trigger TF: Daily
+
+BIAS:        BULLISH
+CONFIDENCE:  LOW — Daily full_bull but neither stoch (neutral) nor regime (neutral) confirm
+
+REGIME (SQN 100d): neutral (0.52)
+
+WEEKLY CONTEXT:
+  Stack:     chop
+  Alignment: Neutral
+
+MA RIBBON (Daily) — DIRECTION:
+  10 MA:     $703.87
+  20 MA:     $680.99
+  50 MA:     $676.99
+  200 MA:    $668.65
+  Stack:     full_bull
+
+MA RIBBON (4H) — SWING TIMING:
+  Stack:     bull_developing
+  Pullback:  Price above 20 MA
+
+STOCHASTIC (14,7,7) — Daily:
+  %K / %D:   95.6 / 97.0
+  Signal:    neutral
+  Zone:      overbought
+  TF Source: Daily
+
+POSITION SIZING:
+  Account balance:   $10,000.00
+  Risk %:            2.50% (high)
+  Max loss budget:   $250.00
+  Units:             [set after invalidation/premium is defined]
+
+DTE GUIDANCE:  14–30 DTE (4H trigger / swing)
+
+TARGET:        $725.00
+TRIGGER:       [TBD — describe entry condition]
+INVALIDATION:  $700.00
+
+OPTION STRUCTURE: [pass --strike/--premium/... for Apex template]
+
+EXIT PLAN:
+  - Take 50% at first target
+  - Trail stop on remainder when momentum persists
+  - Hard stop at invalidation
+  - Time stop at 50% DTE remaining if not working
+
+NOTES: [TBD]
+═══════════════════════════════════════════════════</pre>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function show(name, link) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById('view-' + name).classList.add('active');
+      document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
+      if (link) link.classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function refreshFlash(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '…';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 800);
+    }
+  </script>
+</body>
+</html>
