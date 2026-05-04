@@ -267,6 +267,11 @@ def test_sqn_accuracy_against_tradingview(ticker):
     expected = load_truth_csv(fixture)
     if expected.empty:
         pytest.skip(f"{fixture.name} has no data rows — paste TradingView values per fixtures/truth/README.md")
+    if "regime" in expected.columns and expected["regime"].isna().all():
+        pytest.skip(
+            f"{fixture.name} has numerics drafted but regime not yet labeled — "
+            "fill from TradingView and rerun"
+        )
     bars = load_bars(ticker, period="2y")
     actual = SQNRegime().compute(bars)
 
