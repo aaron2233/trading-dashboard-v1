@@ -111,6 +111,8 @@ def test_ma_ribbon_accuracy_against_tradingview(ticker):
         pytest.skip(f"No fixture yet — populate {fixture.name} from TradingView")
 
     expected = load_truth_csv(fixture)
+    if expected.empty:
+        pytest.skip(f"{fixture.name} has no data rows — paste TradingView values per fixtures/truth/README.md")
     bars = load_bars(ticker, period="2y")
     actual = MARibbon().compute(bars)
 

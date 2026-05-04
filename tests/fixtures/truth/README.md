@@ -51,10 +51,13 @@ date,sqn_value,regime
 ## How to source truth values
 
 1. Open the ticker in TradingView on the daily chart.
-2. Apply the matching indicator (MA Ribbon 10/20/50/200, Stochastic 14/7/7, SQN 100-day).
-3. Right-click chart → Show Data Window.
-4. Read the per-bar values for the dates you want and paste into the CSV.
-5. Spot-check by hand on a few rows — this is the ground truth and must be correct.
+2. **Set chart to unadjusted prices.** Settings (gear icon) → Symbol tab → uncheck "Adjustment for dividends" and "Adjustment for splits". Our production yfinance loader uses `auto_adjust=False`, so the truth fixtures must match raw bars, not split/dividend-adjusted ones. Forgetting this step is the most common source of accuracy-test failures on dividend-paying single names (AAPL, MSFT, META) and ETFs (GLD, SPY).
+3. Apply the matching indicator (MA Ribbon 10/20/50/200, Stochastic 14/7/7, SQN 100-day).
+4. Right-click chart → Show Data Window.
+5. Read the per-bar values for the dates you want and paste into the CSV.
+6. Spot-check by hand on a few rows — this is the ground truth and must be correct.
+
+The 30 template CSVs in this directory (one per ticker × indicator) are pre-named with header rows; just paste data rows under each. Fixtures with fewer than 5 data rows are auto-skipped by `tests/test_accuracy.py`, so you can fill them in incrementally without breaking the suite.
 
 ## v0.1 ship gate
 
