@@ -69,6 +69,12 @@ ANTHROPIC_API_KEY=sk-... \
     --screenshot ~/Desktop/spy-options-chain.png \
     --target 590 --invalidation 575
 
+# Draft accuracy fixture CSVs for the v0.1.0 ship gate (numerics auto-filled
+# from yfinance, categoricals left blank for TradingView verification)
+python -m fixtures_draft SPY                       # both indicators to stdout
+python -m fixtures_draft SPY --write               # writes to tests/fixtures/truth/SPY_*.csv
+python -m fixtures_draft QQQ --indicator stochastic --days 30
+
 # List user-authored indicator plugins (drop *.py files in ~/.trading-dashboard/plugins/)
 python -m scan --list-plugins
 
