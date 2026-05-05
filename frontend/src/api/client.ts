@@ -17,6 +17,7 @@ import type {
   WeeklyScanResponse,
   Position,
   PositionAlert,
+  RegimeHealthSnapshot,
   ScanResult,
   SundayScanResponse,
   SundayScanSummary,
@@ -48,6 +49,14 @@ export const api = {
     request<WeeklyScanResponse>("/api/v1/weekly/scan", {
       method: "POST",
       body: JSON.stringify(req),
+    }),
+
+  regimeHealth: () =>
+    request<RegimeHealthSnapshot>("/api/v1/regime-health/snapshot"),
+
+  regimeHealthRefresh: () =>
+    request<RegimeHealthSnapshot>("/api/v1/regime-health/refresh", {
+      method: "POST",
     }),
 
   scan: (ticker: string, timeframe = "1d") =>

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { RegimeHealthPanel } from "../components/RegimeHealthPanel";
 import { useDashboardState } from "../state/DashboardStateContext";
 
 function UnreviewedWeeksCTA() {
@@ -91,6 +92,8 @@ export function HomeView() {
       </p>
 
       <UnreviewedWeeksCTA />
+
+      <RegimeHealthPanel />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <QuickCard

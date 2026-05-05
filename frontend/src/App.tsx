@@ -11,6 +11,7 @@ import { LottoView } from "./views/LottoView";
 import { WeeklyTrendView } from "./views/WeeklyTrendView";
 import { PositionsView } from "./views/PositionsView";
 import { JournalView } from "./views/JournalView";
+import { RegimeHealthView } from "./views/RegimeHealthView";
 import { SundayScanRetroView } from "./views/SundayScanRetroView";
 import { SundayScanView } from "./views/SundayScanView";
 import { WeeklyReviewView } from "./views/WeeklyReviewView";
@@ -40,6 +41,7 @@ const SCAN_GROUP: NavGroupDef = {
 };
 
 const TOP_LEVEL_LINKS: { to: string; label: string }[] = [
+  { to: "/regime-health", label: "Regime" },
   { to: "/kill-sheet", label: "Kill Sheet" },
   { to: "/positions", label: "Positions" },
   { to: "/journal", label: "Journal" },
@@ -208,6 +210,7 @@ export function App() {
           <Route path="/focus/:date" element={<SundayScanRetroView />} />
           <Route path="/kill-sheet" element={<KillSheetView />} />
           <Route path="/lotto" element={<LottoView />} />
+          <Route path="/regime-health" element={<RegimeHealthView />} />
           <Route path="/weekly-review" element={<WeeklyReviewView />} />
           <Route path="/positions" element={<PositionsView />} />
           <Route path="/journal" element={<JournalView />} />

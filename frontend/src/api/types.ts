@@ -344,6 +344,38 @@ export interface WeeklyReviewDTO {
   lockdown_behavior: string | null;
 }
 
+// ─── Regime Health ─────────────────────────────────────────────────────
+
+export type IndicatorStatus = "green" | "amber" | "red" | "unknown" | "error";
+
+export interface IndicatorReading {
+  indicator_id: string;
+  label: string;
+  tier: number;
+  status: IndicatorStatus;
+  value: number | string | null;
+  formatted_value: string;
+  threshold_note: string;
+  source: string;
+  error: string | null;
+  fetched_at: string;
+}
+
+export interface TierBundle {
+  tier: number;
+  label: string;
+  readings: IndicatorReading[];
+  error: string | null;
+}
+
+export interface RegimeHealthSnapshot {
+  snapshot_date: string;
+  fetched_at: string;
+  overall_status: IndicatorStatus;
+  tiers: TierBundle[];
+  overall_drivers: string[];
+}
+
 // ─── Free-range scan ───────────────────────────────────────────────────
 
 export type FreeRangePhase = "baseline" | "user" | "free_range";
