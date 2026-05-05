@@ -35,7 +35,6 @@ RULE_IDS: list[str] = [
     "cut_at_60_70",
     "exit_within_dte_band",
     "no_average_down",
-    "no_pyramid_double_up",
 ]
 
 # Human-readable rule text (mirrors scorecard-template.md).
@@ -54,7 +53,6 @@ RULE_TEXT: dict[str, str] = {
     "cut_at_60_70":         "Cut at -60% to -70% if invalidation hit (or exit at target)",
     "exit_within_dte_band": "Exited before 50% DTE (apex/lotto) or held >60 DTE (weekly-trend-trader)",
     "no_average_down":      "Did not average down without a new signal",
-    "no_pyramid_double_up": "Did not double up direction with active trend-pyramid on same underlying",
 }
 
 

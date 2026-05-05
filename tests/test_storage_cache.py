@@ -50,11 +50,9 @@ def test_ddl_idempotent(tmp_path: Path) -> None:
 
 def test_clear_all_wipes_every_table(cache: Cache) -> None:
     cache.upsert_position(_pos(id="p1"))
-    cache.upsert_pyramid(_pyramid(id="py1"))
     cache.upsert_weekly_review(_weekly(week_start="2026-04-26"))
     cache.clear_all()
     assert cache.query_positions() == []
-    assert cache.query_pyramids() == []
     assert cache.query_weekly_reviews() == []
 
 
@@ -111,44 +109,6 @@ def _score(**overrides) -> dict:
         "rules": [
             {"rule_id": "R01", "score": "Y", "auto_evaluated": True, "note": None},
             {"rule_id": "R02", "score": "N", "auto_evaluated": True, "note": "iv too high"},
-        ],
-    }
-    base.update(overrides)
-    return base
-
-
-def _pyramid(**overrides) -> dict:
-    base = {
-        "id": "py_1",
-        "ticker": "QQQ",
-        "direction": "long",
-        "benchmark": "SPY",
-        "total_allocation_usd": 5000.0,
-        "horizon": "6-18 months",
-        "status": "active",
-        "created_date": "2026-04-01",
-        "closed_date": None,
-        "aggregate_pnl_usd": None,
-        "notes": None,
-        "tranches": [
-            {"id": 1, "target_pct": 0.5, "status": "filled",
-             "filled_date": "2026-04-02", "vehicle": "leaps_call",
-             "cost_basis_per_unit": 12.50, "quantity": 2,
-             "strike": 480, "expiry": "2026-12-19",
-             "swing_high_at_fill": 485, "swing_low_at_fill": 470,
-             "notes": None},
-            {"id": 2, "target_pct": 0.3, "status": "pending",
-             "filled_date": None, "vehicle": None,
-             "cost_basis_per_unit": None, "quantity": None,
-             "strike": None, "expiry": None,
-             "swing_high_at_fill": None, "swing_low_at_fill": None,
-             "notes": None},
-            {"id": 3, "target_pct": 0.2, "status": "pending",
-             "filled_date": None, "vehicle": None,
-             "cost_basis_per_unit": None, "quantity": None,
-             "strike": None, "expiry": None,
-             "swing_high_at_fill": None, "swing_low_at_fill": None,
-             "notes": None},
         ],
     }
     base.update(overrides)
@@ -300,36 +260,6 @@ def test_query_discipline_limit(cache: Cache) -> None:
     assert scores[0]["position_id"] == "p4"
 
 
-# ── Pyramids ───────────────────────────────────────────────────────────────
-
-
-def test_upsert_pyramid_with_tranches(cache: Cache) -> None:
-    cache.upsert_pyramid(_pyramid(id="py1"))
-    rows = cache.query_pyramids()
-    assert len(rows) == 1
-    tranches = cache.conn.execute(
-        "SELECT * FROM pyramid_tranches WHERE pyramid_id = 'py1' ORDER BY tranche_id"
-    ).fetchall()
-    assert len(tranches) == 3
-    assert dict(tranches[0])["status"] == "filled"
-
-
-def test_query_pyramids_active_only(cache: Cache) -> None:
-    cache.upsert_pyramid(_pyramid(id="py_active", status="active"))
-    cache.upsert_pyramid(_pyramid(id="py_done", status="completed"))
-    active = cache.query_pyramids(status="active")
-    assert [p["id"] for p in active] == ["py_active"]
-
-
-def test_delete_pyramid_cascades_tranches(cache: Cache) -> None:
-    cache.upsert_pyramid(_pyramid(id="py1"))
-    cache.delete_pyramid("py1")
-    tranches = cache.conn.execute(
-        "SELECT * FROM pyramid_tranches WHERE pyramid_id = 'py1'"
-    ).fetchall()
-    assert tranches == []
-
-
 # ── Weekly reviews ─────────────────────────────────────────────────────────
 
 
@@ -431,14 +361,12 @@ def test_rebuild_from_json_wipes_and_reloads(cache: Cache) -> None:
         positions=[_pos(id="fresh1"), _pos(id="fresh2", ticker="QQQ")],
         discipline_scores=[_score(position_id="fresh1")],
         weekly_reviews=[_weekly()],
-        pyramids=[_pyramid(id="fresh_py")],
         sunday_scans=[_sunday_scan()],
     )
     assert counts == {
         "positions": 2,
         "discipline_scores": 1,
         "weekly_reviews": 1,
-        "pyramids": 1,
         "sunday_scans": 1,
     }
     assert {p["id"] for p in cache.query_positions()} == {"fresh1", "fresh2"}

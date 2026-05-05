@@ -82,7 +82,6 @@ _DEFAULT_ACCOUNTS: dict[str, dict[str, Any]] = {
 # (tiered hierarchy as of 2026-05-02 orchestrator change). Tiers:
 #   1 — anchor (weekly-trend-trader)
 #   2 — secondary (lotto-options)
-#   3 — escalation from Tier 1 (trend-pyramid)
 #   4 — explicit-trigger only (qqq-gld-focus, trading-edge, apex-options-trader)
 # Default watchlist drives Tier 1/Tier 2 baseline scans (empty list = asset-agnostic).
 # Gates (trade-devil, discipline) intentionally absent — they're orthogonal to
@@ -95,10 +94,6 @@ _DEFAULT_SKILLS: dict[str, dict[str, Any]] = {
     "lotto-options": {
         "tier": 2,
         "default_watchlist": ["QQQ", "GLD"],
-    },
-    "trend-pyramid": {
-        "tier": 3,
-        "default_watchlist": [],  # asset-agnostic; user picks the underlying
     },
     "qqq-gld-focus": {
         "tier": 4,

@@ -57,12 +57,11 @@ def _is_tier_1_or_2_position(position: Position) -> bool:
 
     Three cases:
       - position.tier in {1, 2} → in scope (Tier 1 or Tier 2)
-      - position.tier in {3, 4} → out of scope (Tier 3 pyramid / Tier 4 specialty)
-      - position.tier is None  → in scope (legacy / pre-tag positions —
+      - position.tier == 4      → out of scope (Tier 4 specialty)
+      - position.tier is None   → in scope (legacy / pre-tag positions —
                                   conservative default; no false negatives)
 
-    Rationale: rule 11 explicitly covers Tier 1 + Tier 2 only. Tier 3
-    (trend-pyramid) is governed by orchestrator rule 6 (no double-up); Tier 4
+    Rationale: rule 11 explicitly covers Tier 1 + Tier 2 only. Tier 4
     has its own specialty gates. But null-tier positions predate the tagging
     and could be on any skill — counting them as in-scope is the safe default.
     """

@@ -97,7 +97,6 @@ def test_load_config_includes_default_skills(tmp_path: Path):
     expected = {
         "weekly-trend-trader",
         "lotto-options",
-        "trend-pyramid",
         "qqq-gld-focus",
         "trading-edge",
         "apex-options-trader",
@@ -109,7 +108,6 @@ def test_skill_tier_assignment():
     cfg = load_config(Path("/nonexistent.yaml"))
     assert cfg.skill("weekly-trend-trader").tier == 1
     assert cfg.skill("lotto-options").tier == 2
-    assert cfg.skill("trend-pyramid").tier == 3
     assert cfg.skill("qqq-gld-focus").tier == 4
     assert cfg.skill("trading-edge").tier == 4
     assert cfg.skill("apex-options-trader").tier == 4
@@ -119,12 +117,6 @@ def test_default_watchlist_qqq_gld_for_tier_1_and_2():
     cfg = load_config(Path("/nonexistent.yaml"))
     assert cfg.skill("weekly-trend-trader").default_watchlist == ["QQQ", "GLD"]
     assert cfg.skill("lotto-options").default_watchlist == ["QQQ", "GLD"]
-
-
-def test_trend_pyramid_default_watchlist_empty():
-    cfg = load_config(Path("/nonexistent.yaml"))
-    # Asset-agnostic — user picks the underlying
-    assert cfg.skill("trend-pyramid").default_watchlist == []
 
 
 def test_unknown_skill_raises():

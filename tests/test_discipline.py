@@ -155,11 +155,11 @@ def test_legacy_cutoff_constant():
 # ── Per-rule scoring ────────────────────────────────────────────────────────
 
 
-def test_score_includes_all_15_rules():
+def test_score_includes_all_rules():
     p = _make_position()
     ks = _make_kill_sheet()
     score = score_trade(p, kill_sheet=ks)
-    assert len(score.rules) == 15
+    assert len(score.rules) == len(RULE_IDS)
     assert {r.rule_id for r in score.rules} == set(RULE_IDS)
 
 
@@ -376,27 +376,13 @@ def test_cut_at_60_70_n_held_too_long():
     assert rule.score == "N"
 
 
-def test_no_pyramid_double_up_n_when_active():
-    p = _make_position()
-    score = score_trade(p, kill_sheet=_make_kill_sheet(), pyramid_active_at_entry=True)
-    rule = next(r for r in score.rules if r.rule_id == "no_pyramid_double_up")
-    assert rule.score == "N"
-
-
-def test_no_pyramid_double_up_y_when_clear():
-    p = _make_position()
-    score = score_trade(p, kill_sheet=_make_kill_sheet(), pyramid_active_at_entry=False)
-    rule = next(r for r in score.rules if r.rule_id == "no_pyramid_double_up")
-    assert rule.score == "Y"
-
-
 # ── Aggregate score / profitable-violation ──────────────────────────────────
 
 
 def test_full_adherence_when_all_y():
     p = _make_position()
     ks = _make_kill_sheet()
-    score = score_trade(p, kill_sheet=ks, pyramid_active_at_entry=False)
+    score = score_trade(p, kill_sheet=ks)
     # Most rules should be Y; some may be N/A. Verify denominator > 0.
     assert score.score_denominator > 0
     if score.score_numerator == score.score_denominator:
@@ -426,7 +412,7 @@ def test_profitable_violation_not_flagged_when_pnl_negative():
 def test_profitable_violation_not_flagged_when_score_perfect():
     p = _make_position(pnl_usd=200.0, max_loss_usd=200)  # 2% — passes size_within_tier
     ks = _make_kill_sheet()
-    score = score_trade(p, kill_sheet=ks, pyramid_active_at_entry=False)
+    score = score_trade(p, kill_sheet=ks)
     if all(r.score in ("Y", "N/A") for r in score.rules):
         assert score.profitable_violation is False
 
@@ -437,14 +423,14 @@ def test_profitable_violation_not_flagged_when_score_perfect():
 def test_store_save_load_roundtrip(tmp_path: Path):
     store = DisciplineStore(base_dir=tmp_path)
     p = _make_position()
-    score = score_trade(p, kill_sheet=_make_kill_sheet(), pyramid_active_at_entry=False)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
     store.save_score(score)
     loaded = store.load_score(score.position_id)
     assert loaded.position_id == score.position_id
     assert loaded.score_numerator == score.score_numerator
     assert loaded.score_denominator == score.score_denominator
     assert loaded.profitable_violation == score.profitable_violation
-    assert len(loaded.rules) == 15
+    assert len(loaded.rules) == 14
 
 
 def test_store_load_missing_raises(tmp_path: Path):
@@ -457,7 +443,7 @@ def test_store_iter_skips_corrupt(tmp_path: Path):
     store = DisciplineStore(base_dir=tmp_path)
     (tmp_path / "junk.json").write_text("garbage")
     p = _make_position()
-    score = score_trade(p, kill_sheet=_make_kill_sheet(), pyramid_active_at_entry=False)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
     store.save_score(score)
     found = list(store.iter_scores())
     assert len(found) == 1
@@ -478,9 +464,9 @@ def test_stats_aggregate_three_trades():
     p2 = _make_position(pnl_usd=-300, max_loss_usd=300)
     p3 = _make_position(pnl_usd=400, max_loss_usd=500)  # profitable violation (size 5%)
     ks = _make_kill_sheet()
-    s1 = score_trade(p1, kill_sheet=ks, pyramid_active_at_entry=False)
-    s2 = score_trade(p2, kill_sheet=ks, pyramid_active_at_entry=False)
-    s3 = score_trade(p3, kill_sheet=ks, pyramid_active_at_entry=False)
+    s1 = score_trade(p1, kill_sheet=ks)
+    s2 = score_trade(p2, kill_sheet=ks)
+    s3 = score_trade(p3, kill_sheet=ks)
     stats = compute_discipline_stats([s1, s2, s3])
     assert stats.trades_scored == 3
     assert 0 <= stats.avg_discipline_score <= 1.0
@@ -494,7 +480,7 @@ def test_stats_drift_trend_improving():
     # With actual data
     p = _make_position(pnl_usd=100, max_loss_usd=200)
     ks = _make_kill_sheet()
-    s = score_trade(p, kill_sheet=ks, pyramid_active_at_entry=False)
+    s = score_trade(p, kill_sheet=ks)
     stats = compute_discipline_stats([s], prior_avg_for_drift=0.3)
     if s.score > 0.35:
         assert stats.drift_trend == "improving"
@@ -523,7 +509,7 @@ def test_weekly_review_picks_up_trades_in_window(tmp_path: Path):
     store = DisciplineStore(base_dir=tmp_path)
     # Trade closed mid-week
     p = _make_position(closed_date="2026-05-05T12:00:00+00:00", pnl_usd=100, max_loss_usd=300)
-    s = score_trade(p, kill_sheet=_make_kill_sheet(), pyramid_active_at_entry=False)
+    s = score_trade(p, kill_sheet=_make_kill_sheet())
     store.save_score(s)
     review = compute_weekly_review(date(2026, 5, 5), store=store)
     assert review.trades_scored == 1

@@ -114,21 +114,8 @@ def _cmd_close(args, store: PositionStore) -> int:
         print(f"  (legacy position — skipping discipline score)")
         return 0
 
-    pyramid_active = False
     try:
-        from pyramid import PyramidStore as _PS
-        for pyr in _PS().list_active():
-            if (
-                pyr.ticker.upper() == position.ticker.upper()
-                and pyr.direction.lower() == position.direction.lower()
-            ):
-                pyramid_active = True
-                break
-    except Exception:
-        pyramid_active = False
-
-    try:
-        score = _score_trade(position, pyramid_active_at_entry=pyramid_active)
+        score = _score_trade(position)
         _DS().save_score(score)
         viol = "⚠ profitable-violation" if score.profitable_violation else (
             "100% adherence" if score.full_adherence else f"{score.score_numerator}/{score.score_denominator}"

@@ -1,10 +1,7 @@
 import type {
-  ClosePyramidRequest,
-  CreatePyramidRequest,
   DashboardState,
   DisciplineScoreDTO,
   DisciplineStatsDTO,
-  FillTrancheRequest,
   FocusOutcome,
   FocusRecentSummary,
   FreeRangeScanRequest,
@@ -20,8 +17,6 @@ import type {
   WeeklyScanResponse,
   Position,
   PositionAlert,
-  Pyramid,
-  PyramidEvaluation,
   ScanResult,
   SundayScanResponse,
   SundayScanSummary,
@@ -123,53 +118,6 @@ export const api = {
 
   focusSummary: (weeks = 4) =>
     request<FocusRecentSummary>(`/api/v1/focus/summary?weeks=${weeks}`),
-
-  pyramids: (status: "active" | "all" = "active") =>
-    request<Pyramid[]>(`/api/v1/pyramid?status=${status}`),
-
-  pyramid: (id: string) =>
-    request<Pyramid>(`/api/v1/pyramid/${encodeURIComponent(id)}`),
-
-  pyramidEvaluation: (id: string) =>
-    request<PyramidEvaluation>(`/api/v1/pyramid/${encodeURIComponent(id)}/evaluation`),
-
-  pyramidEvaluatePlanning: (
-    ticker: string,
-    direction: "long" | "short",
-    benchmark = "SPY",
-  ) =>
-    request<PyramidEvaluation>(
-      `/api/v1/pyramid/evaluate/${encodeURIComponent(ticker)}` +
-        `?direction=${direction}&benchmark=${encodeURIComponent(benchmark)}`,
-    ),
-
-  createPyramid: (req: CreatePyramidRequest) =>
-    request<Pyramid>("/api/v1/pyramid", {
-      method: "POST",
-      body: JSON.stringify(req),
-    }),
-
-  fillPyramidTranche: (id: string, req: FillTrancheRequest) =>
-    request<Pyramid>(`/api/v1/pyramid/${encodeURIComponent(id)}/fill`, {
-      method: "POST",
-      body: JSON.stringify(req),
-    }),
-
-  closePyramid: (id: string, req: ClosePyramidRequest) =>
-    request<Pyramid>(`/api/v1/pyramid/${encodeURIComponent(id)}/close`, {
-      method: "POST",
-      body: JSON.stringify(req),
-    }),
-
-  deletePyramid: (id: string, force = false) =>
-    fetch(
-      `${API_BASE}/api/v1/pyramid/${encodeURIComponent(id)}${force ? "?force=true" : ""}`,
-      { method: "DELETE" },
-    ).then((res) => {
-      if (!res.ok && res.status !== 204) {
-        throw new Error(`${res.status} ${res.statusText}`);
-      }
-    }),
 
   disciplineScore: (positionId: string, scoreLegacy = false) =>
     request<DisciplineScoreDTO>(

@@ -36,7 +36,6 @@ class DisciplineAttestation:
     daily_chop: bool = False
     fighting_sqn_regime: bool = False
     averaging_down: bool = False
-    doubling_pyramid_direction: bool = False
 
     # User-attested (UI checkboxes)
     spreads_or_margin: bool = False  # MUST be False for cash-account compliance
@@ -311,8 +310,6 @@ class KillSheet:
                     f"Averaging down (new signal: "
                     f"{'YES' if a.new_signal_for_average_down else 'MISSING'})"
                 )
-            if a.doubling_pyramid_direction:
-                flagged.append("⛔ Doubling active trend-pyramid direction (HARD BLOCK)")
             if a.spreads_or_margin:
                 flagged.append("⛔ Spreads/margin (HARD BLOCK — cash account)")
             if flagged:

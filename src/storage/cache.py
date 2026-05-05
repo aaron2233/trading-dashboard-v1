@@ -9,7 +9,7 @@ Design contract (from V2-ARCHITECTURE-DECISIONS-2026-05-03.md):
   is never lost because of cache trouble.
 
 Read API:
-- query_positions / query_discipline / query_pyramids / query_weekly_reviews
+- query_positions / query_discipline / query_weekly_reviews
 - aggregate helpers (account_pnl, weekly_pnl, full_adherence_streak, etc.)
 
 These power the L0 read-only agent and any future cross-cutting analytics
@@ -33,7 +33,7 @@ DEFAULT_CACHE_PATH = Path.home() / ".trading-dashboard" / "cache.sqlite"
 # Bump when DDL changes in a way old caches can't handle. On version
 # mismatch, the cache drops all tables and recreates with the new DDL —
 # data is recoverable via /api/v1/cache/rebuild since JSON is canonical.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DDL = """
 CREATE TABLE IF NOT EXISTS _cache_meta (
@@ -143,38 +143,6 @@ CREATE TABLE IF NOT EXISTS discipline_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_rules_id_score ON discipline_rules(rule_id, score);
 
-CREATE TABLE IF NOT EXISTS pyramids (
-    id TEXT PRIMARY KEY,
-    ticker TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    benchmark TEXT NOT NULL,
-    total_allocation_usd REAL NOT NULL,
-    horizon TEXT,
-    status TEXT NOT NULL,
-    created_date TEXT NOT NULL,
-    closed_date TEXT,
-    aggregate_pnl_usd REAL,
-    notes TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_pyramids_ticker_status ON pyramids(ticker, status);
-
-CREATE TABLE IF NOT EXISTS pyramid_tranches (
-    pyramid_id TEXT NOT NULL,
-    tranche_id INTEGER NOT NULL,
-    target_pct REAL,
-    status TEXT NOT NULL,
-    filled_date TEXT,
-    vehicle TEXT,
-    cost_basis_per_unit REAL,
-    quantity REAL,
-    strike REAL,
-    expiry TEXT,
-    swing_high_at_fill REAL,
-    swing_low_at_fill REAL,
-    notes TEXT,
-    PRIMARY KEY (pyramid_id, tranche_id)
-);
-
 CREATE TABLE IF NOT EXISTS weekly_reviews (
     week_start TEXT PRIMARY KEY,
     week_end TEXT NOT NULL,
@@ -280,8 +248,6 @@ class Cache:
                 for table in (
                     "discipline_rules",
                     "discipline_scores",
-                    "pyramid_tranches",
-                    "pyramids",
                     "weekly_reviews",
                     "sunday_scans",
                     "kill_sheets",
@@ -311,8 +277,6 @@ class Cache:
             for table in (
                 "discipline_rules",
                 "discipline_scores",
-                "pyramid_tranches",
-                "pyramids",
                 "weekly_reviews",
                 "sunday_scans",
                 "kill_sheets",
@@ -479,56 +443,6 @@ class Cache:
                 ),
             )
 
-    def upsert_pyramid(self, py: dict[str, Any]) -> None:
-        with self._tx() as cur:
-            cur.execute(
-                """
-                INSERT OR REPLACE INTO pyramids (
-                    id, ticker, direction, benchmark, total_allocation_usd,
-                    horizon, status, created_date, closed_date,
-                    aggregate_pnl_usd, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    py["id"], py["ticker"], py["direction"], py["benchmark"],
-                    py["total_allocation_usd"], py.get("horizon"),
-                    py["status"], py["created_date"], py.get("closed_date"),
-                    py.get("aggregate_pnl_usd"), py.get("notes"),
-                ),
-            )
-            cur.execute(
-                "DELETE FROM pyramid_tranches WHERE pyramid_id = ?",
-                (py["id"],),
-            )
-            for t in py.get("tranches", []) or []:
-                cur.execute(
-                    """
-                    INSERT INTO pyramid_tranches (
-                        pyramid_id, tranche_id, target_pct, status,
-                        filled_date, vehicle, cost_basis_per_unit, quantity,
-                        strike, expiry, swing_high_at_fill, swing_low_at_fill,
-                        notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        py["id"], t["id"], t.get("target_pct"),
-                        t["status"], t.get("filled_date"), t.get("vehicle"),
-                        t.get("cost_basis_per_unit"), t.get("quantity"),
-                        t.get("strike"), t.get("expiry"),
-                        t.get("swing_high_at_fill"),
-                        t.get("swing_low_at_fill"),
-                        t.get("notes"),
-                    ),
-                )
-
-    def delete_pyramid(self, pyramid_id: str) -> None:
-        with self._tx() as cur:
-            cur.execute(
-                "DELETE FROM pyramid_tranches WHERE pyramid_id = ?",
-                (pyramid_id,),
-            )
-            cur.execute("DELETE FROM pyramids WHERE id = ?", (pyramid_id,))
-
     def upsert_sunday_scan(self, payload: dict[str, Any]) -> None:
         """Upsert a Sunday scan from the SundayScan.to_dict() shape."""
         scan_time = payload.get("scan_time_utc", "")
@@ -628,27 +542,6 @@ class Cache:
         rows = self.conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
-    def query_pyramids(
-        self,
-        *,
-        status: str | None = None,
-        ticker: str | None = None,
-    ) -> list[dict[str, Any]]:
-        clauses: list[str] = []
-        params: list[Any] = []
-        if status is not None:
-            clauses.append("status = ?")
-            params.append(status)
-        if ticker is not None:
-            clauses.append("ticker = ?")
-            params.append(ticker.upper())
-        sql = "SELECT * FROM pyramids"
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_date DESC"
-        rows = self.conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
-
     def query_weekly_reviews(
         self,
         *,
@@ -725,7 +618,6 @@ class Cache:
         positions: Iterable[dict[str, Any]] = (),
         discipline_scores: Iterable[dict[str, Any]] = (),
         weekly_reviews: Iterable[dict[str, Any]] = (),
-        pyramids: Iterable[dict[str, Any]] = (),
         sunday_scans: Iterable[dict[str, Any]] = (),
     ) -> dict[str, int]:
         """Wipe all cached data and re-populate from the JSON canonical store.
@@ -739,7 +631,6 @@ class Cache:
             "positions": 0,
             "discipline_scores": 0,
             "weekly_reviews": 0,
-            "pyramids": 0,
             "sunday_scans": 0,
         }
         for p in positions:
@@ -760,12 +651,6 @@ class Cache:
                 counts["weekly_reviews"] += 1
             except Exception:
                 logger.exception("rebuild: skipping bad weekly review")
-        for py in pyramids:
-            try:
-                self.upsert_pyramid(py)
-                counts["pyramids"] += 1
-            except Exception:
-                logger.exception("rebuild: skipping bad pyramid")
         for sc in sunday_scans:
             try:
                 self.upsert_sunday_scan(sc)

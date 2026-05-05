@@ -40,8 +40,6 @@ CHOP_STATES = {"chop_tangled", "compression"}
 class ScoringContext:
     """External data the scorer needs beyond the position + kill sheet."""
     kill_sheet: KillSheet | None = None
-    pyramid_active_at_entry: bool | None = None  # True if a pyramid was active on
-                                                  # same ticker+direction at entry
     earlier_open_position_at_entry: bool | None = None  # for averaging-down
 
 
@@ -281,24 +279,6 @@ def _r_no_average_down(p: Position, ctx: ScoringContext) -> RuleResult:
                    note="Earlier-open-position lookup not supplied; review manually")
 
 
-def _r_no_pyramid_double_up(p: Position, ctx: ScoringContext) -> RuleResult:
-    if ctx.pyramid_active_at_entry is True:
-        return _result("no_pyramid_double_up", "N", True,
-                       note="Active pyramid same ticker+direction at entry")
-    if ctx.pyramid_active_at_entry is False:
-        return _result("no_pyramid_double_up", "Y", True, note="No active pyramid")
-    # Fallback: check kill sheet attestation if no explicit context
-    ks = ctx.kill_sheet
-    if ks is not None and ks.discipline_attestation is not None:
-        if ks.discipline_attestation.doubling_pyramid_direction:
-            return _result("no_pyramid_double_up", "N", True,
-                           note="Attestation flagged pyramid double-up at entry")
-        return _result("no_pyramid_double_up", "Y", True,
-                       note="Attestation cleared pyramid check")
-    return _result("no_pyramid_double_up", "Y", False,
-                   note="Pyramid lookup not supplied")
-
-
 # Mapping rule_id → evaluator function. Keeps `score_trade` declarative.
 _EVALUATORS = {
     "kill_sheet_complete":  _r_kill_sheet_complete,
@@ -315,7 +295,6 @@ _EVALUATORS = {
     "cut_at_60_70":         _r_cut_at_60_70,
     "exit_within_dte_band": _r_exit_within_dte_band,
     "no_average_down":      _r_no_average_down,
-    "no_pyramid_double_up": _r_no_pyramid_double_up,
 }
 
 
@@ -333,18 +312,15 @@ def score_trade(
     position: Position,
     *,
     kill_sheet: KillSheet | None = None,
-    pyramid_active_at_entry: bool | None = None,
     earlier_open_position_at_entry: bool | None = None,
     notes: str = "",
     user_overrides: dict[str, RuleResult] | None = None,
 ) -> DisciplineScore:
-    """Score a closed Position against the 15-rule checklist.
+    """Score a closed Position against the 14-rule checklist.
 
     Args:
         position: the closed Position to score.
         kill_sheet: the kill sheet generated at entry (optional).
-        pyramid_active_at_entry: True if a pyramid was active on same
-            ticker+direction at entry. None → fall back to attestation.
         earlier_open_position_at_entry: True if another open position existed
             on same ticker+direction at entry. None → manual review.
         notes: free-form narrative notes on the trade.
@@ -353,7 +329,6 @@ def score_trade(
     """
     ctx = ScoringContext(
         kill_sheet=kill_sheet,
-        pyramid_active_at_entry=pyramid_active_at_entry,
         earlier_open_position_at_entry=earlier_open_position_at_entry,
     )
 

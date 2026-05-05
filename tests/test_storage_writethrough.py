@@ -18,8 +18,6 @@ from discipline import (
     WeeklyReview,
 )
 from positions import Position, PositionStore
-from pyramid.model import Pyramid
-from pyramid.store import PyramidStore
 from storage.cache import Cache
 
 
@@ -158,36 +156,3 @@ def test_discipline_delete_propagates_to_cache(tmp_path: Path, cache: Cache):
     store.delete_score("pos_1")
     assert cache.query_discipline_scores() == []
 
-
-# ── PyramidStore × Cache ───────────────────────────────────────────────────
-
-
-def test_pyramid_save_writes_through(tmp_path: Path, cache: Cache):
-    store = PyramidStore(base_dir=tmp_path / "pyramids", cache=cache)
-    p = Pyramid.create(
-        ticker="QQQ", direction="long", total_allocation_usd=5000,
-    )
-    store.save(p)
-
-    rows = cache.query_pyramids()
-    assert len(rows) == 1
-    assert rows[0]["ticker"] == "QQQ"
-    # Tranches also persisted
-    tranche_rows = cache.conn.execute(
-        "SELECT * FROM pyramid_tranches WHERE pyramid_id = ?", (p.id,)
-    ).fetchall()
-    assert len(tranche_rows) == 3
-
-
-def test_pyramid_delete_propagates_to_cache(tmp_path: Path, cache: Cache):
-    store = PyramidStore(base_dir=tmp_path / "pyramids", cache=cache)
-    p = Pyramid.create(ticker="QQQ", direction="long", total_allocation_usd=5000)
-    store.save(p)
-    assert len(cache.query_pyramids()) == 1
-
-    store.delete(p.id)
-    assert cache.query_pyramids() == []
-    tranche_rows = cache.conn.execute(
-        "SELECT * FROM pyramid_tranches WHERE pyramid_id = ?", (p.id,)
-    ).fetchall()
-    assert tranche_rows == []

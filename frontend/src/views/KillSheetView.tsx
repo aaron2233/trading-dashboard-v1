@@ -723,7 +723,6 @@ export function KillSheetView() {
               { label: "Daily MA chop", ok: !att.daily_chop },
               { label: "Fighting SQN regime", ok: !att.fighting_sqn_regime },
               { label: "Averaging down", ok: !att.averaging_down },
-              { label: "Doubling pyramid direction", ok: !att.doubling_pyramid_direction },
               { label: "Spreads/margin", ok: !att.spreads_or_margin },
             ];
             const authorized = att.entry_authorized as boolean;

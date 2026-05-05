@@ -1,19 +1,15 @@
 // Unified verdict primitive for the dashboard. Single source of truth so every
 // view shows the same vocabulary: LONG / SHORT / WAIT / SKIP + confidence 1–10.
 //
-// Each domain enum (WeeklyConfluence, CryptoConfluence, SundayScan
-// recommendation, etc.) is mapped into this shape via a `from*` helper. Keep
-// these mappings here — never inline new ones in views.
+// Each domain enum (WeeklyConfluence, SundayScan recommendation, etc.) is
+// mapped into this shape via a `from*` helper. Keep these mappings here —
+// never inline new ones in views.
 
 import type {
-  CryptoConfluence,
-  CryptoDirection,
   DevilReport,
   FocusSetup,
   FreeRangeDirection,
-  GateResult,
   SundayScanResponse,
-  TrancheTriggerResult,
   WeeklyConfluence,
   WeeklyDirection,
 } from "../api/types";
@@ -81,32 +77,6 @@ export function fromWeeklyConfluence(
   return { kind: "wait", confidence, rationale };
 }
 
-// ─── Crypto scanner ──────────────────────────────────────────────────────
-
-const CRYPTO_CONF: Record<CryptoConfluence, number> = {
-  high_conviction_long: 9,
-  high_conviction_short: 9,
-  medium_conviction_long: 7,
-  medium_conviction_short: 7,
-  counter_weekly: 4,
-  wait: 3,
-  skip_chop: 2,
-  skip_no_setup: 1,
-};
-
-export function fromCryptoConfluence(
-  c: CryptoConfluence,
-  direction: CryptoDirection,
-  rationale?: string,
-): Verdict {
-  const confidence = CRYPTO_CONF[c];
-  if (c === "wait") return { kind: "wait", confidence, rationale };
-  if (c === "skip_chop" || c === "skip_no_setup") return { kind: "skip", confidence, rationale };
-  if (direction === "long") return { kind: "long", confidence, rationale };
-  if (direction === "short") return { kind: "short", confidence, rationale };
-  return { kind: "wait", confidence, rationale };
-}
-
 // ─── Sunday scan (focus) ─────────────────────────────────────────────────
 
 const FOCUS_STATUS_CONF: Record<FocusSetup["status"], number> = {
@@ -146,44 +116,6 @@ export function fromFocusSetup(setup: FocusSetup): Verdict {
   return {
     kind: setup.direction === "long" ? "long" : "short",
     confidence: conf,
-  };
-}
-
-// ─── Pyramid gate / tranche ──────────────────────────────────────────────
-
-export function fromPyramidGate(gate: GateResult): Verdict {
-  if (!gate.permitted) {
-    return {
-      kind: "skip",
-      confidence: 1,
-      rationale: gate.blockers[0] ?? "Gate not permitted",
-    };
-  }
-  // Permitted gate is a strong setup — 5 conditions passing.
-  const passes = [
-    gate.sqn_100_pass,
-    gate.sqn_20_pass,
-    gate.ma_stack_pass,
-    gate.pullback_pass,
-    gate.structure_pass,
-  ].filter(Boolean).length;
-  const confidence = clamp(4 + passes, 5, 9);
-  if (gate.direction === "long") return { kind: "long", confidence };
-  if (gate.direction === "short") return { kind: "short", confidence };
-  return { kind: "wait", confidence };
-}
-
-export function fromTrancheTrigger(
-  t: TrancheTriggerResult,
-  direction: "long" | "short",
-): Verdict {
-  if (t.should_fire) {
-    return { kind: direction, confidence: 8 };
-  }
-  return {
-    kind: "wait",
-    confidence: 3,
-    rationale: t.blockers[0] ?? "Trigger conditions not met",
   };
 }
 

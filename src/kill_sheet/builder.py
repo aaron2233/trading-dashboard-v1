@@ -55,12 +55,11 @@ def _regime_authorizes(direction: str, regime: str | None) -> bool:
 def _compute_entry_authorized(att: DisciplineAttestation) -> bool:
     """Final gate per DISCIPLINE-LAYER-ADDITION.md.
 
-    Hard blocks (no user override): spreads_or_margin, daily_chop,
-    doubling_pyramid_direction.
+    Hard blocks (no user override): spreads_or_margin, daily_chop.
 
     Conditional anti-patterns require their corresponding user attestation.
     """
-    if att.spreads_or_margin or att.daily_chop or att.doubling_pyramid_direction:
+    if att.spreads_or_margin or att.daily_chop:
         return False
     if att.iv_rank_over_70 and not att.explicit_post_earnings_crush_thesis:
         return False
@@ -92,7 +91,6 @@ def build_standard(
     counter_weekly_thesis: str | None = None,
     attestation_user_inputs: dict[str, bool] | None = None,
     open_positions: list[Any] | None = None,
-    active_pyramids: list[Any] | None = None,
     skill: SkillConfig | str | None = None,
     scan_phase: Literal["baseline", "user_submitted", "free_range"] | None = None,
 ) -> KillSheet:
@@ -201,22 +199,6 @@ def build_standard(
                 averaging_down = True
                 break
 
-    # doubling_pyramid_direction: active pyramid on same ticker+direction
-    doubling_pyramid = False
-    if active_pyramids:
-        ticker_upper = scan_row["ticker"].upper()
-        for pyr in active_pyramids:
-            pyr_ticker = getattr(pyr, "ticker", "").upper()
-            pyr_dir = getattr(pyr, "direction", "").lower()
-            pyr_status = getattr(pyr, "status", "")
-            if (
-                pyr_ticker == ticker_upper
-                and pyr_dir == direction
-                and pyr_status in ("pending", "active")
-            ):
-                doubling_pyramid = True
-                break
-
     user_inputs = attestation_user_inputs or {}
     attestation = DisciplineAttestation(
         iv_rank_over_70=(iv_rank is not None and iv_rank > 70),
@@ -224,7 +206,6 @@ def build_standard(
         daily_chop=(ma_stack_state in DAILY_CHOP_STATES),
         fighting_sqn_regime=(not sqn_authorizes),
         averaging_down=averaging_down,
-        doubling_pyramid_direction=doubling_pyramid,
         spreads_or_margin=user_inputs.get("spreads_or_margin", False),
         explicit_post_earnings_crush_thesis=user_inputs.get(
             "explicit_post_earnings_crush_thesis", False

@@ -265,7 +265,7 @@ def _open_with_tier(ticker: str, direction: str, tier: int | None) -> Position:
 
 
 def test_tier_3_position_does_not_count_in_cap():
-    """Trend-pyramid (Tier 3) position on QQQ → not counted in Tier 1+2 cap."""
+    """Tier 3 position on QQQ → not counted in Tier 1+2 cap."""
     violations = check_tier_portfolio_trade(
         ticker="QQQ", direction="long",
         open_positions=[_open_with_tier("QQQ", "long", tier=3)],
@@ -323,7 +323,7 @@ def test_mixed_tiers_only_tier_1_2_count():
     """Three open QQQ positions (Tier 1 + Tier 3 + Tier 4) count as one in scope."""
     positions = [
         _open_with_tier("QQQ", "long", tier=1),
-        _open_with_tier("QQQ", "long", tier=3),  # pyramid — out of scope
+        _open_with_tier("QQQ", "long", tier=3),  # out of scope
         _open_with_tier("QQQ", "long", tier=4),  # focus — out of scope
     ]
     # Try opening a Tier 2 GLD long while QQQ Tier 1 is open:

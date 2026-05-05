@@ -23,22 +23,17 @@ from api.models import (
     ParsedOptionsResponse,
     UnreviewedWeekResponse,
     ClosePositionRequest,
-    ClosePyramidRequest,
-    CreatePyramidRequest,
     DevilCategoryResult,
     DevilReportResponse,
     DisciplineScoreOverridesRequest,
     DisciplineScoreResponse,
     DisciplineStatsResponse,
-    ExitDirectiveResponse,
-    FillTrancheRequest,
     FocusOutcomeResponse,
     FocusRecentSummaryResponse,
     FocusSetup,
     FocusTopSetupSummary,
     FreeRangeScanRequest,
     FreeRangeScanResponse,
-    GateResultResponse,
     HealthResponse,
     JournalReportResponse,
     JournalStatsResponse,
@@ -54,17 +49,12 @@ from api.models import (
     MatchedPositionResponse,
     OpenPositionRequest,
     PositionResponse,
-    PyramidEvaluationResponse,
-    PyramidResponse,
     RuleResultResponse,
     RuleViolationResponse,
     ScanResult,
     SparklineResponse,
-    StructureRead as StructureReadResponse,
     SundayScanResponse,
     SundayScanSummaryResponse,
-    TrancheResponse,
-    TrancheTriggerResponse,
     WeeklyReviewResponse,
 )
 from config import load_config
@@ -93,11 +83,6 @@ from positions import (
     evaluate_all_open,
 )
 from positions.model import Position
-from pyramid import (
-    Pyramid,
-    PyramidStore,
-    evaluate_pyramid,
-)
 from discipline import (
     DisciplineStore,
     compute_dashboard_state,
@@ -154,28 +139,6 @@ def _position_to_response(p: Position) -> PositionResponse:
 
 def _stats_to_response(stats) -> JournalStatsResponse:
     return JournalStatsResponse(**stats.to_dict())
-
-
-def _pyramid_to_response(p: Pyramid) -> PyramidResponse:
-    d = p.to_dict()
-    return PyramidResponse(
-        **{k: v for k, v in d.items() if k != "tranches"},
-        tranches=[TrancheResponse(**t) for t in d["tranches"]],
-    )
-
-
-def _pyramid_evaluation_to_response(ev) -> PyramidEvaluationResponse:
-    payload = ev.to_dict()
-    return PyramidEvaluationResponse(
-        **{k: v for k, v in payload.items()
-           if k not in ("structure", "gate", "t1", "t2", "t3", "exits")},
-        structure=StructureReadResponse(**payload["structure"]),
-        gate=GateResultResponse(**payload["gate"]),
-        t1=TrancheTriggerResponse(**payload["t1"]) if payload["t1"] else None,
-        t2=TrancheTriggerResponse(**payload["t2"]) if payload["t2"] else None,
-        t3=TrancheTriggerResponse(**payload["t3"]) if payload["t3"] else None,
-        exits=[ExitDirectiveResponse(**d) for d in payload["exits"]],
-    )
 
 
 def create_app(
@@ -660,14 +623,10 @@ def create_app(
                 bid_ask_spread=req.spread,
             )
 
-        # Pull current open positions + active pyramids so the builder can
-        # auto-flag averaging-down and pyramid double-up on the attestation.
+        # Pull current open positions so the builder can auto-flag
+        # averaging-down on the attestation.
         attestation_store = store_factory()
         attestation_open = attestation_store.list_open()
-        try:
-            attestation_pyramids = PyramidStore().list_active()
-        except Exception:
-            attestation_pyramids = []
 
         sheet = build_standard(
             scan_row=scan_row,
@@ -687,7 +646,6 @@ def create_app(
             counter_weekly_thesis=req.counter_weekly_thesis,
             attestation_user_inputs=req.attestation_user_inputs,
             open_positions=attestation_open,
-            active_pyramids=attestation_pyramids,
         )
 
         # Pre-check: account rules
@@ -980,18 +938,7 @@ def create_app(
         # any failure here is non-fatal — the close itself succeeded.
         if not is_legacy_position(position.closed_date):
             try:
-                pyramid_active: bool | None = False
-                try:
-                    for pyr in PyramidStore().list_active():
-                        if (
-                            pyr.ticker.upper() == position.ticker.upper()
-                            and pyr.direction.lower() == position.direction.lower()
-                        ):
-                            pyramid_active = True
-                            break
-                except Exception:
-                    pyramid_active = None
-                score = score_trade(position, pyramid_active_at_entry=pyramid_active)
+                score = score_trade(position)
                 DisciplineStore().save_score(score)
             except Exception:
                 # Don't let scoring failure block the close response. Log and
@@ -1028,172 +975,6 @@ def create_app(
         closed = [p for p in store.list_all() if p.status == "closed"]
         closed.sort(key=lambda p: p.closed_date or "", reverse=True)
         return [_position_to_response(p) for p in closed[:limit]]
-
-    # ─── Pyramid ──────────────────────────────────────────────────────────────
-
-    @app.get("/api/v1/pyramid", response_model=list[PyramidResponse])
-    def list_pyramids(
-        status: str = Query("active", description="active | all"),
-    ):
-        store = PyramidStore()
-        if status == "all":
-            pyramids = store.list_all()
-        else:
-            pyramids = store.list_active()
-        return [_pyramid_to_response(p) for p in pyramids]
-
-    @app.post("/api/v1/pyramid", response_model=PyramidResponse, status_code=201)
-    def create_pyramid(req: CreatePyramidRequest):
-        try:
-            pyramid = Pyramid.create(
-                ticker=req.ticker,
-                direction=req.direction,
-                total_allocation_usd=req.total_allocation_usd,
-                benchmark=req.benchmark,
-                horizon=req.horizon,
-                notes=req.notes,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        store = PyramidStore()
-        store.save(pyramid)
-        return _pyramid_to_response(pyramid)
-
-    @app.get("/api/v1/pyramid/{pyramid_id}", response_model=PyramidResponse)
-    def get_pyramid(pyramid_id: str):
-        store = PyramidStore()
-        try:
-            return _pyramid_to_response(store.load(pyramid_id))
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-
-    @app.get(
-        "/api/v1/pyramid/{pyramid_id}/evaluation",
-        response_model=PyramidEvaluationResponse,
-    )
-    def get_pyramid_evaluation(pyramid_id: str):
-        store = PyramidStore()
-        try:
-            pyramid = store.load(pyramid_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-        try:
-            ev = evaluate_pyramid(
-                pyramid.ticker, pyramid.direction,
-                benchmark=pyramid.benchmark, pyramid=pyramid,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Evaluation failed: {exc}")
-        return _pyramid_evaluation_to_response(ev)
-
-    @app.get(
-        "/api/v1/pyramid/evaluate/{ticker}",
-        response_model=PyramidEvaluationResponse,
-    )
-    def evaluate_ticker_pyramid(
-        ticker: str,
-        direction: str = Query(..., pattern="^(long|short)$"),
-        benchmark: str = Query("SPY"),
-    ):
-        """Planning mode: gate + T1 evaluation for a hypothetical pyramid on `ticker`."""
-        try:
-            ev = evaluate_pyramid(
-                ticker.upper(), direction, benchmark=benchmark.upper(), pyramid=None,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Evaluation failed: {exc}")
-        return _pyramid_evaluation_to_response(ev)
-
-    @app.post(
-        "/api/v1/pyramid/{pyramid_id}/fill",
-        response_model=PyramidResponse,
-    )
-    def fill_pyramid_tranche(pyramid_id: str, req: FillTrancheRequest):
-        store = PyramidStore()
-        try:
-            pyramid = store.load(pyramid_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-
-        # Optional structure capture — if the caller didn't supply explicit
-        # swing values but asked for capture, run a fresh evaluation and pull
-        # the recent_swing_high/low. This is the cleanest path for the UI:
-        # one checkbox at fill time, no manual chart-reading.
-        swing_high = req.swing_high_at_fill
-        swing_low = req.swing_low_at_fill
-        if req.capture_structure and swing_high is None and swing_low is None:
-            try:
-                ev = evaluate_pyramid(
-                    pyramid.ticker, pyramid.direction,
-                    benchmark=pyramid.benchmark, pyramid=pyramid,
-                )
-                swing_high = ev.structure.recent_swing_high
-                swing_low = ev.structure.recent_swing_low
-            except Exception:
-                # Capture is best-effort. If it fails, the fill still proceeds
-                # with whatever the user supplied (likely None) and T3 falls
-                # back to the looser comparison.
-                pass
-
-        try:
-            tr = pyramid.get_tranche(req.tranche)
-            tr.fill(
-                vehicle=req.vehicle,
-                cost_basis_per_unit=req.cost_basis_per_unit,
-                quantity=req.quantity,
-                strike=req.strike,
-                expiry=req.expiry,
-                notes=req.notes,
-                swing_high_at_fill=swing_high,
-                swing_low_at_fill=swing_low,
-            )
-        except (KeyError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        if pyramid.status == "pending":
-            pyramid.status = "active"
-        store.save(pyramid)
-        return _pyramid_to_response(pyramid)
-
-    @app.post(
-        "/api/v1/pyramid/{pyramid_id}/close",
-        response_model=PyramidResponse,
-    )
-    def close_pyramid(pyramid_id: str, req: ClosePyramidRequest):
-        from datetime import datetime, timezone
-        store = PyramidStore()
-        try:
-            pyramid = store.load(pyramid_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-        pyramid.status = "completed" if req.completed else "stopped_out"
-        pyramid.closed_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if req.pnl is not None:
-            pyramid.aggregate_pnl_usd = float(req.pnl)
-        if req.notes:
-            existing = pyramid.notes or ""
-            pyramid.notes = (existing + "\n" + req.notes).strip() if existing else req.notes
-        store.save(pyramid)
-        return _pyramid_to_response(pyramid)
-
-    @app.delete(
-        "/api/v1/pyramid/{pyramid_id}",
-        status_code=204,
-    )
-    def delete_pyramid(pyramid_id: str, force: bool = Query(False)):
-        store = PyramidStore()
-        try:
-            pyramid = store.load(pyramid_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-        if pyramid.status == "active" and not force:
-            raise HTTPException(
-                status_code=409,
-                detail="Pyramid is active. Pass force=true to delete anyway.",
-            )
-        store.delete(pyramid_id)
-        return None
 
     # ─── Discipline ───────────────────────────────────────────────────────────
 

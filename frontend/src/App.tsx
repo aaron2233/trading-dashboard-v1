@@ -11,7 +11,6 @@ import { LottoView } from "./views/LottoView";
 import { WeeklyTrendView } from "./views/WeeklyTrendView";
 import { PositionsView } from "./views/PositionsView";
 import { JournalView } from "./views/JournalView";
-import { PyramidView } from "./views/PyramidView";
 import { SundayScanRetroView } from "./views/SundayScanRetroView";
 import { SundayScanView } from "./views/SundayScanView";
 import { WeeklyReviewView } from "./views/WeeklyReviewView";
@@ -26,10 +25,9 @@ interface NavGroupDef {
 }
 
 // Single Scan dropdown groups every "find me a setup" tool. General-purpose
-// scanners come first; the divider separates them from playbook-specific
-// dashboards (Lotto, Pyramid) which also output setups but only for their
-// own account/strategy. Kill sheet, Positions, Journal, Weekly review live
-// at the top level — each is one click away.
+// scanners come first; the divider separates them from the Lotto playbook
+// which outputs setups for its own account only. Kill sheet, Positions,
+// Journal, Weekly review live at the top level — each is one click away.
 const SCAN_GROUP: NavGroupDef = {
   label: "Scan",
   items: [
@@ -38,7 +36,6 @@ const SCAN_GROUP: NavGroupDef = {
     { kind: "link", to: "/focus", label: "Sunday focus" },
     { kind: "divider" },
     { kind: "link", to: "/lotto", label: "Lotto · $1K playbook" },
-    { kind: "link", to: "/pyramid", label: "Pyramid · trend tranches" },
   ],
 };
 
@@ -211,7 +208,6 @@ export function App() {
           <Route path="/focus/:date" element={<SundayScanRetroView />} />
           <Route path="/kill-sheet" element={<KillSheetView />} />
           <Route path="/lotto" element={<LottoView />} />
-          <Route path="/pyramid" element={<PyramidView />} />
           <Route path="/weekly-review" element={<WeeklyReviewView />} />
           <Route path="/positions" element={<PositionsView />} />
           <Route path="/journal" element={<JournalView />} />

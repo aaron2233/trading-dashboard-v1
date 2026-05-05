@@ -182,13 +182,7 @@ def test_query_discipline_limit_clamped(client: TestClient):
     assert r.status_code == 422
 
 
-# ── Query — pyramids / weekly / aggregates ─────────────────────────────────
-
-
-def test_query_pyramids_empty(client: TestClient):
-    r = client.get("/api/v1/query/pyramids")
-    assert r.status_code == 200
-    assert r.json() == []
+# ── Query — weekly / aggregates ────────────────────────────────────────────
 
 
 def test_query_weekly_reviews_empty(client: TestClient):
@@ -248,7 +242,6 @@ def test_agent_snapshot_empty_cache(client: TestClient):
     body = r.json()
     assert body["open_positions"] == []
     assert body["recent_discipline_scores"] == []
-    assert body["active_pyramids"] == []
     assert body["weekly_reviews"] == []
     assert body["recent_sunday_scans"] == []
     assert body["summary"]["discipline"]["scored"] == 0

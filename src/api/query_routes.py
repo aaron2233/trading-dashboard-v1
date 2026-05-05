@@ -6,7 +6,7 @@ JSON file-scan can't deliver well. Read from the SQLite cache.
 `/api/v1/agent/snapshot` — comprehensive read-only state bundle for the
 L0 read-only agent. Lets chat-Claude (in another conversation) see the
 live dashboard state — regime, open positions, recent discipline scores,
-active pyramids, weekly stats, latest Sunday scan — in one round-trip.
+weekly stats, latest Sunday scan — in one round-trip.
 
 The L0 agent never mutates state. Per V2 decision: "Agent autonomy
 capped at L0 (read-only) and L1 (propose-and-prepare); L2/L3 explicitly
@@ -69,13 +69,6 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
             limit=limit,
         )
 
-    @router.get("/api/v1/query/pyramids")
-    def query_pyramids(
-        status: str | None = Query(None),
-        ticker: str | None = Query(None),
-    ) -> list[dict[str, Any]]:
-        return _cache().query_pyramids(status=status, ticker=ticker)
-
     @router.get("/api/v1/query/weekly-reviews")
     def query_weekly(
         limit: int | None = Query(None, ge=1, le=200),
@@ -107,7 +100,6 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
         manual JSON edits, recovery from backups, or schema changes."""
         from discipline.store import DisciplineStore
         from positions.store import PositionStore
-        from pyramid.store import PyramidStore
 
         cache = _cache()
         positions = [p.to_dict() for p in PositionStore().list_all()]
@@ -121,7 +113,6 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
                 payload = load_json_safe(path)
                 if payload is not None:
                     weekly.append(payload)
-        pyramids = [py.to_dict() for py in PyramidStore().list_all()]
         scans = list_recent_sunday_scans(limit=200)
         # list_recent_sunday_scans returns SundayScanSummary, but we need
         # the full payload for cache. Re-load instead.
@@ -138,7 +129,6 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
             positions=positions,
             discipline_scores=scores,
             weekly_reviews=weekly,
-            pyramids=pyramids,
             sunday_scans=scan_payloads,
         )
         return {"rebuilt": True, "counts": counts}
@@ -148,15 +138,14 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
     @router.get("/api/v1/agent/snapshot")
     def agent_snapshot() -> dict[str, Any]:
         """One-shot read-only state bundle for chat-Claude. Read-only
-        access to: open positions, recent discipline scores, active
-        pyramids, latest weekly review, last 5 Sunday scans, summary
-        aggregates. No regime data here — caller pulls /api/v1/scan/SPY
-        for that since the regime read is computed live, not cached."""
+        access to: open positions, recent discipline scores, latest
+        weekly review, last 5 Sunday scans, summary aggregates. No
+        regime data here — caller pulls /api/v1/scan/SPY for that since
+        the regime read is computed live, not cached."""
         cache = _cache()
         return {
             "open_positions": cache.query_positions(status="open"),
             "recent_discipline_scores": cache.query_discipline_scores(limit=10),
-            "active_pyramids": cache.query_pyramids(status="active"),
             "weekly_reviews": cache.query_weekly_reviews(limit=4),
             "recent_sunday_scans": cache.query_recent_sunday_scans(limit=5),
             "summary": {

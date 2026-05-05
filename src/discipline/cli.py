@@ -95,27 +95,9 @@ def cmd_score(args: argparse.Namespace) -> int:
         )
         return 2
 
-    # Active pyramid lookup at scoring time (current state — best we have)
-    pyramid_active = None
-    try:
-        from pyramid import PyramidStore
-        active = PyramidStore().list_active()
-        for pyr in active:
-            if (
-                pyr.ticker.upper() == position.ticker.upper()
-                and pyr.direction.lower() == position.direction.lower()
-            ):
-                pyramid_active = True
-                break
-        else:
-            pyramid_active = False
-    except Exception:
-        pyramid_active = None
-
     score = score_trade(
         position,
         kill_sheet=None,  # TODO: lookup from disk via index when available
-        pyramid_active_at_entry=pyramid_active,
         notes=args.notes or "",
     )
 
