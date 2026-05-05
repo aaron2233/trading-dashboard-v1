@@ -61,11 +61,11 @@ export function ScanView() {
           e.preventDefault();
           void handleScan(ticker.trim().toUpperCase());
         }}
-        className="flex gap-2 mb-4"
+        className="flex gap-2 mb-2"
       >
         <input
           className="input flex-1"
-          placeholder="Ticker (e.g. SPY, AAPL, GLD)"
+          placeholder="Ticker — equity (SPY, AAPL) or crypto (BTC_USDT, ETH_USDT)"
           value={ticker}
           onChange={(e) => setTicker(e.target.value)}
           autoFocus
@@ -74,6 +74,11 @@ export function ScanView() {
           {loading ? "Scanning…" : "Scan"}
         </button>
       </form>
+      <div className="text-xs text-text-secondary mb-4">
+        Crypto pairs use Crypto.com underscore format (e.g. <code>BTC_USDT</code>).
+        Equities go through yfinance. Same MA Ribbon + Stochastic + SQN stack
+        either way.
+      </div>
 
       {error && (
         <div className="panel p-3 mb-4 border-signal-bear/50">
