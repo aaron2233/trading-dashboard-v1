@@ -6,7 +6,6 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { useDashboardState } from "./state/DashboardStateContext";
 import { HomeView } from "./views/HomeView";
 import { ScanView } from "./views/ScanView";
-import { FreeRangeView } from "./views/FreeRangeView";
 import { KillSheetView } from "./views/KillSheetView";
 import { CryptoView } from "./views/CryptoView";
 import { LottoView } from "./views/LottoView";
@@ -36,7 +35,6 @@ const SCAN_GROUP: NavGroupDef = {
   label: "Scan",
   items: [
     { kind: "link", to: "/scan", label: "Scan ticker" },
-    { kind: "link", to: "/free-range", label: "Free-range scan" },
     { kind: "link", to: "/weekly", label: "Weekly trend" },
     { kind: "link", to: "/crypto", label: "Crypto" },
     { kind: "link", to: "/focus", label: "Sunday focus" },
@@ -210,7 +208,6 @@ export function App() {
         <Routes>
           <Route path="/" element={<HomeView />} />
           <Route path="/scan" element={<ScanView />} />
-          <Route path="/free-range" element={<FreeRangeView />} />
           <Route path="/weekly" element={<WeeklyTrendView />} />
           <Route path="/crypto" element={<CryptoView />} />
           <Route path="/focus" element={<SundayScanView />} />
