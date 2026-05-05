@@ -7,6 +7,12 @@ Wires into the kill-sheet rules engine to BLOCK lotto kill sheets while
 cooldowns are active.
 """
 from lotto.rules import LottoCooldownViolation, check_lotto_cooldown
+from lotto.strikes import (
+    DEFAULT_OTM_PCTS,
+    StrikeCandidate,
+    StrikeSuggestionsResult,
+    suggest_strikes,
+)
 from lotto.state import (
     BIG_WIN_COOLDOWN_HOURS,
     BIG_WIN_RETURN_PCT,
@@ -25,6 +31,7 @@ __all__ = [
     "BIG_WIN_COOLDOWN_HOURS",
     "BIG_WIN_RETURN_PCT",
     "CASH_FLOOR_USD",
+    "DEFAULT_OTM_PCTS",
     "GROWTH_LADDER",
     "LOSS_STREAK_COOLDOWN_HOURS",
     "LOSS_STREAK_TRIGGER",
@@ -33,6 +40,9 @@ __all__ = [
     "LottoCooldownViolation",
     "LottoState",
     "LottoTradeSummary",
+    "StrikeCandidate",
+    "StrikeSuggestionsResult",
     "check_lotto_cooldown",
     "compute_lotto_state",
+    "suggest_strikes",
 ]

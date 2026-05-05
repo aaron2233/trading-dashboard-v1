@@ -20,6 +20,7 @@ import type {
   RegimeHealthHistoryResponse,
   RegimeHealthSnapshot,
   ScanResult,
+  StrikeSuggestionsResult,
   SundayScanResponse,
   SundayScanSummary,
   WeeklyReviewDTO,
@@ -45,6 +46,11 @@ export const api = {
   dashboardState: () => request<DashboardState>("/api/v1/dashboard/state"),
 
   lottoState: () => request<LottoState>("/api/v1/lotto/state"),
+
+  lottoStrikes: (ticker: string, direction: "call" | "put" | "both" = "both") =>
+    request<StrikeSuggestionsResult>(
+      `/api/v1/lotto/strikes/${encodeURIComponent(ticker)}?direction=${direction}`,
+    ),
 
   weeklyScan: (req: WeeklyScanRequest) =>
     request<WeeklyScanResponse>("/api/v1/weekly/scan", {

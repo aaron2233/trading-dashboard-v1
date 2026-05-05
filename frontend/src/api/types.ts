@@ -344,6 +344,27 @@ export interface WeeklyReviewDTO {
   lockdown_behavior: string | null;
 }
 
+// ─── Lotto strike suggestions ──────────────────────────────────────────
+
+export type StrikeDirection = "call" | "put";
+
+export interface StrikeCandidate {
+  direction: StrikeDirection;
+  strike: number;
+  pct_otm: number;
+  moneyness: string;          // "ATM", "1% OTM", ...
+  distance_usd: number;
+}
+
+export interface StrikeSuggestionsResult {
+  ticker: string;
+  spot: number;
+  bar_date: string;
+  increment: number;
+  calls: StrikeCandidate[];
+  puts: StrikeCandidate[];
+}
+
 // ─── Regime Health ─────────────────────────────────────────────────────
 
 export type IndicatorStatus = "green" | "amber" | "red" | "unknown" | "error";

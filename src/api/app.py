@@ -227,6 +227,40 @@ def create_app(
             open_position_ids=state.open_position_ids,
         )
 
+    @app.get("/api/v1/lotto/strikes/{ticker}")
+    def lotto_strike_suggestions(
+        ticker: str,
+        direction: str = Query("both", pattern="^(call|put|both)$"),
+        increment: float | None = Query(None, ge=0.01, le=100.0),
+    ) -> dict[str, Any]:
+        """Strike candidates around current spot for a Lotto setup. Returns
+        ATM + 1/3/5/7/10% OTM by default. Premium / IV / delta NOT included
+        — those flow through the options-input layer at kill-sheet time."""
+        from lotto import suggest_strikes
+        ticker_u = ticker.upper()
+        try:
+            row = scan_ticker(ticker_u, "1d")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Spot fetch failed for {ticker_u}: {exc}",
+            )
+        spot = row.get("close")
+        if spot is None or spot <= 0:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No usable spot price for {ticker_u}",
+            )
+        dir_arg = None if direction == "both" else direction
+        result = suggest_strikes(
+            spot=float(spot),
+            direction=dir_arg,
+            ticker=ticker_u,
+            bar_date=row.get("bar_date", ""),
+            increment=increment,
+        )
+        return result.to_dict()
+
     # ─── Weekly trend scan ────────────────────────────────────────────────────
 
     @app.post("/api/v1/weekly/scan", response_model=WeeklyScanResponse)

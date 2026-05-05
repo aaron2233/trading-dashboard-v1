@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { StrikeSuggestionsPanel } from "../components/lotto/StrikeSuggestionsPanel";
 import { VerdictHero } from "../components/Verdict";
 import type { Verdict } from "../lib/verdict";
 import type {
@@ -477,6 +478,8 @@ export function LottoView() {
         onFullScan={runFullScan}
         fullScanLoading={fullScanLoading}
       />
+
+      <StrikeSuggestionsPanel />
 
       {state && (
         <>
