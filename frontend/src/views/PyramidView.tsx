@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
+import { VerdictBadge } from "../components/Verdict";
+import { fromPyramidGate, fromTrancheTrigger } from "../lib/verdict";
 import type {
   Pyramid,
   PyramidEvaluation,
@@ -19,14 +21,6 @@ function severityClass(s: "info" | "warn" | "action"): string {
   }
 }
 
-function GateBadge({ permitted }: { permitted: boolean }) {
-  return (
-    <span className={`badge ${permitted ? "badge-bull" : "badge-bear"}`}>
-      {permitted ? "GREEN" : "RED"}
-    </span>
-  );
-}
-
 function CheckMark({ ok }: { ok: boolean }) {
   return (
     <span className={ok ? "text-signal-bull" : "text-signal-bear"}>
@@ -35,157 +29,192 @@ function CheckMark({ ok }: { ok: boolean }) {
   );
 }
 
-function TrancheRow({ tranche }: { tranche: Tranche }) {
-  const cost =
-    tranche.cost_basis_per_unit !== null && tranche.quantity !== null
-      ? tranche.vehicle === "leaps_call" || tranche.vehicle === "leaps_put"
-        ? tranche.cost_basis_per_unit * tranche.quantity * 100
-        : tranche.cost_basis_per_unit * tranche.quantity
-      : null;
+function tranchePosCost(t: Tranche): number | null {
+  if (t.cost_basis_per_unit === null || t.quantity === null) return null;
+  const isLeaps = t.vehicle === "leaps_call" || t.vehicle === "leaps_put";
+  return t.cost_basis_per_unit * t.quantity * (isLeaps ? 100 : 1);
+}
+
+function trancheStatusBadge(status: Tranche["status"]): string {
+  if (status === "filled") return "badge-bull";
+  if (status === "skipped") return "badge-muted";
+  return "badge-info";
+}
+
+function TrancheTable({ tranches }: { tranches: Tranche[] }) {
   return (
-    <div className="text-xs grid grid-cols-7 gap-2 py-1">
-      <span className="font-semibold">T{tranche.id}</span>
-      <span
-        className={`badge ${
-          tranche.status === "filled"
-            ? "badge-bull"
-            : tranche.status === "skipped"
-            ? "badge-muted"
-            : "badge-info"
-        }`}
-      >
-        {tranche.status}
-      </span>
-      <span>{tranche.vehicle ?? "—"}</span>
-      <span>
-        {tranche.cost_basis_per_unit !== null
-          ? `$${tranche.cost_basis_per_unit}`
-          : "—"}
-      </span>
-      <span>{tranche.quantity ?? "—"}</span>
-      <span>
-        {tranche.expiry ? `${tranche.expiry} (DTE)` : tranche.strike ? `K=$${tranche.strike}` : "—"}
-      </span>
-      <span>{cost !== null ? `$${cost.toFixed(0)}` : "—"}</span>
-    </div>
+    <table className="w-full text-xs">
+      <thead className="text-[10px] uppercase tracking-wider text-text-muted border-b border-bg-border">
+        <tr>
+          <th className="text-left px-3 py-2">Tranche</th>
+          <th className="text-left px-3 py-2">Status</th>
+          <th className="text-left px-3 py-2">Vehicle</th>
+          <th className="text-right px-3 py-2">Cost</th>
+          <th className="text-right px-3 py-2">Qty</th>
+          <th className="text-left px-3 py-2">Strike / Expiry</th>
+          <th className="text-right px-3 py-2">Total $</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tranches.map((t) => {
+          const cost = tranchePosCost(t);
+          return (
+            <tr key={t.id} className="border-b border-bg-border/40">
+              <td className="px-3 py-2 font-semibold">T{t.id}</td>
+              <td className="px-3 py-2">
+                <span className={`badge ${trancheStatusBadge(t.status)}`}>
+                  {t.status}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-text-secondary">{t.vehicle ?? "—"}</td>
+              <td className="px-3 py-2 text-right font-mono">
+                {t.cost_basis_per_unit !== null ? `$${t.cost_basis_per_unit}` : "—"}
+              </td>
+              <td className="px-3 py-2 text-right font-mono">{t.quantity ?? "—"}</td>
+              <td className="px-3 py-2 text-text-secondary">
+                {t.expiry ? `${t.expiry}` : t.strike ? `K=$${t.strike}` : "—"}
+              </td>
+              <td className="px-3 py-2 text-right font-mono">
+                {cost !== null ? `$${cost.toFixed(0)}` : "—"}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
 function EvaluationPanel({ ev }: { ev: PyramidEvaluation }) {
+  const direction: Direction = ev.direction === "short" ? "short" : "long";
   return (
-    <div className="border border-bg-border rounded p-3 bg-bg-panel space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-text-secondary text-xs uppercase tracking-widest">Evaluation</span>
-          <h3 className="text-lg font-semibold mt-1">
-            {ev.ticker}{" "}
-            <span className="text-text-muted">
-              ({ev.direction.toUpperCase()})
-            </span>
-          </h3>
-          <div className="text-xs text-text-muted">
-            Bar: {ev.bar_date} · Close ${ev.close.toFixed(2)}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-muted">Gate</span>
-          <GateBadge permitted={ev.gate.permitted} />
+    <div className="panel">
+      <div className="panel-header flex items-center justify-between">
+        <span>
+          Evaluation — {ev.ticker}{" "}
+          <span className="text-text-muted">({ev.direction.toUpperCase()})</span>
+        </span>
+        <div className="flex items-center gap-2 normal-case">
+          <span className="text-text-muted text-[10px]">Gate</span>
+          <VerdictBadge verdict={fromPyramidGate(ev.gate)} />
         </div>
       </div>
-
-      <div className="grid grid-cols-3 gap-3 text-xs">
-        <div>
-          <div className="text-text-muted uppercase text-[10px] mb-1">Regime</div>
-          <div>
-            SQN(100):{" "}
-            <span className="font-mono">
-              {ev.sqn_100_value !== null ? ev.sqn_100_value.toFixed(2) : "—"}
-            </span>{" "}
-            <span className="text-text-muted">{ev.sqn_100_regime}</span>
-          </div>
-          <div>
-            SQN(20):{" "}
-            <span className="font-mono">
-              {ev.sqn_20_value !== null ? ev.sqn_20_value.toFixed(2) : "—"}
-            </span>{" "}
-            <span className="text-text-muted">{ev.sqn_20_regime}</span>
-          </div>
-          <div className="text-text-muted">{ev.sqn_diagnostic ?? "—"}</div>
+      <div className="panel-body space-y-3">
+        <div className="text-xs text-text-muted">
+          Bar {ev.bar_date} · Close ${ev.close.toFixed(2)}
         </div>
 
-        <div>
-          <div className="text-text-muted uppercase text-[10px] mb-1">MA Ribbon</div>
-          <div>10: ${ev.ma_10?.toFixed(2) ?? "—"}</div>
-          <div>20: ${ev.ma_20?.toFixed(2) ?? "—"}</div>
-          <div>50: ${ev.ma_50?.toFixed(2) ?? "—"}</div>
-          <div>200: ${ev.ma_200?.toFixed(2) ?? "—"}</div>
-          <div className="mt-1 text-text-muted">Stack: {ev.ma_stack_state}</div>
-        </div>
-
-        <div>
-          <div className="text-text-muted uppercase text-[10px] mb-1">Stoch / Structure</div>
+        {/* Tranche triggers — primary action signal, always visible */}
+        {(ev.t1 || ev.t2 || ev.t3) && (
           <div>
-            %K {ev.stoch_k?.toFixed(1) ?? "—"} / %D {ev.stoch_d?.toFixed(1) ?? "—"}
+            <div className="label">Tranche triggers</div>
+            <div className="space-y-1">
+              {[ev.t1, ev.t2, ev.t3].map((t, i) =>
+                t ? (
+                  <div key={i} className="flex items-start gap-3">
+                    <span className="font-semibold text-sm w-8">T{t.tranche_id}</span>
+                    <VerdictBadge
+                      verdict={fromTrancheTrigger(t, direction)}
+                      size="sm"
+                    />
+                    {t.blockers.length > 0 && (
+                      <span className="text-xs text-text-muted flex-1">
+                        {t.blockers[0]}
+                        {t.blockers.length > 1 ? ` (+${t.blockers.length - 1} more)` : ""}
+                      </span>
+                    )}
+                  </div>
+                ) : null,
+              )}
+            </div>
           </div>
-          <div>HH/HL: <CheckMark ok={ev.structure.higher_low_confirmed} /> / LH/LL: <CheckMark ok={ev.structure.lower_high_confirmed} /></div>
-          <div>
-            Pullback 20MA: <CheckMark ok={ev.structure.pullback_held_20ma} /> / 50MA: <CheckMark ok={ev.structure.pullback_held_50ma} />
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <div className="text-text-muted uppercase text-[10px] mb-1">Gate (5 conditions)</div>
-        <div className="flex gap-3 text-xs">
-          <span>SQN(100) <CheckMark ok={ev.gate.sqn_100_pass} /></span>
-          <span>SQN(20) <CheckMark ok={ev.gate.sqn_20_pass} /></span>
-          <span>MA <CheckMark ok={ev.gate.ma_stack_pass} /></span>
-          <span>Pullback <CheckMark ok={ev.gate.pullback_pass} /></span>
-          <span>Structure <CheckMark ok={ev.gate.structure_pass} /></span>
-        </div>
-        {ev.gate.blockers.length > 0 && (
-          <ul className="mt-1 text-xs text-signal-bear list-disc list-inside">
-            {ev.gate.blockers.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
-          </ul>
         )}
-      </div>
 
-      {(ev.t1 || ev.t2 || ev.t3) && (
-        <div>
-          <div className="text-text-muted uppercase text-[10px] mb-1">Tranche Triggers</div>
-          {[ev.t1, ev.t2, ev.t3].map((t, i) =>
-            t ? (
-              <div key={i} className="text-xs mb-1">
-                <span className="font-semibold">T{t.tranche_id}</span>{" "}
-                {t.should_fire ? (
-                  <span className="badge badge-bull">FIRE</span>
-                ) : (
-                  <span className="badge badge-muted">WAIT</span>
-                )}
-                {t.blockers.length > 0 && (
-                  <ul className="ml-4 list-disc list-inside text-text-muted">
-                    {t.blockers.map((b, j) => (
-                      <li key={j}>{b}</li>
-                    ))}
-                  </ul>
-                )}
+        {/* Exits — surface only when there's something to act on */}
+        {ev.exits.length > 0 && (
+          <div>
+            <div className="label">Exit directives</div>
+            <ul className="text-xs space-y-1">
+              {ev.exits.map((d, i) => (
+                <li key={i} className={severityClass(d.severity)}>
+                  <span className="font-semibold uppercase">{d.action}</span> · {d.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Detailed indicators — collapsed by default */}
+        <details className="border-t border-bg-border pt-2">
+          <summary className="cursor-pointer text-xs text-text-secondary hover:text-text-primary">
+            Indicator detail
+          </summary>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs mt-3">
+            <div>
+              <div className="label">Regime</div>
+              <div>
+                SQN(100):{" "}
+                <span className="font-mono">
+                  {ev.sqn_100_value !== null ? ev.sqn_100_value.toFixed(2) : "—"}
+                </span>{" "}
+                <span className="text-text-muted">{ev.sqn_100_regime}</span>
               </div>
-            ) : null,
-          )}
-        </div>
-      )}
+              <div>
+                SQN(20):{" "}
+                <span className="font-mono">
+                  {ev.sqn_20_value !== null ? ev.sqn_20_value.toFixed(2) : "—"}
+                </span>{" "}
+                <span className="text-text-muted">{ev.sqn_20_regime}</span>
+              </div>
+              <div className="text-text-muted">{ev.sqn_diagnostic ?? "—"}</div>
+            </div>
 
-      <div>
-        <div className="text-text-muted uppercase text-[10px] mb-1">Exits</div>
-        <ul className="text-xs space-y-0.5">
-          {ev.exits.map((d, i) => (
-            <li key={i} className={severityClass(d.severity)}>
-              [{d.action}] {d.reason}
-            </li>
-          ))}
-        </ul>
+            <div>
+              <div className="label">MA Ribbon</div>
+              <div>10: ${ev.ma_10?.toFixed(2) ?? "—"}</div>
+              <div>20: ${ev.ma_20?.toFixed(2) ?? "—"}</div>
+              <div>50: ${ev.ma_50?.toFixed(2) ?? "—"}</div>
+              <div>200: ${ev.ma_200?.toFixed(2) ?? "—"}</div>
+              <div className="mt-1 text-text-muted">Stack: {ev.ma_stack_state}</div>
+            </div>
+
+            <div>
+              <div className="label">Stoch / Structure</div>
+              <div>
+                %K {ev.stoch_k?.toFixed(1) ?? "—"} / %D {ev.stoch_d?.toFixed(1) ?? "—"}
+              </div>
+              <div>
+                HH/HL: <CheckMark ok={ev.structure.higher_low_confirmed} /> /
+                LH/LL: <CheckMark ok={ev.structure.lower_high_confirmed} />
+              </div>
+              <div>
+                Pullback 20MA: <CheckMark ok={ev.structure.pullback_held_20ma} /> /
+                50MA: <CheckMark ok={ev.structure.pullback_held_50ma} />
+              </div>
+            </div>
+          </div>
+        </details>
+
+        {/* Gate condition breakdown — collapsed by default */}
+        <details className="border-t border-bg-border pt-2">
+          <summary className="cursor-pointer text-xs text-text-secondary hover:text-text-primary">
+            Gate breakdown (5 conditions)
+          </summary>
+          <div className="flex flex-wrap gap-3 text-xs mt-3">
+            <span>SQN(100) <CheckMark ok={ev.gate.sqn_100_pass} /></span>
+            <span>SQN(20) <CheckMark ok={ev.gate.sqn_20_pass} /></span>
+            <span>MA <CheckMark ok={ev.gate.ma_stack_pass} /></span>
+            <span>Pullback <CheckMark ok={ev.gate.pullback_pass} /></span>
+            <span>Structure <CheckMark ok={ev.gate.structure_pass} /></span>
+          </div>
+          {ev.gate.blockers.length > 0 && (
+            <ul className="mt-2 text-xs text-signal-bear list-disc list-inside">
+              {ev.gate.blockers.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+          )}
+        </details>
       </div>
     </div>
   );
@@ -233,62 +262,69 @@ function PlanningPanel({ onCreated }: { onCreated: () => void }) {
   }, [ticker, direction, benchmark, allocation, onCreated]);
 
   return (
-    <section className="border border-bg-border rounded p-3 bg-bg-panel space-y-3">
-      <h2 className="text-sm uppercase tracking-widest text-text-secondary">Planning</h2>
-      <div className="grid grid-cols-5 gap-2 text-sm">
-        <label className="flex flex-col">
-          <span className="text-xs text-text-muted">Ticker</span>
-          <input
-            value={ticker}
-            onChange={(e) => setTicker(e.target.value.toUpperCase())}
-            className="input"
-          />
-        </label>
-        <label className="flex flex-col">
-          <span className="text-xs text-text-muted">Direction</span>
-          <select
-            value={direction}
-            onChange={(e) => setDirection(e.target.value as Direction)}
-            className="input"
-          >
-            <option value="long">long</option>
-            <option value="short">short</option>
-          </select>
-        </label>
-        <label className="flex flex-col">
-          <span className="text-xs text-text-muted">Benchmark</span>
-          <input
-            value={benchmark}
-            onChange={(e) => setBenchmark(e.target.value.toUpperCase())}
-            className="input"
-          />
-        </label>
-        <label className="flex flex-col">
-          <span className="text-xs text-text-muted">Allocation $</span>
-          <input
-            type="number"
-            value={allocation}
-            onChange={(e) => setAllocation(Number(e.target.value))}
-            className="input"
-          />
-        </label>
-        <div className="flex items-end gap-2">
-          <button type="button" className="btn" onClick={() => void runEval()} disabled={loading}>
-            {loading ? "…" : "Evaluate"}
-          </button>
+    <section className="panel">
+      <div className="panel-header">Planning</div>
+      <div className="panel-body space-y-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <label className="flex flex-col">
+            <span className="label">Ticker</span>
+            <input
+              value={ticker}
+              onChange={(e) => setTicker(e.target.value.toUpperCase())}
+              className="input"
+            />
+          </label>
+          <label className="flex flex-col">
+            <span className="label">Direction</span>
+            <select
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as Direction)}
+              className="input"
+            >
+              <option value="long">long</option>
+              <option value="short">short</option>
+            </select>
+          </label>
+          <label className="flex flex-col">
+            <span className="label">Benchmark</span>
+            <input
+              value={benchmark}
+              onChange={(e) => setBenchmark(e.target.value.toUpperCase())}
+              className="input"
+            />
+          </label>
+          <label className="flex flex-col">
+            <span className="label">Allocation $</span>
+            <input
+              type="number"
+              value={allocation}
+              onChange={(e) => setAllocation(Number(e.target.value))}
+              className="input"
+            />
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             className="btn"
+            onClick={() => void runEval()}
+            disabled={loading}
+          >
+            {loading ? "Evaluating…" : "Evaluate"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
             onClick={() => void create()}
             disabled={creating}
             title="Save as a pending pyramid"
           >
-            {creating ? "…" : "Create"}
+            {creating ? "Creating…" : "Create"}
           </button>
         </div>
+        {error && <div className="text-xs text-signal-bear">{error}</div>}
+        {evaluation && <EvaluationPanel ev={evaluation} />}
       </div>
-      {error && <div className="text-xs text-signal-bear">{error}</div>}
-      {evaluation && <EvaluationPanel ev={evaluation} />}
     </section>
   );
 }
@@ -315,38 +351,33 @@ function PyramidCard({ pyramid }: { pyramid: Pyramid }) {
   }, [refresh]);
 
   return (
-    <section className="border border-bg-border rounded p-3 bg-bg-panel space-y-2">
-      <header className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {pyramid.ticker}{" "}
-            <span className="text-text-muted">({pyramid.direction.toUpperCase()})</span>
-          </h3>
-          <div className="text-xs text-text-muted">
-            ID {pyramid.id} · {pyramid.status} · ${pyramid.total_allocation_usd.toLocaleString()} ·
-            created {pyramid.created_date}
-          </div>
-        </div>
-        <button type="button" className="btn text-xs" onClick={() => void refresh()} disabled={loading}>
+    <section className="panel">
+      <div className="panel-header flex items-center justify-between">
+        <span>
+          {pyramid.ticker}{" "}
+          <span className="text-text-muted normal-case">
+            ({pyramid.direction.toUpperCase()})
+          </span>
+        </span>
+        <button
+          type="button"
+          className="btn text-xs"
+          onClick={() => void refresh()}
+          disabled={loading}
+        >
           {loading ? "…" : "↻"}
         </button>
-      </header>
-
-      <div className="text-xs grid grid-cols-7 gap-2 text-text-muted font-semibold">
-        <span>Tranche</span>
-        <span>Status</span>
-        <span>Vehicle</span>
-        <span>Cost</span>
-        <span>Qty</span>
-        <span>Strike/Expiry</span>
-        <span>Total $</span>
       </div>
-      {pyramid.tranches.map((t) => (
-        <TrancheRow key={t.id} tranche={t} />
-      ))}
-
-      {error && <div className="text-xs text-signal-bear">{error}</div>}
-      {ev && <EvaluationPanel ev={ev} />}
+      <div className="panel-body space-y-3">
+        <div className="text-xs text-text-muted">
+          ID {pyramid.id} · {pyramid.status} · $
+          {pyramid.total_allocation_usd.toLocaleString()} · created{" "}
+          {pyramid.created_date}
+        </div>
+        <TrancheTable tranches={pyramid.tranches} />
+        {error && <div className="text-xs text-signal-bear">{error}</div>}
+        {ev && <EvaluationPanel ev={ev} />}
+      </div>
     </section>
   );
 }
@@ -374,11 +405,11 @@ export function PyramidView() {
   }, [refresh]);
 
   return (
-    <div className="p-4 space-y-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Trend Pyramid</h1>
-        <div className="flex items-center gap-2 text-xs">
-          <label className="flex items-center gap-1 text-text-muted">
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
+      <header className="page-header-row">
+        <h1 className="page-title">Trend Pyramid</h1>
+        <div className="flex items-center gap-3 text-xs">
+          <label className="flex items-center gap-1.5 text-text-secondary uppercase tracking-wider">
             <input
               type="checkbox"
               checked={showAll}
@@ -386,8 +417,13 @@ export function PyramidView() {
             />
             Show closed
           </label>
-          <button type="button" className="btn" onClick={() => void refresh()} disabled={loading}>
-            {loading ? "…" : "↻"}
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void refresh()}
+            disabled={loading}
+          >
+            {loading ? "…" : "Refresh"}
           </button>
         </div>
       </header>
@@ -396,9 +432,9 @@ export function PyramidView() {
 
       {error && <div className="text-xs text-signal-bear">{error}</div>}
       {pyramids.length === 0 ? (
-        <div className="text-sm text-text-muted">
-          No {showAll ? "" : "active "}pyramids. Use the planning panel above to evaluate a setup
-          and Create one.
+        <div className="panel p-3 text-sm text-text-secondary">
+          No {showAll ? "" : "active "}pyramids. Use the planning panel above to
+          evaluate a setup, then Create.
         </div>
       ) : (
         <div className="space-y-3">

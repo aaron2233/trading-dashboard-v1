@@ -2,50 +2,520 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Terminal × Brutalist × Indie-Zine design system
+   - Phosphor palette on near-black (dark mode, default)
+   - Cream / parchment palette with deep ink (light mode, html.light)
+   - Monospace everywhere; VT323 for retro display numerics
+   - Square corners, hairline rules, thick brutalist edges on critical panels
+   - Win95 bevel option for hero callouts (.panel-bevel)
+   - Numbered section headers (`01 / REGIME`)
+   ───────────────────────────────────────────────────────────────────────── */
+
+
+/* ── Palette as rgb-triplet CSS vars (no commas) ──────────────────────── */
+/* Dark mode = default. Light mode overrides under html.light below. */
+
+:root {
+  /* Surface */
+  --color-bg-base:     10 10 10;       /* #0a0a0a near-black */
+  --color-bg-panel:    15 15 15;       /* #0f0f0f */
+  --color-bg-elevated: 22 22 22;       /* #161616 */
+  --color-bg-border:   38 38 38;       /* #262626 hairline */
+  --color-bg-rule:     58 58 58;       /* #3a3a3a brutalist rule */
+
+  /* Text — warm CRT phosphor afterglow */
+  --color-text-primary:   232 230 224; /* #e8e6e0 */
+  --color-text-secondary: 138 133 125; /* #8a857d */
+  --color-text-muted:     85 80 73;    /* #555049 */
+
+  /* Signal — phosphor neon */
+  --color-signal-bull:   0 255 102;    /* #00ff66 */
+  --color-signal-bear:   255 48 48;    /* #ff3030 */
+  --color-signal-flag:   255 176 0;    /* #ffb000 */
+  --color-signal-info:   0 217 255;    /* #00d9ff */
+  --color-signal-violet: 167 139 250;  /* #a78bfa */
+  --color-signal-paper:  243 236 205;  /* #f3eccd parchment */
+
+  /* Bevel highlight/shadow used by .panel-bevel */
+  --color-bevel-light: 64 64 64;       /* #404040 — top/left highlight on dark */
+  --color-bevel-dark:  0 0 0;          /* #000000 — bottom/right shadow on dark */
+}
+
+html.light {
+  /* Surface — committed parchment, brighter for contrast */
+  --color-bg-base:     245 233 196;    /* #f5e9c4 cream, slightly warmer */
+  --color-bg-panel:    253 247 226;    /* #fdf7e2 paper */
+  --color-bg-elevated: 255 252 240;    /* #fffcf0 off-white */
+  --color-bg-border:    44  32  24;    /* #2c2018 near-ink (zine borders are bold) */
+  --color-bg-rule:      26  20  16;    /* #1a1410 ink rule */
+
+  /* Text — deep ink */
+  --color-text-primary:   23  18  14;  /* #17120e near-black ink */
+  --color-text-secondary: 87  68  48;  /* #574430 warm secondary */
+  --color-text-muted:    134 113  88;  /* #867158 muted brown */
+
+  /* Signal — saturated retro-print colors that pop on cream */
+  --color-signal-bull:   21 128  61;   /* #15803d punchy green */
+  --color-signal-bear:  220  38  38;   /* #dc2626 vivid red */
+  --color-signal-flag:  217 119   6;   /* #d97706 strong amber */
+  --color-signal-info:   29  78 216;   /* #1d4ed8 cobalt */
+  --color-signal-violet: 109 40 217;   /* #6d28d9 deep violet */
+  --color-signal-paper:  245 233 196;  /* matches bg-base */
+
+  /* Bevel — paper white highlight + ink shadow (true Win95 chrome on cream) */
+  --color-bevel-light: 255 255 255;
+  --color-bevel-dark:   44  32  24;
+}
+
+
 @layer base {
-  body {
-    @apply bg-bg-base text-text-primary;
+  html, body {
+    @apply bg-bg-base text-text-primary font-mono antialiased;
+    font-feature-settings: "tnum" 1, "calt" 0, "ss01" 1;
+  }
+
+  table, .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: rgb(var(--color-signal-info) / 0.25);
+    color: rgb(var(--color-text-primary));
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--color-bg-base));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-bg-border));
+    border: 2px solid rgb(var(--color-bg-base));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-signal-flag));
+  }
+
+  input, select, textarea, button {
+    font-family: inherit;
+  }
+
+  /* CRT scanline overlay — dark mode only. Light mode is ink-on-paper, no
+     phosphor afterglow effect makes sense. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent 0,
+      transparent 2px,
+      rgb(var(--color-signal-flag) / 0.025) 2px,
+      rgb(var(--color-signal-flag) / 0.025) 3px
+    );
+  }
+  html.light body::before {
+    /* Light mode: a more visible paper-grain — diagonal weave that gives
+       cream a tactile, printed feel without overwhelming the content. */
+    background-image:
+      repeating-linear-gradient(
+        45deg,
+        transparent 0,
+        transparent 6px,
+        rgb(var(--color-bg-border) / 0.04) 6px,
+        rgb(var(--color-bg-border) / 0.04) 7px
+      ),
+      repeating-linear-gradient(
+        -45deg,
+        transparent 0,
+        transparent 6px,
+        rgb(var(--color-bg-border) / 0.03) 6px,
+        rgb(var(--color-bg-border) / 0.03) 7px
+      );
+  }
+
+  #root {
+    position: relative;
+    z-index: 2;
   }
 }
 
+
 @layer components {
+  /* ── Panels ──────────────────────────────────────────────────────────── */
   .panel {
-    @apply bg-bg-panel border border-bg-border rounded-md;
+    @apply bg-bg-panel border border-bg-border;
   }
+
+  .panel-active {
+    @apply bg-bg-panel border-2 border-signal-flag;
+  }
+
+  /* Win95-style beveled panel — top/left highlight + bottom/right shadow.
+     Light mode: classic chrome. Dark mode: subtle inset feel. */
+  .panel-bevel {
+    @apply bg-bg-panel;
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: rgb(var(--color-bevel-light));
+    border-left-color: rgb(var(--color-bevel-light));
+    border-right-color: rgb(var(--color-bevel-dark));
+    border-bottom-color: rgb(var(--color-bevel-dark));
+  }
+  /* Inverted (pressed) — for active states */
+  .panel-bevel-inset {
+    @apply bg-bg-panel;
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: rgb(var(--color-bevel-dark));
+    border-left-color: rgb(var(--color-bevel-dark));
+    border-right-color: rgb(var(--color-bevel-light));
+    border-bottom-color: rgb(var(--color-bevel-light));
+  }
+
   .panel-header {
-    @apply px-4 py-2 border-b border-bg-border text-text-secondary text-xs uppercase tracking-wider;
+    @apply px-4 py-2 text-text-secondary text-[11px] uppercase font-semibold;
+    letter-spacing: 0.2em;
+    border-bottom: 2px dashed rgb(var(--color-bg-border));
+    border-left: 3px solid rgb(var(--color-signal-flag) / 0.6);
   }
+
   .panel-body {
     @apply p-4;
   }
+
+  .section-header {
+    @apply flex items-baseline gap-3 mb-3 text-text-primary uppercase font-semibold;
+    letter-spacing: 0.2em;
+  }
+  .section-header::before {
+    counter-increment: section;
+    content: counter(section, decimal-leading-zero) " /";
+    @apply text-signal-flag font-bold;
+    flex-shrink: 0;
+  }
+  .section-stack {
+    counter-reset: section;
+  }
+
+  /* ── Badges ──────────────────────────────────────────────────────────── */
   .badge {
-    @apply inline-block px-2 py-0.5 rounded text-xs font-semibold;
+    @apply inline-block px-2 py-0.5 text-[11px] font-semibold uppercase;
+    letter-spacing: 0.08em;
   }
   .badge-bull {
-    @apply bg-signal-bull/20 text-signal-bull;
+    @apply text-signal-bull;
+    background: rgb(var(--color-signal-bull) / 0.12);
+    border: 1px solid rgb(var(--color-signal-bull) / 0.4);
   }
   .badge-bear {
-    @apply bg-signal-bear/20 text-signal-bear;
+    @apply text-signal-bear;
+    background: rgb(var(--color-signal-bear) / 0.12);
+    border: 1px solid rgb(var(--color-signal-bear) / 0.4);
   }
   .badge-flag {
-    @apply bg-signal-flag/20 text-signal-flag;
+    @apply text-signal-flag;
+    background: rgb(var(--color-signal-flag) / 0.12);
+    border: 1px solid rgb(var(--color-signal-flag) / 0.4);
   }
   .badge-info {
-    @apply bg-signal-info/20 text-signal-info;
+    @apply text-signal-info;
+    background: rgb(var(--color-signal-info) / 0.10);
+    border: 1px solid rgb(var(--color-signal-info) / 0.35);
   }
   .badge-muted {
-    @apply bg-text-muted/20 text-text-muted;
+    @apply text-text-muted;
+    background: rgb(var(--color-text-muted) / 0.15);
+    border: 1px solid rgb(var(--color-text-muted) / 0.4);
   }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
   .btn {
-    @apply px-3 py-1.5 rounded border border-bg-border bg-bg-elevated text-text-primary text-sm hover:bg-bg-border transition;
+    @apply px-3 py-1.5 border border-bg-border bg-bg-base text-text-primary text-[11px] uppercase font-semibold;
+    letter-spacing: 0.1em;
+    transition: background-color 80ms linear, color 80ms linear, border-color 80ms linear;
+  }
+  .btn:hover:not(:disabled) {
+    @apply bg-text-primary text-bg-base border-text-primary;
+  }
+  .btn:disabled {
+    @apply opacity-40 cursor-not-allowed;
   }
   .btn-primary {
-    @apply bg-signal-info/20 border-signal-info/50 text-signal-info hover:bg-signal-info/30;
+    @apply text-signal-flag border-signal-flag bg-transparent;
   }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-signal-flag text-bg-base border-signal-flag;
+  }
+  .btn-secondary {
+    @apply text-signal-info border-signal-info/50 bg-transparent;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    @apply bg-signal-info text-bg-base border-signal-info;
+  }
+
+  /* Win95-styled button — beveled, classic chrome */
+  .btn-chrome {
+    @apply px-3 py-1 text-[11px] uppercase font-semibold;
+    letter-spacing: 0.1em;
+    background: rgb(var(--color-bg-elevated));
+    color: rgb(var(--color-text-primary));
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: rgb(var(--color-bevel-light));
+    border-left-color: rgb(var(--color-bevel-light));
+    border-right-color: rgb(var(--color-bevel-dark));
+    border-bottom-color: rgb(var(--color-bevel-dark));
+  }
+  .btn-chrome:active {
+    border-top-color: rgb(var(--color-bevel-dark));
+    border-left-color: rgb(var(--color-bevel-dark));
+    border-right-color: rgb(var(--color-bevel-light));
+    border-bottom-color: rgb(var(--color-bevel-light));
+  }
+
+  /* ── Inputs ──────────────────────────────────────────────────────────── */
   .input {
-    @apply bg-bg-elevated border border-bg-border rounded px-2 py-1 text-text-primary text-sm focus:outline-none focus:border-signal-info;
+    @apply bg-bg-elevated border border-bg-border px-2 py-1 text-text-primary text-sm;
   }
+  .input:focus {
+    @apply outline-none border-signal-flag;
+    box-shadow: 0 0 0 1px rgb(var(--color-signal-flag) / 0.35);
+  }
+  .input::placeholder {
+    @apply text-text-muted;
+  }
+
+  /* ── Labels ──────────────────────────────────────────────────────────── */
   .label {
-    @apply text-text-secondary text-xs uppercase tracking-wider block mb-1;
+    @apply text-text-muted text-[10px] uppercase font-semibold block mb-1;
+    letter-spacing: 0.18em;
+  }
+
+  /* ── Confidence bar ──────────────────────────────────────────────────── */
+  .conf-bar {
+    @apply inline-flex gap-[2px] font-mono text-xs;
+    letter-spacing: 0;
+  }
+  .conf-bar-cell {
+    display: inline-block;
+    width: 6px;
+    height: 12px;
+    background: currentColor;
+    opacity: 0.18;
+  }
+  .conf-bar-cell.filled {
+    opacity: 1;
+  }
+
+  /* ── Phosphor glow — dark mode only ──────────────────────────────────── */
+  .phosphor {
+    text-shadow: 0 0 8px currentColor;
+  }
+  html.light .phosphor {
+    /* Light mode: drop the glow, keep the ink */
+    text-shadow: none;
+  }
+
+  /* ── Page header ─────────────────────────────────────────────────────── */
+  .page-title {
+    @apply text-text-primary uppercase font-extrabold inline-block font-display;
+    font-size: 2.4rem;
+    line-height: 1;
+    letter-spacing: 0.06em;
+  }
+  .page-title::before {
+    counter-increment: page-counter;
+    content: counter(page-counter, decimal-leading-zero) " / ";
+    @apply text-signal-flag;
+  }
+  .page-header-row {
+    @apply flex items-baseline justify-between gap-4 mb-5 pb-2 flex-wrap;
+    border-bottom: 2px dashed rgb(var(--color-signal-flag));
+  }
+
+  .page-subtitle {
+    @apply text-text-secondary text-xs uppercase font-semibold mb-5 -mt-2;
+    letter-spacing: 0.18em;
+  }
+
+  /* ── Status bar ──────────────────────────────────────────────────────── */
+  .status-bar {
+    @apply fixed bottom-0 left-0 right-0 z-30 bg-bg-base border-t-2 border-signal-flag/70
+           px-3 py-1 flex items-center gap-4 text-[10px] uppercase font-semibold;
+    letter-spacing: 0.14em;
+    font-variant-numeric: tabular-nums;
+  }
+  .status-cell {
+    @apply text-text-muted flex items-center gap-1.5;
+  }
+  .status-cell strong {
+    @apply text-signal-flag font-semibold;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: currentColor;
+    box-shadow: 0 0 4px currentColor;
+  }
+  html.light .status-dot {
+    box-shadow: none;
+  }
+  .status-cell--ok    { @apply text-signal-bull; }
+  .status-cell--warn  { @apply text-signal-flag; }
+  .status-cell--bad   { @apply text-signal-bear; }
+  .status-cell--info  { @apply text-signal-info; }
+
+  /* ── Corner brackets ─────────────────────────────────────────────────── */
+  .frame-brackets {
+    position: relative;
+  }
+  .frame-brackets::before,
+  .frame-brackets::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: currentColor;
+    border-style: solid;
+    border-width: 0;
+    pointer-events: none;
+  }
+  .frame-brackets::before {
+    top: -2px;
+    left: -2px;
+    border-top-width: 3px;
+    border-left-width: 3px;
+  }
+  .frame-brackets::after {
+    bottom: -2px;
+    right: -2px;
+    border-bottom-width: 3px;
+    border-right-width: 3px;
+  }
+
+  /* Brand wordmark — multi-color letter-cycle handled in App.tsx; this
+     class supplies the // prefix and :: V0.1 suffix decoration. */
+  .brand-mark {
+    @apply uppercase font-bold tracking-widest text-[14px] inline-flex items-baseline gap-0;
+    font-family: '"VT323"', '"JetBrains Mono"', "monospace";
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    line-height: 1;
+  }
+  .brand-mark .brand-prefix,
+  .brand-mark .brand-suffix {
+    @apply text-text-muted font-normal;
+    font-size: 13px;
+  }
+  .brand-mark .brand-suffix {
+    margin-left: 0.4rem;
+  }
+
+  main.app-main {
+    padding-bottom: 36px;
+  }
+
+  /* ── Dashed rule ─────────────────────────────────────────────────────── */
+  .dashed-rule {
+    border-style: dashed !important;
+  }
+  hr.dashed-rule {
+    @apply border-bg-rule my-4;
+    border-top-width: 1px;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+  }
+
+  /* ── Sticker / stamp ─────────────────────────────────────────────────── */
+  .sticker {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 text-[11px] uppercase font-bold;
+    letter-spacing: 0.18em;
+    border: 2px dashed currentColor;
+    background: rgb(var(--color-signal-flag) / 0.08);
+    transform: rotate(-1.2deg);
+    box-shadow: 2px 2px 0 0 rgb(var(--color-bg-rule) / 0.6);
+  }
+  .sticker--alt {
+    transform: rotate(1.5deg);
+  }
+
+  /* ── Striped warning bands ───────────────────────────────────────────── */
+  .stripe-warn {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgb(var(--color-signal-flag) / 0.10) 0,
+      rgb(var(--color-signal-flag) / 0.10) 8px,
+      transparent 8px,
+      transparent 16px
+    );
+  }
+  .stripe-bear {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgb(var(--color-signal-bear) / 0.12) 0,
+      rgb(var(--color-signal-bear) / 0.12) 8px,
+      transparent 8px,
+      transparent 16px
+    );
+  }
+
+  /* ── ASCII bracket header ────────────────────────────────────────────── */
+  .ascii-bracket::before {
+    content: "═══[";
+    @apply text-signal-flag mr-1.5;
+    letter-spacing: -0.15em;
+  }
+  .ascii-bracket::after {
+    content: "]═══";
+    @apply text-signal-flag ml-1.5;
+    letter-spacing: -0.15em;
+  }
+
+  .retro-num {
+    @apply font-display tabular;
+    font-size: 1.8em;
+    line-height: 0.9;
+    letter-spacing: 0.02em;
+  }
+
+  .panel-dashed {
+    @apply bg-bg-panel;
+    border: 2px dashed rgb(var(--color-bg-rule));
+  }
+  .panel-dashed.panel-dashed--accent {
+    border-color: rgb(var(--color-signal-flag));
+  }
+
+  .marker-chip {
+    @apply inline-block px-2 py-0.5 text-[10px] font-bold uppercase bg-signal-flag text-bg-base;
+    letter-spacing: 0.2em;
+  }
+
+  /* ── Theme toggle button — Win95 chrome bevel ────────────────────────── */
+  .theme-toggle {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 text-[10px] uppercase font-semibold ml-3;
+    letter-spacing: 0.15em;
+    background: rgb(var(--color-bg-elevated));
+    color: rgb(var(--color-text-primary));
+    border-style: solid;
+    border-width: 2px;
+    border-top-color: rgb(var(--color-bevel-light));
+    border-left-color: rgb(var(--color-bevel-light));
+    border-right-color: rgb(var(--color-bevel-dark));
+    border-bottom-color: rgb(var(--color-bevel-dark));
+  }
+  .theme-toggle:active {
+    border-top-color: rgb(var(--color-bevel-dark));
+    border-left-color: rgb(var(--color-bevel-dark));
+    border-right-color: rgb(var(--color-bevel-light));
+    border-bottom-color: rgb(var(--color-bevel-light));
   }
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { VerdictHero } from "../components/Verdict";
+import type { Verdict } from "../lib/verdict";
 import type {
   CandidateSnapshot,
-  FreeRangeScanResponse,
   LottoCooldownReason,
   LottoState,
   LottoTradeSummary,
@@ -69,7 +70,7 @@ function CooldownBanner({ state }: { state: LottoState }) {
   }
   const { title, body } = cooldownCopy(cd.reason);
   return (
-    <div className="panel p-4 mb-4 border-signal-bear/50 bg-signal-bear/10">
+    <div className="panel stripe-bear p-4 mb-4 border-2 border-dashed border-signal-bear">
       <div className="flex items-baseline justify-between mb-1">
         <h3 className="text-sm font-semibold text-signal-bear">{title}</h3>
         <span className="text-xs text-text-secondary font-mono">
@@ -96,7 +97,7 @@ function CooldownBanner({ state }: { state: LottoState }) {
 function SizeLockBanner({ state }: { state: LottoState }) {
   if (!state.size_lock_active) return null;
   return (
-    <div className="panel p-3 mb-4 border-signal-flag/40 bg-signal-flag/5">
+    <div className="panel stripe-warn p-3 mb-4 border-2 border-dashed border-signal-flag">
       <p className="text-sm text-signal-flag">
         ⚠ Size lock active — {state.size_lock_reason}
       </p>
@@ -227,85 +228,60 @@ function OpenLottoPositions({ ids }: { ids: string[] }) {
 }
 
 
-type Verdict = "go" | "watch" | "no_go";
-
-interface VerdictRead {
-  verdict: Verdict;
-  headline: string;
-  detail: string;
-}
-
 function deriveVerdict(
   state: LottoState | null,
   setups: CandidateSnapshot[] | null,
   scanLoading: boolean,
-): VerdictRead {
-  // Hard NO-GO conditions first — these block trading regardless of setups
+): Verdict {
+  // Hard SKIP conditions first — these block trading regardless of setups
   if (state?.cooldown.active) {
     const reason = state.cooldown.reason === "post_big_win"
       ? "24h cooldown after a 300%+ winner"
       : "48h cooldown after 3 consecutive losses";
     const remain = state.cooldown.hours_remaining;
     return {
-      verdict: "no_go",
-      headline: "NO-GO — anti-greed cooldown active",
-      detail: `${reason}. ${remain !== null ? `${remain.toFixed(1)}h remaining.` : ""} Bank the result, walk away.`,
+      kind: "skip",
+      confidence: 1,
+      rationale: `${reason}${remain !== null ? ` — ${remain.toFixed(1)}h remaining` : ""}. Bank the result, walk away.`,
     };
   }
   if (state?.cash_reserve_status === "below_floor") {
     return {
-      verdict: "no_go",
-      headline: "NO-GO — cash reserve below $200 floor",
-      detail: `Cash available $${state.cash_available_usd.toFixed(2)} is below the $200 reserve. Close a position before opening a new lotto.`,
+      kind: "skip",
+      confidence: 1,
+      rationale: `Cash $${state.cash_available_usd.toFixed(2)} below $200 floor. Close a position before opening a new lotto.`,
     };
   }
 
-  // Still scanning — show neutral state
+  // Still scanning — neutral state
   if (scanLoading || setups === null) {
     return {
-      verdict: "watch",
-      headline: "Scanning…",
-      detail: "Reading QQQ + GLD baseline for actionable lotto setups.",
+      kind: "wait",
+      confidence: 3,
+      rationale: "Scanning QQQ + GLD baseline for actionable lotto setups.",
     };
   }
 
   const actionable = setups.filter(isLottoActionable);
   if (actionable.length === 0) {
     return {
-      verdict: "watch",
-      headline: "WATCH — no actionable setups right now",
-      detail: "QQQ + GLD show no Tier 2 confluence. Check back later or run the full Nasdaq 100 sweep.",
+      kind: "wait",
+      confidence: 4,
+      rationale: "QQQ + GLD show no Tier 2 confluence. Check back later or run the full Nasdaq 100 sweep.",
     };
   }
 
+  // Direction is candidate-specific. Pick the single most-aligned candidate's
+  // direction for the dashboard verdict; per-card verdicts handle the rest.
+  const direction = actionable[0].direction === "short" ? "short" : "long";
   const sizeLockNote = state?.size_lock_active
     ? " ⚠ Size lock: do not increase size after the recent loss."
     : "";
   return {
-    verdict: "go",
-    headline: `GO — ${actionable.length} actionable setup${actionable.length === 1 ? "" : "s"}`,
-    detail: `Pre-write the kill sheet from any candidate below.${sizeLockNote}`,
+    kind: direction,
+    confidence: state?.size_lock_active ? 5 : 7,
+    rationale: `${actionable.length} actionable setup${actionable.length === 1 ? "" : "s"} — pre-write a kill sheet from any candidate below.${sizeLockNote}`,
   };
-}
-
-function VerdictBanner({ read }: { read: VerdictRead }) {
-  const styles: Record<Verdict, { border: string; bg: string; text: string; emoji: string }> = {
-    go:    { border: "border-signal-bull/60", bg: "bg-signal-bull/10",
-             text: "text-signal-bull", emoji: "🟢" },
-    watch: { border: "border-signal-flag/40", bg: "bg-signal-flag/5",
-             text: "text-signal-flag", emoji: "🟡" },
-    no_go: { border: "border-signal-bear/60", bg: "bg-signal-bear/10",
-             text: "text-signal-bear", emoji: "🔴" },
-  };
-  const s = styles[read.verdict];
-  return (
-    <div className={`panel p-4 mb-4 ${s.border} ${s.bg}`} style={{ borderWidth: 2 }}>
-      <div className={`text-base font-semibold ${s.text}`}>
-        {s.emoji} {read.headline}
-      </div>
-      <p className="text-sm text-text-primary mt-1">{read.detail}</p>
-    </div>
-  );
 }
 
 function badgeClassForStack(stack: string | null): string {
@@ -471,14 +447,8 @@ export function LottoView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="flex items-baseline justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-semibold">Lotto Dashboard</h2>
-          <p className="text-xs text-text-secondary">
-            $1K small-account playbook — anti-greed enforced. Per{" "}
-            <code>~/.claude/skills/user/lotto-options/SKILL.md</code>.
-          </p>
-        </div>
+      <div className="page-header-row">
+        <h2 className="page-title">Lotto Dashboard</h2>
         <button
           type="button"
           className="btn text-xs"
@@ -491,6 +461,9 @@ export function LottoView() {
           {loading || scanLoading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
+      <p className="page-subtitle">
+        $1K small-account playbook · anti-greed enforced
+      </p>
 
       {error && (
         <div className="panel p-3 mb-4 border-signal-bear/50">
@@ -498,7 +471,9 @@ export function LottoView() {
         </div>
       )}
 
-      <VerdictBanner read={verdict} />
+      <div className="mb-4">
+        <VerdictHero verdict={verdict} context="Today's lotto call" />
+      </div>
 
       <ActionableSetupsSection
         setups={setups}

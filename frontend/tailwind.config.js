@@ -1,31 +1,49 @@
 /** @type {import('tailwindcss').Config} */
+//
+// Color tokens are defined as CSS variables (rgb-triplet form, no commas) so
+// alpha-value utilities like `bg-signal-flag/20` keep working. The actual
+// values live in src/index.css under :root (dark, default) and html.light
+// (light mode override).
+//
+function rgbVar(name) {
+  return `rgb(var(--color-${name}) / <alpha-value>)`;
+}
+
 export default {
   darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // Trading-terminal palette: dark surface + signal colors
         bg: {
-          base: "#0b0d10",
-          panel: "#13171c",
-          elevated: "#1a1f26",
-          border: "#252b33",
+          base: rgbVar("bg-base"),
+          panel: rgbVar("bg-panel"),
+          elevated: rgbVar("bg-elevated"),
+          border: rgbVar("bg-border"),
+          rule: rgbVar("bg-rule"),
         },
         text: {
-          primary: "#e6e9ef",
-          secondary: "#9aa3b2",
-          muted: "#5a6373",
+          primary: rgbVar("text-primary"),
+          secondary: rgbVar("text-secondary"),
+          muted: rgbVar("text-muted"),
         },
         signal: {
-          bull: "#22c55e",     // green — bullish / pass
-          bear: "#ef4444",     // red — bearish / kill
-          flag: "#f59e0b",     // amber — caution
-          info: "#3b82f6",     // blue — neutral / info
+          bull: rgbVar("signal-bull"),
+          bear: rgbVar("signal-bear"),
+          flag: rgbVar("signal-flag"),
+          info: rgbVar("signal-info"),
+          violet: rgbVar("signal-violet"),
+          paper: rgbVar("signal-paper"),
         },
       },
       fontFamily: {
-        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        sans: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        display: ['"VT323"', '"JetBrains Mono"', "ui-monospace", "monospace"],
+        stamp: ['"Major Mono Display"', '"JetBrains Mono"', "monospace"],
+      },
+      letterSpacing: {
+        widest: "0.25em",
       },
     },
   },

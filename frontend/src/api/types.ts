@@ -95,6 +95,9 @@ export interface KillSheetResponse {
   rule_violations: RuleViolation[];
   rules_blocked: boolean;
   devil: DevilReport | null;
+  // Phase B: present when kill sheet was AUTHORIZED + persisted. Pass back
+  // to POST /api/v1/positions to satisfy the open-position gate.
+  kill_sheet_id: string | null;
 }
 
 export interface Position {
@@ -119,6 +122,18 @@ export interface Position {
   notes: string | null;
   skill: string | null;
   tier: number | null;
+  // Greeks / IV at entry — snapshot, not refreshed
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+  iv: number | null;
+  iv_rank: number | null;
+  // Premium-level exit thresholds (separate from underlying-price target / invalidation)
+  premium_stop: number | null;
+  premium_target: number | null;
+  // Phase B: kill sheet that authorized this position (null on legacy / bypass)
+  kill_sheet_id: string | null;
 }
 
 export interface PositionAlert {
@@ -146,6 +161,19 @@ export interface OpenPositionRequest {
   notes?: string | null;
   skill?: string | null;
   tier?: number | null;
+  // Greeks / IV at entry
+  delta?: number | null;
+  gamma?: number | null;
+  theta?: number | null;
+  vega?: number | null;
+  iv?: number | null;
+  iv_rank?: number | null;
+  // Premium-level exit thresholds
+  premium_stop?: number | null;
+  premium_target?: number | null;
+  // Phase B: authorization gate
+  kill_sheet_id?: string | null;
+  bypass_kill_sheet?: boolean;
 }
 
 export interface JournalStats {

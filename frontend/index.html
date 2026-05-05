@@ -4,6 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Trading Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=VT323&family=Major+Mono+Display&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply persisted theme before React boots — avoids a dark-mode flash
+      // for users who picked light mode last session. Mirrors the storage
+      // key used by ThemeToggle.
+      (function () {
+        try {
+          var t = localStorage.getItem("td-theme");
+          var root = document.documentElement;
+          if (t === "light") {
+            root.classList.add("light");
+            root.classList.remove("dark");
+          } else {
+            root.classList.add("dark");
+            root.classList.remove("light");
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="bg-bg-base text-text-primary font-mono antialiased">
     <div id="root"></div>

@@ -2,11 +2,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
-import type {
-  WeeklyConfluence,
-  WeeklyScanResponse,
-  WeeklySetup,
-} from "../api/types";
+import { VerdictBadge } from "../components/Verdict";
+import { fromWeeklyConfluence } from "../lib/verdict";
+import type { WeeklyScanResponse, WeeklySetup } from "../api/types";
 
 
 function fmtPrice(value: number | null): string {
@@ -30,24 +28,6 @@ function badgeClassForRegime(regime: string | null): string {
   if (regime === "strong_bull" || regime === "bull") return "badge-bull";
   if (regime === "strong_bear" || regime === "bear") return "badge-bear";
   return "badge-info";
-}
-
-const CONFLUENCE_LABEL: Record<WeeklyConfluence, string> = {
-  high_conviction_long: "HIGH CONVICTION LONG",
-  high_conviction_short: "HIGH CONVICTION SHORT",
-  continuation_long: "Continuation long",
-  continuation_short: "Continuation short",
-  compression: "Compression — wait",
-  chop: "Chop — sit out",
-  no_setup: "No setup",
-};
-
-function badgeClassForConfluence(c: WeeklyConfluence): string {
-  if (c.startsWith("high_conviction")) return "badge-bull";
-  if (c.startsWith("continuation")) return "badge-info";
-  if (c === "compression") return "badge-flag";
-  if (c === "chop") return "badge-bear";
-  return "badge-muted";
 }
 
 function killSheetLink(s: WeeklySetup): string {
@@ -106,111 +86,195 @@ function ChecklistPanel() {
   );
 }
 
-function SetupRow({ setup, onSelect }: {
+function TopSetupCard({ setup, rank, onSelect }: {
   setup: WeeklySetup;
+  rank: number;
   onSelect?: (ticker: string) => void;
 }) {
+  const verdict = fromWeeklyConfluence(setup.confluence, setup.direction);
   return (
-    <tr className="border-b border-bg-border/40 align-top">
-      <td className="px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-semibold">{setup.ticker}</span>
-          {setup.is_penny_stock && (
-            <span className="badge badge-flag text-xs">PENNY</span>
-          )}
+    <div className="panel">
+      <div className="panel-body">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span className="text-text-muted text-xs font-mono">#{rank}</span>
+            <span className="font-mono font-semibold text-base">{setup.ticker}</span>
+            <span className="text-xs text-text-secondary">
+              {fmtPrice(setup.close)} · bar {setup.bar_date ?? "—"}
+            </span>
+            {setup.is_penny_stock && (
+              <span className="badge badge-flag text-xs">PENNY</span>
+            )}
+          </div>
+          <VerdictBadge verdict={verdict} size="lg" />
         </div>
-        <div className="text-xs text-text-secondary">
-          {fmtPrice(setup.close)} · bar {setup.bar_date ?? "—"}
-        </div>
-      </td>
-      <td className="px-3 py-2">
-        <span className={`badge ${badgeClassForConfluence(setup.confluence)} text-xs`}>
-          {CONFLUENCE_LABEL[setup.confluence]}
-        </span>
-        <div className="text-xs text-text-secondary mt-1">{setup.why_now}</div>
+
+        {setup.why_now && (
+          <p className="text-sm text-text-primary mb-2">{setup.why_now}</p>
+        )}
+
         {setup.blockers.length > 0 && (
-          <ul className="text-xs text-signal-flag mt-1 space-y-0.5">
+          <ul className="text-xs text-signal-flag mb-3 space-y-0.5">
             {setup.blockers.map((b, i) => (
               <li key={i}>⚠ {b}</li>
             ))}
           </ul>
         )}
+
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-xs text-text-muted">
+            <span>
+              <span className="text-text-secondary">SQN</span>{" "}
+              <span className={`badge ${badgeClassForRegime(setup.sqn_100_regime)} text-[10px]`}>
+                {setup.sqn_100_regime ?? "—"}
+              </span>
+            </span>
+            <span>·</span>
+            <span>
+              <span className="text-text-secondary">stack</span>{" "}
+              <span className={`badge ${badgeClassForStack(setup.ma_stack_state)} text-[10px]`}>
+                {setup.ma_stack_state ?? "—"}
+              </span>
+            </span>
+            <span>·</span>
+            <span>stoch <span className="font-mono">{fmt(setup.stoch_k)}/{fmt(setup.stoch_d)}</span></span>
+            <span>·</span>
+            <span>vehicle {setup.suggested_vehicle}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {onSelect && (
+              <button
+                type="button"
+                className="btn text-xs"
+                onClick={() => onSelect(setup.ticker)}
+              >
+                Chart
+              </button>
+            )}
+            {setup.direction !== "none" ? (
+              <Link to={killSheetLink(setup)} className="btn btn-primary text-xs">
+                Kill sheet →
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThinSetupRow({ setup, onSelect }: {
+  setup: WeeklySetup;
+  onSelect?: (ticker: string) => void;
+}) {
+  const verdict = fromWeeklyConfluence(setup.confluence, setup.direction);
+  return (
+    <tr className="border-b border-bg-border/40">
+      <td className="px-3 py-2">
+        <span className="font-mono font-semibold">{setup.ticker}</span>
       </td>
       <td className="px-3 py-2">
-        <div className="flex flex-wrap gap-1">
-          <span className={`badge ${badgeClassForStack(setup.ma_stack_state)} text-xs`}>
-            {setup.ma_stack_state ?? "—"}
-          </span>
-          <span className="badge badge-info text-xs">
-            stoch {fmt(setup.stoch_k)}/{fmt(setup.stoch_d)}
-          </span>
-        </div>
+        <VerdictBadge verdict={verdict} size="sm" />
       </td>
-      <td className="px-3 py-2 text-xs">
-        <span className={`badge ${badgeClassForRegime(setup.sqn_100_regime)} text-xs`}>
+      <td className="px-3 py-2">
+        <span className={`badge ${badgeClassForRegime(setup.sqn_100_regime)} text-[10px]`}>
           {setup.sqn_100_regime ?? "—"}
         </span>
       </td>
-      <td className="px-3 py-2 text-right">
-        <div className="text-xs text-text-secondary">score {setup.rank_score}</div>
-        <div className="text-xs text-text-muted">
-          vehicle: {setup.suggested_vehicle}
-        </div>
+      <td className="px-3 py-2 text-right text-xs text-text-muted font-mono">
+        {setup.rank_score}
       </td>
-      <td className="px-3 py-2 text-right space-y-1">
-        {onSelect && (
-          <button
-            type="button"
-            className="btn text-xs block ml-auto"
-            onClick={() => onSelect(setup.ticker)}
-          >
-            Chart
-          </button>
-        )}
-        {setup.direction !== "none" ? (
-          <Link to={killSheetLink(setup)} className="btn btn-secondary text-xs block">
-            Kill sheet →
-          </Link>
-        ) : (
-          <span className="text-xs text-text-muted">—</span>
-        )}
+      <td className="px-3 py-2 text-right">
+        <div className="flex items-center justify-end gap-2">
+          {onSelect && (
+            <button
+              type="button"
+              className="btn text-xs"
+              onClick={() => onSelect(setup.ticker)}
+            >
+              Chart
+            </button>
+          )}
+          {setup.direction !== "none" ? (
+            <Link to={killSheetLink(setup)} className="btn text-xs">
+              Kill sheet →
+            </Link>
+          ) : (
+            <span className="text-xs text-text-muted">—</span>
+          )}
+        </div>
       </td>
     </tr>
   );
 }
 
-function ResultsTable({ title, setups, emptyMessage, onSelect }: {
-  title: string;
+function TopSetupsSection({ setups, onSelect }: {
   setups: WeeklySetup[];
-  emptyMessage: string;
   onSelect?: (ticker: string) => void;
 }) {
+  if (setups.length === 0) {
+    return (
+      <section className="mb-6">
+        <h3 className="text-base font-semibold text-text-primary mb-2">
+          Top setups
+        </h3>
+        <div className="panel p-3 text-sm text-text-secondary">
+          No actionable setups — chop / compression / no Stoch trigger across the
+          watchlist.
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="mb-6">
-      <h3 className="text-base font-semibold text-text-primary mb-2">{title}</h3>
-      {setups.length === 0 ? (
-        <div className="panel p-3 text-sm text-text-secondary">{emptyMessage}</div>
-      ) : (
-        <div className="panel">
-          <table className="w-full text-sm">
-            <thead className="text-xs text-text-secondary border-b border-bg-border">
-              <tr>
-                <th className="text-left px-3 py-2">Ticker</th>
-                <th className="text-left px-3 py-2">Confluence</th>
-                <th className="text-left px-3 py-2">Indicators</th>
-                <th className="text-left px-3 py-2">SQN(100)</th>
-                <th className="text-right px-3 py-2">Score</th>
-                <th className="text-right px-3 py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {setups.map((s) => (
-                <SetupRow key={s.ticker} setup={s} onSelect={onSelect} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <h3 className="text-base font-semibold text-text-primary mb-2">
+        Top setups{" "}
+        <span className="text-text-secondary font-normal text-sm">
+          (ranked, top {Math.min(setups.length, 3)})
+        </span>
+      </h3>
+      <div className="space-y-3">
+        {setups.slice(0, 3).map((s, i) => (
+          <TopSetupCard key={s.ticker} setup={s} rank={i + 1} onSelect={onSelect} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AllScannedTable({ setups, onSelect }: {
+  setups: WeeklySetup[];
+  onSelect?: (ticker: string) => void;
+}) {
+  if (setups.length === 0) {
+    return (
+      <section className="mb-6">
+        <h3 className="text-base font-semibold text-text-primary mb-2">All scanned</h3>
+        <div className="panel p-3 text-sm text-text-secondary">No tickers scanned.</div>
+      </section>
+    );
+  }
+  return (
+    <section className="mb-6">
+      <h3 className="text-base font-semibold text-text-primary mb-2">All scanned</h3>
+      <div className="panel">
+        <table className="w-full text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-text-muted border-b border-bg-border">
+            <tr>
+              <th className="text-left px-3 py-2">Ticker</th>
+              <th className="text-left px-3 py-2">Verdict</th>
+              <th className="text-left px-3 py-2">SQN(100)</th>
+              <th className="text-right px-3 py-2">Score</th>
+              <th className="text-right px-3 py-2">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {setups.map((s) => (
+              <ThinSetupRow key={s.ticker} setup={s} onSelect={onSelect} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
@@ -247,14 +311,12 @@ export function WeeklyTrendView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold">Weekly Trend Scan</h2>
-        <p className="text-xs text-text-secondary mt-1">
-          Position trading on the weekly TF. One chart, one decision, hold for
-          weeks to months. Per{" "}
-          <code>~/.claude/skills/user/weekly-trend-trader/SKILL.md</code>.
-        </p>
+      <div className="page-header-row">
+        <h2 className="page-title">Weekly Trend</h2>
       </div>
+      <p className="page-subtitle">
+        Position trading on the weekly TF · 120-180+ DTE · one chart, one decision
+      </p>
 
       <ChecklistPanel />
 
@@ -313,12 +375,7 @@ export function WeeklyTrendView() {
             ) at {new Date(data.scan_time_utc).toLocaleString()}
           </div>
 
-          <ResultsTable
-            title="Top setups (ranked)"
-            setups={data.top_setups}
-            emptyMessage="No actionable setups — chop / compression / no Stoch trigger across the watchlist."
-            onSelect={setChartTicker}
-          />
+          <TopSetupsSection setups={data.top_setups} onSelect={setChartTicker} />
 
           {chartTicker && (
             <div className="mb-6">
@@ -331,12 +388,7 @@ export function WeeklyTrendView() {
             </div>
           )}
 
-          <ResultsTable
-            title="All scanned"
-            setups={data.setups}
-            emptyMessage="No tickers scanned."
-            onSelect={setChartTicker}
-          />
+          <AllScannedTable setups={data.setups} onSelect={setChartTicker} />
 
           {errorEntries.length > 0 && (
             <details className="panel p-3 mt-4">

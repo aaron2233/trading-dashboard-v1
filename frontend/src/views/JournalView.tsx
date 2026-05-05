@@ -234,8 +234,8 @@ function ScoredTradesTable({ scores }: { scores: DisciplineScoreDTO[] }) {
 
 function tabClass(active: boolean): string {
   return active
-    ? "px-3 py-1.5 rounded text-sm bg-signal-info/20 text-signal-info border border-signal-info/40"
-    : "px-3 py-1.5 rounded text-sm text-text-secondary hover:text-text-primary border border-transparent";
+    ? "px-3 py-1.5 text-[11px] uppercase font-semibold tracking-wider bg-signal-flag/10 text-signal-flag border border-signal-flag"
+    : "px-3 py-1.5 text-[11px] uppercase font-semibold tracking-wider text-text-secondary hover:text-signal-flag border border-transparent";
 }
 
 
@@ -293,9 +293,9 @@ export function JournalView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">Journal</h2>
+      <div className="page-header-row">
+        <h2 className="page-title">Journal</h2>
+        <div className="flex items-center gap-2">
           <div className="flex gap-1">
             <button type="button" className={tabClass(tab === "discipline")}
                     onClick={() => selectTab("discipline")}>
@@ -306,10 +306,10 @@ export function JournalView() {
               P&amp;L
             </button>
           </div>
+          <button className="btn" onClick={() => void refresh()} disabled={loading}>
+            {loading ? "…" : "Refresh"}
+          </button>
         </div>
-        <button className="btn" onClick={() => void refresh()} disabled={loading}>
-          {loading ? "…" : "↻ Refresh"}
-        </button>
       </div>
 
       {error && (

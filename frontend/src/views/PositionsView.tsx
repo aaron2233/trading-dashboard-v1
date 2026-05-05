@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { Sparkline } from "../components/Sparkline";
 import type { OpenPositionRequest, Position, PositionAlert } from "../api/types";
@@ -17,6 +18,12 @@ function fmtUsd(n: number | null | undefined): string {
     minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function directionBadge(direction: string): string {
+  if (direction === "long") return "badge-bull";
+  if (direction === "short") return "badge-bear";
+  return "badge-muted";
+}
+
 function emptyOpenForm(): OpenPositionRequest {
   return {
     ticker: "",
@@ -24,6 +31,486 @@ function emptyOpenForm(): OpenPositionRequest {
     instrument: "call",
     account: "main",
   };
+}
+
+type FormUpdate = <K extends keyof OpenPositionRequest>(
+  key: K, value: OpenPositionRequest[K]
+) => void;
+
+type FormSetter = (
+  next: OpenPositionRequest | ((prev: OpenPositionRequest) => OpenPositionRequest)
+) => void;
+
+interface AdvancedOptionsFieldsProps {
+  form: OpenPositionRequest;
+  update: FormUpdate;
+  setForm: FormSetter;
+}
+
+/**
+ * Advanced options-trade inputs: Greeks at entry (delta/gamma/theta/vega),
+ * IV / IV-rank, premium-level stop and take-profit thresholds.
+ *
+ * The "Auto-fill from delta" button derives Target / Invalidation
+ * (underlying-price levels) from the premium-level thresholds plus delta
+ * and entry underlying price. First-order linearization — gamma drift
+ * makes it less accurate as the trade moves.
+ *
+ * Conventions:
+ *   - delta: signed. +0.5 for an ATM call, -0.5 for an ATM put.
+ *   - iv: decimal (0.45 = 45%). The label says "IV %" so user enters 45.
+ *     We store it as 0.45 — convert at input boundary.
+ *   - iv_rank: 0-100 percentile.
+ */
+function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsProps) {
+  const num = (v: number | null | undefined): string =>
+    v === null || v === undefined ? "" : String(v);
+
+  function setNum<K extends keyof OpenPositionRequest>(key: K, raw: string) {
+    const v = raw === "" ? null : Number(raw);
+    update(key, (Number.isFinite(v as number) ? v : null) as OpenPositionRequest[K]);
+  }
+
+  function autoFillFromDelta() {
+    const entry = form.entry_price;
+    const prem = form.premium;
+    const d = form.delta;
+    if (!entry || !prem || !d || d === 0) return;
+    const next: Partial<OpenPositionRequest> = {};
+    if (form.premium_target !== null && form.premium_target !== undefined) {
+      next.target = round2(entry + (form.premium_target - prem) / d);
+    }
+    if (form.premium_stop !== null && form.premium_stop !== undefined) {
+      next.invalidation = round2(entry + (form.premium_stop - prem) / d);
+    }
+    if (Object.keys(next).length === 0) return;
+    setForm((prev) => ({ ...prev, ...next }));
+  }
+
+  function applyDefault65Stop() {
+    if (form.premium && form.premium > 0) {
+      update("premium_stop", round2(form.premium * 0.35));
+    }
+  }
+
+  const canAutofill =
+    form.delta !== null && form.delta !== undefined && form.delta !== 0 &&
+    form.entry_price !== null && form.entry_price !== undefined &&
+    form.premium !== null && form.premium !== undefined &&
+    (form.premium_stop !== null || form.premium_target !== null);
+
+  return (
+    <details className="panel-dashed p-3" open>
+      <summary className="cursor-pointer text-[10px] uppercase tracking-widest text-text-muted mb-2">
+        ▮ Advanced · Greeks · IV · premium thresholds
+      </summary>
+
+      <div className="mt-2 mb-3">
+        <label className="label">Underlying price at entry ($)</label>
+        <input
+          className="input w-full md:w-1/3"
+          type="number"
+          step="0.01"
+          value={num(form.entry_price)}
+          onChange={(e) => setNum("entry_price", e.target.value)}
+          placeholder="needed for delta-based auto-fill"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div>
+          <label className="label">Δ Delta (signed)</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.001"
+            value={num(form.delta)}
+            onChange={(e) => setNum("delta", e.target.value)}
+            placeholder="+0.5 / −0.5"
+          />
+        </div>
+        <div>
+          <label className="label">Γ Gamma</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.0001"
+            value={num(form.gamma)}
+            onChange={(e) => setNum("gamma", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Θ Theta ($/day)</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.01"
+            value={num(form.theta)}
+            onChange={(e) => setNum("theta", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">ν Vega</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.01"
+            value={num(form.vega)}
+            onChange={(e) => setNum("vega", e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div>
+          <label className="label">IV (%)</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.1"
+            // Stored as decimal; display ×100. Convert on read/write.
+            value={form.iv === null || form.iv === undefined ? "" : (form.iv * 100).toFixed(1)}
+            onChange={(e) => {
+              const v = e.target.value === "" ? null : Number(e.target.value) / 100;
+              update("iv", Number.isFinite(v as number) ? v : null);
+            }}
+            placeholder="e.g. 45"
+          />
+        </div>
+        <div>
+          <label className="label">IV rank (0-100)</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="1"
+            value={num(form.iv_rank)}
+            onChange={(e) => setNum("iv_rank", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label flex items-center justify-between">
+            <span>Premium stop ($/share)</span>
+            {form.premium && form.premium > 0 && (
+              <button
+                type="button"
+                onClick={applyDefault65Stop}
+                className="text-[9px] text-signal-info hover:text-signal-flag"
+                title="−65% midpoint of CLAUDE.md cut rule"
+              >
+                use −65%
+              </button>
+            )}
+          </label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.01"
+            value={num(form.premium_stop)}
+            onChange={(e) => setNum("premium_stop", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">Premium target ($/share)</label>
+          <input
+            className="input w-full"
+            type="number"
+            step="0.01"
+            value={num(form.premium_target)}
+            onChange={(e) => setNum("premium_target", e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap border-t border-bg-border pt-3">
+        <div className="text-[10px] text-text-muted leading-relaxed max-w-md">
+          ⚠ Auto-fill uses first-order delta · gamma drift &amp; theta decay
+          will move the actual exit. Treat the derived Target / Invalidation
+          as a starting point, not a prediction.
+        </div>
+        <button
+          type="button"
+          onClick={autoFillFromDelta}
+          disabled={!canAutofill}
+          className="btn"
+          title={canAutofill
+            ? "Compute Target/Invalidation from delta + entry price + premium thresholds"
+            : "Need delta, underlying price, premium, and at least one premium threshold"}
+        >
+          ↳ Auto-fill Target / Invalidation
+        </button>
+      </div>
+    </details>
+  );
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Premium-based stop / take-profit reference levels.
+ *
+ * The Target / Invalidation form fields are *underlying* prices, but the
+ * discipline rule (-60/-70% max loss per CLAUDE.md) is on premium %.
+ * Computing one from the other requires delta, which we don't capture.
+ *
+ * So this is purely advisory — it shows the premium values at common cut
+ * and take-profit thresholds. Aaron eyeballs them while watching the
+ * trade and translates to underlying levels with a chart or his own delta
+ * read. No magic, no fake math.
+ */
+function PremiumLevelsHint({ premium }: { premium: number }) {
+  const fmt = (v: number) => `$${v.toFixed(2)}`;
+  const stops = [
+    { label: "−50%", value: premium * 0.5 },
+    { label: "−60%", value: premium * 0.4, emphasized: true },
+    { label: "−70%", value: premium * 0.3, emphasized: true },
+  ];
+  const targets = [
+    { label: "+100%", value: premium * 2 },
+    { label: "+200%", value: premium * 3 },
+    { label: "+300%", value: premium * 4 },
+  ];
+  return (
+    <div className="panel-dashed p-3 mt-1 text-xs">
+      <div className="text-[10px] uppercase tracking-widest text-text-muted mb-2">
+        ▮ Premium reference · advisory only · convert to underlying with delta
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="marker-chip" style={{ background: "#ff3030", color: "#0a0a0a" }}>
+              Stop
+            </span>
+            <span className="text-text-muted">premium-cut levels</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono">
+            {stops.map((s) => (
+              <span
+                key={s.label}
+                className={s.emphasized ? "text-signal-bear font-bold" : "text-text-secondary"}
+              >
+                {s.label} → {fmt(s.value)}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="marker-chip" style={{ background: "#00ff66", color: "#0a0a0a" }}>
+              TP
+            </span>
+            <span className="text-text-muted">take-profit levels</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono">
+            {targets.map((t) => (
+              <span key={t.label} className="text-signal-bull">
+                {t.label} → {fmt(t.value)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface PositionRowFragmentProps {
+  position: Position;
+  expanded: boolean;
+  onToggle: () => void;
+  closingId: string | null;
+  setClosingId: (id: string | null) => void;
+  closePnl: string;
+  setClosePnl: (s: string) => void;
+  closeNotes: string;
+  setCloseNotes: (s: string) => void;
+  onConfirmClose: () => void;
+}
+
+function PositionRowFragment({
+  position: p,
+  expanded,
+  onToggle,
+  closingId,
+  setClosingId,
+  closePnl,
+  setClosePnl,
+  closeNotes,
+  setCloseNotes,
+  onConfirmClose,
+}: PositionRowFragmentProps) {
+  const isClosing = closingId === p.id;
+  return (
+    <>
+      <tr className="border-b border-bg-border/40">
+        <td className="px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{p.ticker}</span>
+            <span className={`badge ${directionBadge(p.direction)} text-[10px]`}>
+              {p.direction.toUpperCase()}
+            </span>
+          </div>
+        </td>
+        <td className="px-3 py-2">
+          <Sparkline ticker={p.ticker} timeframe="1d" count={30} width={100} height={26} />
+        </td>
+        <td className="px-3 py-2 text-xs text-text-secondary">
+          {p.account_key} · {p.instrument}
+        </td>
+        <td className="px-3 py-2 text-right font-mono text-xs">
+          {fmtUsd(p.total_cost_usd)}
+        </td>
+        <td className="px-3 py-2 text-right font-mono text-xs">
+          {fmtUsd(p.target_price)}
+        </td>
+        <td className="px-3 py-2 text-right">
+          <button type="button" className="btn text-xs" onClick={onToggle}>
+            {expanded ? "Collapse" : "Detail"}
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr className="bg-bg-elevated/30">
+          <td colSpan={6} className="px-3 py-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
+              <Detail label="ID" value={<span className="font-mono">{p.id}</span>} />
+              <Detail label="Strike" value={p.strike !== null ? `$${p.strike}` : "—"} />
+              <Detail label="Expiry" value={p.expiry ?? "—"} />
+              <Detail label="Max loss" value={fmtUsd(p.max_loss_usd)} />
+              <Detail label="Invalidation" value={fmtUsd(p.invalidation_price)} />
+              <Detail label="Entry date" value={p.entry_date} />
+              {p.notes && (
+                <div className="md:col-span-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-muted">Notes</div>
+                  <div className="text-text-secondary">{p.notes}</div>
+                </div>
+              )}
+            </div>
+
+            <GreeksDetail position={p} />
+            <div className="flex items-center justify-end gap-2 border-t border-bg-border pt-3">
+              {isClosing ? (
+                <>
+                  <input
+                    className="input w-24"
+                    type="number"
+                    step="0.01"
+                    placeholder="P&L"
+                    value={closePnl}
+                    onChange={(e) => setClosePnl(e.target.value)}
+                  />
+                  <input
+                    className="input w-48"
+                    placeholder="Close notes"
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn text-xs"
+                    onClick={() => {
+                      setClosingId(null);
+                      setClosePnl("");
+                      setCloseNotes("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary text-xs"
+                    onClick={onConfirmClose}
+                  >
+                    Confirm close
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary text-xs"
+                  onClick={() => {
+                    setClosingId(p.id);
+                    setClosePnl("");
+                    setCloseNotes("");
+                  }}
+                >
+                  Close position
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-text-muted">{label}</div>
+      <div className="text-text-secondary">{value}</div>
+    </div>
+  );
+}
+
+function fmtNum(n: number | null | undefined, digits = 2): string {
+  if (n === null || n === undefined) return "—";
+  return n.toFixed(digits);
+}
+
+/**
+ * Greeks / IV / premium-threshold readout for the expanded position row.
+ * Shows nothing if every field is null (legacy positions without Greeks).
+ */
+function GreeksDetail({ position: p }: { position: Position }) {
+  const hasAnyGreek =
+    p.delta !== null || p.gamma !== null || p.theta !== null || p.vega !== null
+    || p.iv !== null || p.iv_rank !== null
+    || p.premium_stop !== null || p.premium_target !== null;
+  if (!hasAnyGreek) return null;
+  return (
+    <div className="border-t border-bg-border pt-3 mb-3">
+      <div className="text-[10px] uppercase tracking-widest text-text-muted mb-2">
+        ▮ Entry Greeks · IV · premium thresholds
+      </div>
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3 text-xs">
+        <Detail label="Δ Delta" value={<span className="font-mono">{fmtNum(p.delta, 3)}</span>} />
+        <Detail label="Γ Gamma" value={<span className="font-mono">{fmtNum(p.gamma, 4)}</span>} />
+        <Detail label="Θ Theta" value={<span className="font-mono">{fmtNum(p.theta, 2)}</span>} />
+        <Detail label="ν Vega" value={<span className="font-mono">{fmtNum(p.vega, 2)}</span>} />
+        <Detail
+          label="IV"
+          value={
+            <span className="font-mono">
+              {p.iv === null ? "—" : `${(p.iv * 100).toFixed(1)}%`}
+            </span>
+          }
+        />
+        <Detail
+          label="IV rank"
+          value={<span className="font-mono">{fmtNum(p.iv_rank, 0)}</span>}
+        />
+        <Detail
+          label="Premium stop"
+          value={
+            <span className="font-mono text-signal-bear">
+              {p.premium_stop === null ? "—" : `$${p.premium_stop.toFixed(2)}`}
+            </span>
+          }
+        />
+        <Detail
+          label="Premium target"
+          value={
+            <span className="font-mono text-signal-bull">
+              {p.premium_target === null ? "—" : `$${p.premium_target.toFixed(2)}`}
+            </span>
+          }
+        />
+      </div>
+    </div>
+  );
 }
 
 export function PositionsView() {
@@ -37,6 +524,29 @@ export function PositionsView() {
   const [closingId, setClosingId] = useState<string | null>(null);
   const [closePnl, setClosePnl] = useState<string>("");
   const [closeNotes, setCloseNotes] = useState<string>("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Home-card deep link: /positions?open=1 auto-pops the open-position form.
+  // Strip the param after consuming it so refreshing doesn't re-trigger.
+  useEffect(() => {
+    if (searchParams.get("open") === "1") {
+      setShowForm(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  function toggleExpand(id: string) {
+    setExpandedId((prev) => (prev === id ? null : id));
+    if (closingId !== id) {
+      setClosingId(null);
+      setClosePnl("");
+      setCloseNotes("");
+    }
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -65,18 +575,13 @@ export function PositionsView() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function handleOpen(e: React.FormEvent) {
+  // Phase B: positions open only through the kill-sheet view. Enter-key
+  // submission on this form routes to handleGenerateKillSheet rather than
+  // POST /positions directly.
+  function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.ticker) return;
-    setError(null);
-    try {
-      await api.openPosition({ ...form, ticker: form.ticker.toUpperCase() });
-      setForm(emptyOpenForm());
-      setShowForm(false);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    handleGenerateKillSheet();
   }
 
   async function handleClose(id: string) {
@@ -94,13 +599,51 @@ export function PositionsView() {
     }
   }
 
+  function handleGenerateKillSheet() {
+    // Carry every position-form field into the kill-sheet view via URL
+    // params. After kill-sheet AUTHORIZED, the kill-sheet view reads these
+    // back to POST /api/v1/positions with kill_sheet_id attached.
+    const params = new URLSearchParams();
+    const set = (k: string, v: unknown) => {
+      if (v === null || v === undefined || v === "") return;
+      params.set(k, String(v));
+    };
+    set("ticker", form.ticker);
+    set("direction", form.direction);
+    set("account", form.account);
+    set("instrument", form.instrument);
+    if (form.instrument === "call" || form.instrument === "put") {
+      set("contract_type", form.instrument);
+    }
+    set("strike", form.strike);
+    set("expiry", form.expiry);
+    set("premium", form.premium);
+    set("contracts", form.contracts);
+    set("shares", form.shares);
+    set("entry_price", form.entry_price);
+    set("delta", form.delta);
+    set("gamma", form.gamma);
+    set("theta", form.theta);
+    set("vega", form.vega);
+    set("iv", form.iv);
+    set("iv_rank", form.iv_rank);
+    set("premium_stop", form.premium_stop);
+    set("premium_target", form.premium_target);
+    set("target", form.target);
+    set("invalidation", form.invalidation);
+    set("notes", form.notes);
+    set("skill", form.skill);
+    set("tier", form.tier);
+    navigate(`/kill-sheet?${params.toString()}`);
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Positions</h2>
+      <div className="page-header-row">
+        <h2 className="page-title">Positions</h2>
         <div className="flex gap-2">
           <button className="btn" onClick={() => void refresh()} disabled={loading}>
-            {loading ? "…" : "↻ Refresh"}
+            {loading ? "…" : "Refresh"}
           </button>
           <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
             {showForm ? "Cancel" : "Open new"}
@@ -115,7 +658,7 @@ export function PositionsView() {
       )}
 
       {showForm && (
-        <form onSubmit={handleOpen} className="panel mb-4">
+        <form onSubmit={handleFormSubmit} className="panel mb-4">
           <div className="panel-header">Open new position</div>
           <div className="panel-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -173,6 +716,11 @@ export function PositionsView() {
                     value={form.contracts ?? ""}
                     onChange={(e) => update("contracts", e.target.value === "" ? null : Number(e.target.value))} />
                 </div>
+                {form.premium !== null && form.premium !== undefined && form.premium > 0 && (
+                  <div className="md:col-span-3">
+                    <PremiumLevelsHint premium={form.premium} />
+                  </div>
+                )}
               </>
             )}
             {form.instrument === "shares" && (
@@ -190,6 +738,11 @@ export function PositionsView() {
                     onChange={(e) => update("entry_price", e.target.value === "" ? null : Number(e.target.value))} />
                 </div>
               </>
+            )}
+            {form.instrument !== "shares" && (
+              <div className="md:col-span-3">
+                <AdvancedOptionsFields form={form} update={update} setForm={setForm} />
+              </div>
             )}
             <div>
               <label className="label">Target ($)</label>
@@ -210,9 +763,25 @@ export function PositionsView() {
                 onChange={(e) => update("notes", e.target.value || null)} />
             </div>
           </div>
-          <div className="panel-body border-t border-bg-border flex justify-end gap-2">
-            <button type="button" className="btn" onClick={() => setShowForm(false)}>Cancel</button>
-            <button type="submit" className="btn btn-primary">Open</button>
+          <div className="panel-body border-t border-bg-border flex flex-wrap items-center justify-between gap-3">
+            <div className="text-[10px] uppercase tracking-widest text-text-muted leading-relaxed max-w-md">
+              ▮ Phase B · positions open only through an AUTHORIZED kill sheet ·
+              discipline + devil gates run before the record is created
+            </div>
+            <div className="flex gap-2">
+              <button type="button" className="btn" onClick={() => setShowForm(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleGenerateKillSheet}
+                disabled={!form.ticker}
+                title="Open the kill sheet — position records on AUTHORIZED + §8 attestation"
+              >
+                Generate kill sheet →
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -240,69 +809,38 @@ export function PositionsView() {
         {openPositions.length === 0 ? (
           <div className="panel-body text-text-muted text-sm">No open positions.</div>
         ) : (
-          <div className="panel-body overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-text-secondary text-xs uppercase tracking-wider">
-                <tr><th className="text-left p-1">ID</th>
-                  <th className="text-left p-1">Ticker</th>
-                  <th className="text-left p-1">Trend</th>
-                  <th className="text-left p-1">Acct</th>
-                  <th className="text-left p-1">Inst</th>
-                  <th className="text-right p-1">Strike</th>
-                  <th className="text-left p-1">Expiry</th>
-                  <th className="text-right p-1">Cost</th>
-                  <th className="text-right p-1">Max Loss</th>
-                  <th className="text-right p-1">Target</th>
-                  <th className="text-right p-1">Invalid.</th>
-                  <th className="text-right p-1"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {openPositions.map((p) => (
-                  <tr key={p.id} className="border-t border-bg-border align-top">
-                    <td className="p-1 font-mono text-text-muted">{p.id}</td>
-                    <td className="p-1 font-semibold">{p.ticker}</td>
-                    <td className="p-1">
-                      <Sparkline ticker={p.ticker} timeframe="1d" count={30} width={120} height={28} />
-                    </td>
-                    <td className="p-1">{p.account_key}</td>
-                    <td className="p-1">{p.instrument}</td>
-                    <td className="p-1 text-right">{p.strike !== null ? `$${p.strike}` : "—"}</td>
-                    <td className="p-1">{p.expiry ?? "—"}</td>
-                    <td className="p-1 text-right">{fmtUsd(p.total_cost_usd)}</td>
-                    <td className="p-1 text-right">{fmtUsd(p.max_loss_usd)}</td>
-                    <td className="p-1 text-right">{fmtUsd(p.target_price)}</td>
-                    <td className="p-1 text-right">{fmtUsd(p.invalidation_price)}</td>
-                    <td className="p-1 text-right">
-                      {closingId === p.id ? (
-                        <div className="flex flex-col gap-1 items-end">
-                          <input className="input w-24" type="number" step="0.01" placeholder="P&L"
-                            value={closePnl} onChange={(e) => setClosePnl(e.target.value)} />
-                          <input className="input w-32" placeholder="notes"
-                            value={closeNotes} onChange={(e) => setCloseNotes(e.target.value)} />
-                          <div className="flex gap-1">
-                            <button className="btn text-xs"
-                              onClick={() => { setClosingId(null); setClosePnl(""); setCloseNotes(""); }}>
-                              Cancel
-                            </button>
-                            <button className="btn btn-primary text-xs"
-                              onClick={() => void handleClose(p.id)}>
-                              Confirm
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button className="btn text-xs"
-                          onClick={() => { setClosingId(p.id); setClosePnl(""); setCloseNotes(""); }}>
-                          Close
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <table className="w-full text-sm">
+            <thead className="text-[10px] uppercase tracking-wider text-text-muted border-b border-bg-border">
+              <tr>
+                <th className="text-left px-3 py-2">Ticker</th>
+                <th className="text-left px-3 py-2">Trend</th>
+                <th className="text-left px-3 py-2">Acct / Inst</th>
+                <th className="text-right px-3 py-2">Cost</th>
+                <th className="text-right px-3 py-2">Target</th>
+                <th className="text-right px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {openPositions.map((p) => {
+                const expanded = expandedId === p.id;
+                return (
+                  <PositionRowFragment
+                    key={p.id}
+                    position={p}
+                    expanded={expanded}
+                    onToggle={() => toggleExpand(p.id)}
+                    closingId={closingId}
+                    setClosingId={setClosingId}
+                    closePnl={closePnl}
+                    setClosePnl={setClosePnl}
+                    closeNotes={closeNotes}
+                    setCloseNotes={setCloseNotes}
+                    onConfirmClose={() => void handleClose(p.id)}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </div>
 

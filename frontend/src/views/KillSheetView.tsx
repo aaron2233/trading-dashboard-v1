@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
+import { VerdictHero } from "../components/Verdict";
+import { fromKillSheetDevil } from "../lib/verdict";
 import type {
   KillSheetRequest,
   KillSheetResponse,
+  OpenPositionRequest,
   OptionsExtractionSource,
   ParsedOptionsResponse,
 } from "../api/types";
@@ -20,6 +23,144 @@ function aggregateClass(agg: string): string {
   return "text-signal-bull";
 }
 
+/**
+ * Phase B authorization gate UI. Visible only when:
+ *   - kill sheet is AUTHORIZED (not REJECTED)
+ *   - entry_authorized=true on the discipline §8 attestation
+ *   - response.kill_sheet_id is present (sheet was persisted server-side)
+ *
+ * "Open Position" reads the original position-form fields from URL params
+ * (passed in by PositionsView's "Generate kill sheet" button) and POSTs to
+ * /api/v1/positions with kill_sheet_id attached. On success, redirects.
+ */
+function OpenPositionGate({
+  response,
+  searchParams,
+  form,
+}: {
+  response: KillSheetResponse;
+  searchParams: URLSearchParams;
+  form: KillSheetRequest;
+}) {
+  const navigate = useNavigate();
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
+
+  const ks = response.kill_sheet as Record<string, unknown>;
+  const status = (ks?.status as string | undefined) ?? "AUTHORIZED";
+  const attestation = ks?.discipline_attestation as
+    | { entry_authorized?: boolean }
+    | undefined;
+  const entryAuthorized =
+    attestation === undefined ? true : attestation?.entry_authorized === true;
+
+  // The position-form data only round-trips if PositionsView opened this
+  // view (i.e. the position-relevant URL params are present). For ad-hoc
+  // kill sheets generated from a scan/focus deep-link, there's no position
+  // payload to submit.
+  const hasPositionPayload = !!searchParams.get("instrument");
+
+  if (status !== "AUTHORIZED" || !response.kill_sheet_id) return null;
+  if (!hasPositionPayload) return null;
+
+  async function handleOpenPosition() {
+    if (!response.kill_sheet_id) return;
+    setOpening(true);
+    setOpenError(null);
+    try {
+      const num = (k: string): number | null => {
+        const v = searchParams.get(k);
+        if (v === null || v === "") return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const str = (k: string): string | null => {
+        const v = searchParams.get(k);
+        return v === null || v === "" ? null : v;
+      };
+
+      const instrument = (str("instrument") ?? "call") as
+        OpenPositionRequest["instrument"];
+      const direction = (str("direction") ?? "long") as
+        OpenPositionRequest["direction"];
+
+      const payload: OpenPositionRequest = {
+        ticker: form.ticker,
+        direction,
+        instrument,
+        account: str("account") ?? "main",
+        strike: num("strike"),
+        expiry: str("expiry"),
+        premium: num("premium"),
+        contracts: num("contracts"),
+        shares: num("shares"),
+        entry_price: num("entry_price"),
+        target: num("target"),
+        invalidation: num("invalidation"),
+        notes: str("notes"),
+        skill: str("skill"),
+        tier: num("tier"),
+        delta: num("delta"),
+        gamma: num("gamma"),
+        theta: num("theta"),
+        vega: num("vega"),
+        iv: num("iv"),
+        iv_rank: num("iv_rank"),
+        premium_stop: num("premium_stop"),
+        premium_target: num("premium_target"),
+        kill_sheet_id: response.kill_sheet_id,
+      };
+      await api.openPosition(payload);
+      navigate("/positions");
+    } catch (err) {
+      setOpenError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  if (!entryAuthorized) {
+    return (
+      <div className="panel stripe-warn p-4 mb-4 border-2 border-dashed border-signal-flag">
+        <div className="text-sm font-bold text-signal-flag uppercase tracking-widest mb-1">
+          ⚠ Pass §8 attestation to record this position
+        </div>
+        <div className="text-xs text-text-secondary">
+          Authorize entry by completing the Discipline §8 checks below, then
+          re-submit the kill sheet. The position cannot be recorded until
+          attestation passes.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="panel p-4 mb-4 border-2 border-signal-bull">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-widest text-signal-bull max-w-md">
+          ✓ Authorization granted · sheet persisted as
+          <span className="font-mono ml-2 text-text-primary">
+            {response.kill_sheet_id}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleOpenPosition}
+          disabled={opening}
+        >
+          {opening ? "Recording…" : "→ Open Position"}
+        </button>
+      </div>
+      {openError && (
+        <div className="mt-3 text-sm text-signal-bear">
+          ⛔ {openError}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function readInitialForm(params: URLSearchParams): KillSheetRequest {
   const direction = params.get("direction");
   const intent = params.get("intent");
@@ -27,6 +168,18 @@ function readInitialForm(params: URLSearchParams): KillSheetRequest {
   const account = params.get("account");
   const ticker = params.get("ticker") ?? "";
   const focus = params.get("focus") === "true";
+
+  // Numeric params — pre-filled from the position-open form.
+  const numParam = (key: string): number | null => {
+    const v = params.get(key);
+    if (v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const contractParam = params.get("contract_type");
+  const contract_type =
+    contractParam === "call" || contractParam === "put" ? contractParam : null;
 
   return {
     ticker: ticker.toUpperCase(),
@@ -41,6 +194,16 @@ function readInitialForm(params: URLSearchParams): KillSheetRequest {
       ? (conviction as KillSheetRequest["conviction"])
       : "high",
     focus,
+    // Pre-fillable from the position form
+    strike: numParam("strike"),
+    expiry: params.get("expiry") || null,
+    premium: numParam("premium"),
+    contract_type,
+    delta: numParam("delta"),
+    iv_rank: numParam("iv_rank"),
+    target: numParam("target"),
+    invalidation: numParam("invalidation"),
+    notes: params.get("notes") || null,
   };
 }
 
@@ -87,13 +250,13 @@ export function KillSheetView() {
   const [showOptions, setShowOptions] = useState(false);
   const [showDiscipline, setShowDiscipline] = useState(false);
 
-  // Options-input state (paste / screenshot)
+  // Options-input state (paste only — screenshot extraction removed to
+  // avoid the Anthropic API spend; manual entry covers the same fields).
   const [pasteText, setPasteText] = useState("");
   const [extractLoading, setExtractLoading] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractWarnings, setExtractWarnings] = useState<string[]>([]);
   const [fieldSources, setFieldSources] = useState<FieldSourceMap>({});
-  const screenshotInputRef = useRef<HTMLInputElement | null>(null);
 
   function clearFieldSource(key: keyof KillSheetRequest) {
     setFieldSources((prev) => {
@@ -122,26 +285,6 @@ export function KillSheetView() {
     }
   }
 
-  async function handleScreenshotUpload(file: File) {
-    setExtractLoading(true);
-    setExtractError(null);
-    try {
-      const parsed = await api.extractOptionsScreenshot(file, {
-        ticker: form.ticker || undefined,
-      });
-      const { next, sources } = applyParsedToForm(form, parsed);
-      setForm(next);
-      setFieldSources((prev) => ({ ...prev, ...sources }));
-      setExtractWarnings(parsed.warnings);
-      setShowOptions(true);
-    } catch (err) {
-      setExtractError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setExtractLoading(false);
-      if (screenshotInputRef.current) screenshotInputRef.current.value = "";
-    }
-  }
-
   function setAttestation(key: string, value: boolean) {
     setForm((prev) => ({
       ...prev,
@@ -156,11 +299,17 @@ export function KillSheetView() {
     setForm(readInitialForm(searchParams));
     setResponse(null);
     setError(null);
+    // Auto-open the options panel when a deep-link brings options data
+    // (typically from the position-open form's "Generate kill sheet" button).
+    const hasOptionsData =
+      ["strike", "premium", "expiry", "contract_type", "delta", "iv_rank"]
+        .some((k) => searchParams.get(k));
+    if (hasOptionsData) setShowOptions(true);
   }, [searchParams]);
 
   function update<K extends keyof KillSheetRequest>(key: K, value: KillSheetRequest[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
-    // Manual edit clears any "from paste"/"from screenshot" badge for that field.
+    // Manual edit clears any "from paste" badge for that field.
     if (OPTIONS_FIELDS.includes(key)) {
       clearFieldSource(key);
     }
@@ -169,9 +318,8 @@ export function KillSheetView() {
   function sourceBadge(key: keyof KillSheetRequest) {
     const src = fieldSources[key];
     if (!src) return null;
-    const label = src === "paste" ? "from paste" : "from screenshot";
     return (
-      <span className="badge badge-info text-[10px] ml-2">{label}</span>
+      <span className="badge badge-info text-[10px] ml-2">from paste</span>
     );
   }
 
@@ -194,7 +342,9 @@ export function KillSheetView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <h2 className="text-lg font-semibold mb-4">Kill Sheet</h2>
+      <div className="page-header-row">
+        <h2 className="page-title">Kill Sheet</h2>
+      </div>
 
       {form.focus && (
         <div className="panel p-3 mb-4 border-signal-info/40 bg-signal-info/5 flex items-center justify-between gap-3 flex-wrap">
@@ -298,60 +448,40 @@ export function KillSheetView() {
           </div>
         </div>
 
-        <div className="panel-header">Options input — paste from brokerage or upload screenshot</div>
+        <div className="panel-header">Options input — paste from brokerage</div>
         <div className="panel-body space-y-3">
           <p className="text-xs text-text-secondary">
-            Brokerage data is fresher than any web feed. Paste options chain text from
-            your platform OR drop a screenshot. Extracted fields prefill the form below
-            with a "from paste" / "from screenshot" tag — manual edits clear the tag.
+            Brokerage data is fresher than any web feed. Paste options chain
+            text from your platform — extracted fields prefill the form below
+            with a "from paste" tag. Manual edits clear the tag.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="label">Paste options snapshot</label>
-              <textarea
-                className="input w-full font-mono text-xs"
-                rows={5}
-                placeholder={"Strike: 480\nPremium: 4.55\nIV Rank: 35\nOI: 12,500\nExpiry: 2026-06-19\nType: call"}
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-              />
-              <div className="mt-2 flex gap-2">
+          <div>
+            <label className="label">Paste options snapshot</label>
+            <textarea
+              className="input w-full font-mono text-xs"
+              rows={5}
+              placeholder={"Strike: 480\nPremium: 4.55\nIV Rank: 35\nOI: 12,500\nExpiry: 2026-06-19\nType: call"}
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+            />
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                disabled={extractLoading || !pasteText.trim()}
+                onClick={handlePasteExtract}
+              >
+                {extractLoading ? "Extracting…" : "Extract from paste"}
+              </button>
+              {pasteText && (
                 <button
                   type="button"
-                  className="btn btn-secondary text-xs"
-                  disabled={extractLoading || !pasteText.trim()}
-                  onClick={handlePasteExtract}
+                  className="btn text-xs"
+                  onClick={() => setPasteText("")}
                 >
-                  {extractLoading ? "Extracting…" : "Extract from paste"}
+                  Clear
                 </button>
-                {pasteText && (
-                  <button
-                    type="button"
-                    className="btn text-xs"
-                    onClick={() => setPasteText("")}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="label">Upload screenshot (PNG / JPG)</label>
-              <input
-                ref={screenshotInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="input w-full"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleScreenshotUpload(file);
-                }}
-              />
-              <p className="text-xs text-text-secondary mt-2">
-                Vision extraction uses Anthropic — requires ANTHROPIC_API_KEY on the
-                server. Hint fields (ticker / strike / expiry / type) aren't required;
-                pass them in the form to disambiguate when the screenshot has multiple rows.
-              </p>
+              )}
             </div>
           </div>
           {extractError && (
@@ -546,13 +676,29 @@ export function KillSheetView() {
 
       {response && (
         <>
+          <div className="mb-4">
+            <VerdictHero
+              verdict={fromKillSheetDevil(
+                response.devil,
+                form.direction ?? "long",
+                response.rules_blocked,
+              )}
+              context={`${form.ticker || "Trade"} · ${form.direction ?? "long"}`}
+            />
+          </div>
+
+          <OpenPositionGate
+            response={response}
+            searchParams={searchParams}
+            form={form}
+          />
           {(() => {
             const ks = response.kill_sheet as Record<string, unknown>;
             const status = ks?.status as string | undefined;
             const reason = ks?.rejection_reason as string | undefined;
             if (status === "REJECTED") {
               return (
-                <div className="panel p-4 mb-4 border-signal-bear" style={{borderWidth: 2}}>
+                <div className="panel stripe-bear p-4 mb-4 border-2 border-dashed border-signal-bear">
                   <div className="font-semibold text-signal-bear mb-2">
                     ⛔ KILL SHEET REJECTED — {reason}
                   </div>

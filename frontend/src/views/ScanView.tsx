@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
+import { VerdictHero } from "../components/Verdict";
+import { fromRawIndicators } from "../lib/verdict";
 import type { ScanResult } from "../api/types";
 
 function fmt(value: number | null | undefined, digits = 2): string {
@@ -50,7 +52,9 @@ export function ScanView() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
-      <h2 className="text-lg font-semibold mb-4">Scan</h2>
+      <div className="page-header-row">
+        <h2 className="page-title">Scan</h2>
+      </div>
 
       <form
         onSubmit={(e) => {
@@ -79,6 +83,17 @@ export function ScanView() {
 
       {data && (
         <>
+        <div className="mb-4">
+          <VerdictHero
+            verdict={fromRawIndicators({
+              maStackState: data.ma_ribbon.stack_state,
+              stochZone: data.stochastic.zone,
+              stochSignal: data.stochastic.signal,
+              sqnRegime: data.sqn.regime,
+            })}
+            context={`${data.ticker} · ${data.timeframe}`}
+          />
+        </div>
         <div className="mb-4">
           <TradingViewChart
             ticker={data.ticker}

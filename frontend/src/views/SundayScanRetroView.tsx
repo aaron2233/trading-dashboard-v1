@@ -72,13 +72,11 @@ export function SundayScanRetroView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <Link to="/focus" className="text-text-secondary text-sm hover:text-text-primary">
-            ← Back to current scan
-          </Link>
-          <h2 className="text-lg font-semibold mt-1">Saved scan — {date}</h2>
-        </div>
+      <div className="page-header-row">
+        <h2 className="page-title">Archive — {date}</h2>
+        <Link to="/focus" className="btn text-xs">
+          ← Back to current
+        </Link>
       </div>
 
       {loading && (

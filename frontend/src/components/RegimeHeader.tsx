@@ -19,21 +19,6 @@ function regimeBadgeClass(regime: string | null | undefined): string {
   }
 }
 
-function stackBadgeClass(stack: string | null | undefined): string {
-  switch (stack) {
-    case "full_bull":
-    case "bull_developing":
-      return "badge-bull";
-    case "full_bear":
-    case "bear_developing":
-      return "badge-bear";
-    case "compression":
-      return "badge-flag";
-    default:
-      return "badge-muted";
-  }
-}
-
 function diagnosticBadgeClass(diagnostic: string | null | undefined): string {
   switch (diagnostic) {
     case "confluence_bullish":
@@ -106,55 +91,56 @@ export function RegimeHeader() {
   return (
     <header className="border-b border-bg-border bg-bg-panel px-4 py-3">
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-text-secondary text-xs uppercase tracking-widest">Regime</span>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
             {BENCHMARKS.map((t) => {
               const row = data[t];
               if (!row || "error" in row) {
                 return (
-                  <span key={t} className="text-text-muted">
-                    {t}: {row && "error" in row ? "err" : "—"}
+                  <span key={t} className="text-text-muted text-xs">
+                    {t} —
                   </span>
                 );
               }
               const sqn100 = row.sqn.sqn_value;
               const sqn20 = row.sqn.sqn_20_value;
+              const regime100 = row.sqn.regime;
               const regime20 = row.sqn.regime_20;
               const diag = row.sqn.diagnostic;
+              const stack = row.ma_ribbon.stack_state;
+              const divergent = regime20 && regime20 !== regime100;
+              const flaggedDiag =
+                diag === "confluence_chase_warning" ||
+                diag === "confluence_capitulation_watch";
+              const tooltipLines = [
+                `SQN(100) ${regime100 ?? "—"}${sqn100 !== null ? ` (${sqn100.toFixed(2)})` : ""}`,
+                `SQN(20) ${regime20 ?? "—"}${sqn20 !== null && sqn20 !== undefined ? ` (${sqn20.toFixed(2)})` : ""}`,
+                `MA stack ${stack ?? "—"}`,
+                diag ? `Diagnostic ${diag}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n");
               return (
-                <span key={t} className="flex items-center gap-1.5">
-                  <span className="text-text-secondary">{t}</span>
-                  <span className={`badge ${regimeBadgeClass(row.sqn.regime)}`}>
-                    {row.sqn.regime ?? "—"}
+                <span
+                  key={t}
+                  className="flex items-center gap-1.5"
+                  title={tooltipLines}
+                >
+                  <span className="text-text-secondary text-xs font-mono">{t}</span>
+                  <span className={`badge ${regimeBadgeClass(regime100)}`}>
+                    {regime100 ?? "—"}
                   </span>
-                  <span
-                    className={`badge ${stackBadgeClass(row.ma_ribbon.stack_state)}`}
-                  >
-                    {row.ma_ribbon.stack_state ?? "—"}
-                  </span>
-                  {sqn100 !== null && (
-                    <span className="text-text-muted text-xs">
-                      ({sqn100.toFixed(2)})
-                    </span>
-                  )}
-                  <span className="text-text-muted text-xs">·</span>
-                  <span
-                    className={`badge ${regimeBadgeClass(regime20)}`}
-                    title="SQN(20) tactical regime"
-                  >
-                    20d {regime20 ?? "—"}
-                  </span>
-                  {sqn20 !== null && sqn20 !== undefined && (
-                    <span className="text-text-muted text-xs">
-                      ({sqn20.toFixed(2)})
-                    </span>
-                  )}
-                  {diag && (
+                  {divergent && (
                     <span
-                      className={`badge ${diagnosticBadgeClass(diag)}`}
-                      title={diag}
+                      className={`badge ${regimeBadgeClass(regime20)} text-[10px]`}
+                      title="SQN(20) tactical divergence"
                     >
+                      20d {regime20}
+                    </span>
+                  )}
+                  {flaggedDiag && (
+                    <span className={`badge ${diagnosticBadgeClass(diag)} text-[10px]`}>
                       {diagnosticLabel(diag)}
                     </span>
                   )}

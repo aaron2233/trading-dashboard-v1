@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { Sparkline } from "../components/Sparkline";
+import { VerdictBadge } from "../components/Verdict";
+import { fromFreeRangeCandidate } from "../lib/verdict";
 import type {
   CandidateSnapshot,
   FreeRangeScanResponse,
@@ -12,21 +14,10 @@ function fmtPrice(value: number | null): string {
   return `$${value.toFixed(2)}`;
 }
 
-function badgeClassForStack(stack: string | null): string {
-  if (stack === "full_bull" || stack === "bull_developing") return "badge-bull";
-  if (stack === "full_bear" || stack === "bear_developing") return "badge-bear";
-  if (stack === "compression") return "badge-flag";
-  return "badge-muted";
-}
-
 function badgeClassForRegime(regime: string | null): string {
   if (regime === "strong_bull" || regime === "bull") return "badge-bull";
   if (regime === "strong_bear" || regime === "bear") return "badge-bear";
   return "badge-info";
-}
-
-function badgeClassForDirection(direction: string): string {
-  return direction === "long" ? "badge-bull" : "badge-bear";
 }
 
 function badgeClassForTier(tier: string): string {
@@ -34,6 +25,14 @@ function badgeClassForTier(tier: string): string {
   if (tier === "1") return "badge-info";
   if (tier === "2") return "badge-flag";
   return "badge-muted";
+}
+
+function combinedSqnRegime(s100: string | null, s20: string | null): string {
+  // Show the "worse" of the two if they differ — otherwise just one.
+  if (!s100 && !s20) return "—";
+  if (!s20 || s100 === s20) return s100 ?? "—";
+  if (!s100) return s20;
+  return `${s100} / ${s20} 20d`;
 }
 
 function killSheetLink(s: CandidateSnapshot): string {
@@ -47,6 +46,7 @@ function killSheetLink(s: CandidateSnapshot): string {
 }
 
 function CandidateCard({ snap }: { snap: CandidateSnapshot }) {
+  const verdict = fromFreeRangeCandidate(snap.tier, snap.direction);
   return (
     <div className="panel p-3">
       <div className="flex items-center justify-between mb-2">
@@ -57,11 +57,9 @@ function CandidateCard({ snap }: { snap: CandidateSnapshot }) {
           {snap.is_etf && (
             <span className="badge badge-muted text-xs">ETF</span>
           )}
+          <VerdictBadge verdict={verdict} />
           <span className={`badge ${badgeClassForTier(snap.tier)} text-xs`}>
             Tier {snap.tier}
-          </span>
-          <span className={`badge ${badgeClassForDirection(snap.direction)} text-xs`}>
-            {snap.direction.toUpperCase()}
           </span>
         </div>
         <div className="flex items-center gap-3 text-sm">
@@ -73,38 +71,37 @@ function CandidateCard({ snap }: { snap: CandidateSnapshot }) {
 
       <p className="text-sm text-text-primary mb-2">{snap.why_now}</p>
 
-      <div className="flex flex-wrap gap-2 mb-2">
-        <span className={`badge ${badgeClassForStack(snap.ma_stack)} text-xs`}>
-          {snap.ma_stack ?? "—"}
+      <div className="flex items-center gap-3 text-xs text-text-muted mb-2">
+        <span>
+          <span className="text-text-secondary">SQN</span>{" "}
+          <span className={`badge ${badgeClassForRegime(snap.sqn_100_regime)} text-[10px]`}>
+            {combinedSqnRegime(snap.sqn_100_regime, snap.sqn_20_regime)}
+          </span>
+        </span>
+        <span>·</span>
+        <span>
+          stack <span className="font-mono">{snap.ma_stack ?? "—"}</span>
         </span>
         {snap.stoch_zone && (
-          <span className="badge badge-info text-xs">stoch {snap.stoch_zone}</span>
+          <>
+            <span>·</span>
+            <span>
+              stoch <span className="font-mono">{snap.stoch_zone}</span>
+            </span>
+          </>
         )}
-        <span className={`badge ${badgeClassForRegime(snap.sqn_100_regime)} text-xs`}>
-          SQN(100) {snap.sqn_100_regime ?? "—"}
-        </span>
-        {snap.sqn_20_regime && (
-          <span className={`badge ${badgeClassForRegime(snap.sqn_20_regime)} text-xs`}>
-            SQN(20) {snap.sqn_20_regime}
-          </span>
-        )}
-      </div>
-
-      <div className="text-xs text-text-secondary mb-2">
-        Options data (premium / IV / OI / spread) entered at the kill sheet — paste
-        from brokerage or upload a screenshot. This scan is price-action only.
       </div>
 
       {snap.notes.length > 0 && (
         <ul className="text-xs text-text-secondary space-y-0.5 mb-2">
-          {snap.notes.map((n, i) => (
+          {snap.notes.slice(0, 1).map((n, i) => (
             <li key={i}>· {n}</li>
           ))}
         </ul>
       )}
 
       <div className="flex justify-end">
-        <Link to={killSheetLink(snap)} className="btn btn-secondary text-xs">
+        <Link to={killSheetLink(snap)} className="btn btn-primary text-xs">
           Pre-write kill sheet →
         </Link>
       </div>
@@ -170,14 +167,12 @@ export function FreeRangeView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-text-primary">Free-Range Scan</h2>
-        <p className="text-xs text-text-secondary mt-1">
-          3-phase: QQQ + GLD baseline → user-submitted → free-range top 5 from
-          Nasdaq 100. Snapshots only — kill sheets generate when you pick a
-          candidate. Per orchestrator rule 12.
-        </p>
+      <div className="page-header-row">
+        <h2 className="page-title">Free-Range Scan</h2>
       </div>
+      <p className="page-subtitle">
+        3-phase · baseline → user → free-range · cap 5 · per orchestrator rule 12
+      </p>
 
       <form
         onSubmit={(e) => {

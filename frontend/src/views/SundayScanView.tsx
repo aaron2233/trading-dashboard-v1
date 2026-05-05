@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { VerdictBadge } from "../components/Verdict";
+import { fromFocusSetup, fromSundayScan } from "../lib/verdict";
 import type {
   FocusRecentSummary,
   FocusSetup,
@@ -55,12 +57,6 @@ function badgeClassForRegime(regime: string | null): string {
   if (regime === "strong_bull" || regime === "bull") return "badge-bull";
   if (regime === "strong_bear" || regime === "bear") return "badge-bear";
   return "badge-info";
-}
-
-function badgeClassForStatus(status: FocusSetup["status"]): string {
-  if (status === "fires") return "badge-bull";
-  if (status === "watch") return "badge-flag";
-  return "badge-muted";
 }
 
 export function badgeClassForRecommendation(rec: SundayScanResponse["recommendation"]): string {
@@ -143,9 +139,7 @@ export function SetupRow({ setup, isTop }: { setup: FocusSetup; isTop: boolean }
           <span className="font-semibold">
             {setup.asset} {setup.direction}
           </span>
-          <span className={`badge ${badgeClassForStatus(setup.status)}`}>
-            {setup.status}
-          </span>
+          <VerdictBadge verdict={fromFocusSetup(setup)} />
         </div>
         <div className="text-right">
           <div className="text-base font-mono">{setup.score}</div>
@@ -196,13 +190,8 @@ export function SundayScanView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Sunday Scan — qqq-gld-focus</h2>
-          <p className="text-text-secondary text-sm">
-            SPY regime + QQQ + GLD reads, then ranks the four candidate setups.
-          </p>
-        </div>
+      <div className="page-header-row">
+        <h2 className="page-title">Sunday Focus</h2>
         <button
           type="button"
           className="btn btn-primary"
@@ -212,6 +201,9 @@ export function SundayScanView() {
           {loading ? "Scanning…" : "Refresh"}
         </button>
       </div>
+      <p className="page-subtitle">
+        SPY regime · QQQ + GLD reads · 4 ranked setups
+      </p>
 
       {error && (
         <div className="panel p-3 border-signal-bear/50">
@@ -222,13 +214,8 @@ export function SundayScanView() {
       {data && (
         <>
           <div className="panel p-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className={`badge ${badgeClassForRecommendation(data.recommendation)} text-sm`}>
-                  {data.recommendation.toUpperCase()}
-                </span>
-                <span className="text-text-primary">{data.headline}</span>
-              </div>
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+              <VerdictBadge verdict={fromSundayScan(data)} size="lg" />
               {data.recommendation === "trade" && data.setups.length > 0 && (
                 <Link
                   to={killSheetLinkFor(data.setups[0])}
@@ -238,6 +225,7 @@ export function SundayScanView() {
                 </Link>
               )}
             </div>
+            <div className="text-sm text-text-primary">{data.headline}</div>
             <div className="mt-2 text-xs text-text-muted">
               Saved {formatScanTime(data.scan_time_utc)}
             </div>
@@ -340,7 +328,7 @@ export function SundayScanView() {
                   <Link
                     key={s.date}
                     to={`/focus/${s.date}`}
-                    className="flex items-center justify-between gap-3 flex-wrap py-1.5 px-2 -mx-2 rounded hover:bg-bg-border/40 transition"
+                    className="flex items-center justify-between gap-3 flex-wrap py-1.5 px-2 -mx-2 hover:bg-bg-elevated transition"
                   >
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-xs text-text-secondary w-24">

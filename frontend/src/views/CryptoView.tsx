@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
+import { VerdictBadge } from "../components/Verdict";
+import { fromCryptoConfluence } from "../lib/verdict";
 import type {
-  CryptoConfluence,
   CryptoInstrumentsResponse,
   CryptoSetup,
   CryptoTimeframeReadDTO,
@@ -46,25 +47,6 @@ function badgeClassForRegime(regime: string | null): string {
   if (regime === "strong_bull" || regime === "bull") return "badge-bull";
   if (regime === "strong_bear" || regime === "bear") return "badge-bear";
   return "badge-info";
-}
-
-const CONFLUENCE_LABEL: Record<CryptoConfluence, string> = {
-  high_conviction_long: "HIGH CONVICTION LONG",
-  high_conviction_short: "HIGH CONVICTION SHORT",
-  medium_conviction_long: "Medium conviction long",
-  medium_conviction_short: "Medium conviction short",
-  counter_weekly: "Counter-Weekly — half size",
-  wait: "Wait — trigger pending",
-  skip_chop: "Skip — Daily chop",
-  skip_no_setup: "Skip — no setup",
-};
-
-function badgeClassForConfluence(c: CryptoConfluence): string {
-  if (c.startsWith("high_conviction")) return "badge-bull";
-  if (c.startsWith("medium_conviction")) return "badge-info";
-  if (c === "counter_weekly") return "badge-flag";
-  if (c === "wait") return "badge-info";
-  return "badge-bear";
 }
 
 function changeClass(v: number | null): string {
@@ -249,12 +231,11 @@ function MultiTFGrid({ setup }: { setup: CryptoSetup }) {
 }
 
 function ConfluencePanel({ setup }: { setup: CryptoSetup }) {
+  const verdict = fromCryptoConfluence(setup.confluence, setup.direction);
   return (
     <div className="panel p-4 mb-4">
       <div className="flex items-baseline justify-between mb-2">
-        <span className={`badge ${badgeClassForConfluence(setup.confluence)} text-sm`}>
-          {CONFLUENCE_LABEL[setup.confluence]}
-        </span>
+        <VerdictBadge verdict={verdict} size="lg" />
         {setup.direction !== "none" && (
           <Link to={killSheetLink(setup)} className="btn btn-secondary text-xs">
             Pre-write kill sheet →
@@ -320,14 +301,12 @@ export function CryptoView() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold">Crypto Analysis</h2>
-        <p className="text-xs text-text-secondary mt-1">
-          Multi-TF MA Ribbon + Stoch + SQN on Crypto.com candlesticks. Live
-          ticker from public REST. Order book + execution data live with the
-          brokerage UI — same anti-stale discipline as options input.
-        </p>
+      <div className="page-header-row">
+        <h2 className="page-title">Crypto Analysis</h2>
       </div>
+      <p className="page-subtitle">
+        Multi-TF · MA + Stoch + SQN · Crypto.com REST · live ticker
+      </p>
 
       <div className="panel p-4 mb-4">
         <form

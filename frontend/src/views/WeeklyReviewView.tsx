@@ -82,24 +82,22 @@ export function WeeklyReviewView() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">Weekly Review</h1>
-          {review && (
-            <div className="text-xs text-text-muted">
-              Week of {review.week_start} → {review.week_end}
-            </div>
-          )}
-        </div>
+      <header className="page-header-row">
+        <h1 className="page-title">Weekly Review</h1>
         <div className="flex gap-2">
           <button type="button" className="btn" onClick={() => void recompute()} disabled={recomputing}>
             {recomputing ? "…" : "Recompute"}
           </button>
           <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
-            {loading ? "…" : "↻"}
+            {loading ? "…" : "Refresh"}
           </button>
         </div>
       </header>
+      {review && (
+        <p className="page-subtitle">
+          Week of {review.week_start} → {review.week_end}
+        </p>
+      )}
 
       {error && (
         <div className="panel p-3 border-signal-bear/50">
