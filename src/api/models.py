@@ -718,62 +718,6 @@ class WeeklyScanResponse(BaseModel):
     errors: dict[str, str] = Field(default_factory=dict)
 
 
-# ─── Crypto ──────────────────────────────────────────────────────────────────
-
-
-class CryptoInstrumentResponse(BaseModel):
-    instrument_name: str
-    base_ccy: str
-    quote_ccy: str
-
-
-class CryptoInstrumentsResponse(BaseModel):
-    common: list[str] = Field(default_factory=list)        # quick-pick suggestions
-    instruments: list[CryptoInstrumentResponse] = Field(default_factory=list)
-
-
-class CryptoTickerDTO(BaseModel):
-    instrument_name: str
-    last_price: float | None = None
-    bid: float | None = None
-    ask: float | None = None
-    change_24h_pct: float | None = None
-    high_24h: float | None = None
-    low_24h: float | None = None
-    volume_24h: float | None = None
-    source_timestamp_ms: int | None = None
-
-
-class CryptoTimeframeReadDTO(BaseModel):
-    timeframe: str
-    error: str | None = None
-    bar_date: str | None = None
-    close: float | None = None
-    ma_stack_state: str | None = None
-    stoch_k: float | None = None
-    stoch_d: float | None = None
-    stoch_zone: str | None = None
-    stoch_signal: str | None = None
-    sqn_regime: str | None = None
-    sqn_value: float | None = None
-
-
-class CryptoSetupResponse(BaseModel):
-    symbol: str
-    scan_time_utc: str
-    ticker: CryptoTickerDTO | None = None
-    reads: dict[str, CryptoTimeframeReadDTO] = Field(default_factory=dict)
-    confluence: Literal[
-        "high_conviction_long", "high_conviction_short",
-        "medium_conviction_long", "medium_conviction_short",
-        "counter_weekly", "wait", "skip_chop", "skip_no_setup",
-    ]
-    direction: Literal["long", "short", "none"]
-    why_now: str
-    blockers: list[str] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
-
-
 # ─── Sparkline ───────────────────────────────────────────────────────────────
 
 

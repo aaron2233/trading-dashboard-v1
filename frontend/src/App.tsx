@@ -7,7 +7,6 @@ import { useDashboardState } from "./state/DashboardStateContext";
 import { HomeView } from "./views/HomeView";
 import { ScanView } from "./views/ScanView";
 import { KillSheetView } from "./views/KillSheetView";
-import { CryptoView } from "./views/CryptoView";
 import { LottoView } from "./views/LottoView";
 import { WeeklyTrendView } from "./views/WeeklyTrendView";
 import { PositionsView } from "./views/PositionsView";
@@ -36,7 +35,6 @@ const SCAN_GROUP: NavGroupDef = {
   items: [
     { kind: "link", to: "/scan", label: "Scan ticker" },
     { kind: "link", to: "/weekly", label: "Weekly trend" },
-    { kind: "link", to: "/crypto", label: "Crypto" },
     { kind: "link", to: "/focus", label: "Sunday focus" },
     { kind: "divider" },
     { kind: "link", to: "/lotto", label: "Lotto · $1K playbook" },
@@ -209,7 +207,6 @@ export function App() {
           <Route path="/" element={<HomeView />} />
           <Route path="/scan" element={<ScanView />} />
           <Route path="/weekly" element={<WeeklyTrendView />} />
-          <Route path="/crypto" element={<CryptoView />} />
           <Route path="/focus" element={<SundayScanView />} />
           <Route path="/focus/:date" element={<SundayScanRetroView />} />
           <Route path="/kill-sheet" element={<KillSheetView />} />

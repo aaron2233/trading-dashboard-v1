@@ -1,8 +1,6 @@
 import type {
   ClosePyramidRequest,
   CreatePyramidRequest,
-  CryptoInstrumentsResponse,
-  CryptoSetup,
   DashboardState,
   DisciplineScoreDTO,
   DisciplineStatsDTO,
@@ -56,12 +54,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify(req),
     }),
-
-  cryptoInstruments: () =>
-    request<CryptoInstrumentsResponse>("/api/v1/crypto/instruments"),
-
-  cryptoScan: (symbol: string) =>
-    request<CryptoSetup>(`/api/v1/crypto/scan/${encodeURIComponent(symbol)}`),
 
   scan: (ticker: string, timeframe = "1d") =>
     request<ScanResult>(

@@ -517,69 +517,6 @@ export interface FreeRangeScanResponse {
   errors: Record<string, string>;
 }
 
-// ─── Crypto ───────────────────────────────────────────────────────────
-
-export type CryptoConfluence =
-  | "high_conviction_long"
-  | "high_conviction_short"
-  | "medium_conviction_long"
-  | "medium_conviction_short"
-  | "counter_weekly"
-  | "wait"
-  | "skip_chop"
-  | "skip_no_setup";
-
-export type CryptoDirection = "long" | "short" | "none";
-
-export interface CryptoInstrument {
-  instrument_name: string;
-  base_ccy: string;
-  quote_ccy: string;
-}
-
-export interface CryptoInstrumentsResponse {
-  common: string[];
-  instruments: CryptoInstrument[];
-}
-
-export interface CryptoTickerDTO {
-  instrument_name: string;
-  last_price: number | null;
-  bid: number | null;
-  ask: number | null;
-  change_24h_pct: number | null;
-  high_24h: number | null;
-  low_24h: number | null;
-  volume_24h: number | null;
-  source_timestamp_ms: number | null;
-}
-
-export interface CryptoTimeframeReadDTO {
-  timeframe: string;
-  error: string | null;
-  bar_date: string | null;
-  close: number | null;
-  ma_stack_state: string | null;
-  stoch_k: number | null;
-  stoch_d: number | null;
-  stoch_zone: string | null;
-  stoch_signal: string | null;
-  sqn_regime: string | null;
-  sqn_value: number | null;
-}
-
-export interface CryptoSetup {
-  symbol: string;
-  scan_time_utc: string;
-  ticker: CryptoTickerDTO | null;
-  reads: Record<string, CryptoTimeframeReadDTO>;
-  confluence: CryptoConfluence;
-  direction: CryptoDirection;
-  why_now: string;
-  blockers: string[];
-  notes: string[];
-}
-
 // ─── Weekly trend scan ────────────────────────────────────────────────
 
 export type WeeklyConfluence =

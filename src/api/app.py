@@ -18,11 +18,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.models import (
     AlertResponse,
     CandidateSnapshotResponse,
-    CryptoInstrumentResponse,
-    CryptoInstrumentsResponse,
-    CryptoSetupResponse,
-    CryptoTickerDTO,
-    CryptoTimeframeReadDTO,
     DashboardStateResponse,
     OptionsTextRequest,
     ParsedOptionsResponse,
@@ -81,8 +76,6 @@ from focus import (
     run_sunday_scan,
     summarize_recent_outcomes,
 )
-from crypto import COMMON_PAIRS, scan_crypto_setup
-from data.crypto_loader import CryptoFetchError, fetch_instruments
 from free_range import run_free_range_scan
 from lotto import LOTTO_ACCOUNT_KEY, check_lotto_cooldown, compute_lotto_state
 from options_input import parse_options_text
@@ -269,59 +262,6 @@ def create_app(
                 for t in state.recent_trades
             ],
             open_position_ids=state.open_position_ids,
-        )
-
-    # ─── Crypto ───────────────────────────────────────────────────────────────
-
-    # Module-level cache for the instruments listing (rarely changes; one fetch
-    # per process is plenty for a localhost dashboard).
-    _crypto_instruments_cache: dict[str, Any] = {"value": None}
-
-    @app.get("/api/v1/crypto/instruments", response_model=CryptoInstrumentsResponse)
-    def crypto_instruments():
-        """List of supported Crypto.com USDT/USD instruments + common quick-picks."""
-        if _crypto_instruments_cache["value"] is None:
-            try:
-                _crypto_instruments_cache["value"] = fetch_instruments()
-            except CryptoFetchError as exc:
-                # Degrade to common-only when the listings endpoint fails.
-                # Frontend can still render quick-picks.
-                _crypto_instruments_cache["value"] = []
-                return CryptoInstrumentsResponse(
-                    common=list(COMMON_PAIRS),
-                    instruments=[],
-                )
-        instruments = _crypto_instruments_cache["value"] or []
-        return CryptoInstrumentsResponse(
-            common=list(COMMON_PAIRS),
-            instruments=[CryptoInstrumentResponse(**i) for i in instruments],
-        )
-
-    @app.get("/api/v1/crypto/scan/{symbol}", response_model=CryptoSetupResponse)
-    def crypto_scan(symbol: str):
-        """Multi-TF crypto setup read: live ticker + Weekly/Daily/4H/2H + confluence."""
-        symbol_u = symbol.upper()
-        if "_" not in symbol_u:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Crypto symbol must use underscore form (e.g. BTC_USDT); got {symbol_u}",
-            )
-        try:
-            setup = scan_crypto_setup(symbol_u)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Crypto scan failed: {exc}")
-
-        d = setup.to_dict()
-        return CryptoSetupResponse(
-            symbol=d["symbol"],
-            scan_time_utc=d["scan_time_utc"],
-            ticker=CryptoTickerDTO(**d["ticker"]) if d["ticker"] else None,
-            reads={tf: CryptoTimeframeReadDTO(**r) for tf, r in d["reads"].items()},
-            confluence=d["confluence"],
-            direction=d["direction"],
-            why_now=d["why_now"],
-            blockers=d["blockers"],
-            notes=d["notes"],
         )
 
     # ─── Weekly trend scan ────────────────────────────────────────────────────
