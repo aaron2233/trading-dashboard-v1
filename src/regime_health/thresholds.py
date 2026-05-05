@@ -1,10 +1,10 @@
 """Default threshold rules for each indicator.
 
-⚠️ UNVERIFIED: these defaults are conservative-permissive starting values
-informed by trading literature, not backtested against 2018/2020/2022 SPX
+NOTE: these defaults are conservative-permissive starting values informed
+by trading literature, NOT backtested against 2018/2020/2022 SPX
 drawdowns. Per the spec, threshold defaults are user-overridable via
 ~/.trading-dashboard/config.yaml under `regime_health.thresholds`.
-A backtest-calibration sprint is a follow-up (Sprint 4 candidate).
+A backtest-calibration sprint is a follow-up.
 """
 from __future__ import annotations
 

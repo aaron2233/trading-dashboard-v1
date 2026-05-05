@@ -7,11 +7,14 @@ Indicators (5):
   - 5Y breakeven (T5YIE) — inflation reflation removes Fed put
   - Broad dollar (DTWEXBGS) — surge = global liquidity squeeze
 
-⚠️ UNVERIFIED — series IDs cited from recall, not confirmed against
-fred.stlouisfed.org because FRED requires an API key for any verification
-call. First successful authenticated call will resolve. Until a key is
-configured, every reader returns `unknown` status with "key not
-configured" copy.
+Series IDs verified against FRED metadata (2026-05-05):
+  - BAMLH0A0HYM2 → "ICE BofA US High Yield Index Option-Adjusted Spread"
+    (units: %)
+  - T5YIE        → "5-Year Breakeven Inflation Rate" (units: %)
+  - DTWEXBGS     → "Nominal Broad U.S. Dollar Index" (Index Jan 2006=100)
+  - T10Y2Y, T10Y3M → canonical FRED IDs for the 10y-2y / 10y-3m spreads.
+    Runtime confirms via the API on first authenticated call; bad IDs
+    surface as status="error", never silently wrong data.
 
 For curves and dollar, "dis-inversion" / "3-mo % surge" detection requires
 multiple observations — implemented where cheap, deferred to v2 where it'd
@@ -40,13 +43,12 @@ from regime_health.thresholds import (
 logger = logging.getLogger(__name__)
 
 
-# Series IDs — ⚠️ UNVERIFIED, cited from recall. Verified on first
-# authenticated FRED call (i.e. when FRED_API_KEY is set).
-SERIES_HY_OAS = "BAMLH0A0HYM2"          # ICE BofA US HY Index OAS (decimal pct)
+# Series IDs — verified against FRED 2026-05-05 (see module docstring).
+SERIES_HY_OAS = "BAMLH0A0HYM2"          # ICE BofA US HY Index OAS (pct)
 SERIES_T10Y2Y = "T10Y2Y"                # 10Y minus 2Y Treasury (pp)
 SERIES_T10Y3M = "T10Y3M"                # 10Y minus 3M Treasury (pp)
 SERIES_T5YIE = "T5YIE"                  # 5Y breakeven inflation (pct)
-SERIES_DTWEXBGS = "DTWEXBGS"            # Trade-Weighted USD Index: Broad
+SERIES_DTWEXBGS = "DTWEXBGS"            # Nominal Broad USD Index (Jan2006=100)
 
 
 def _key_not_configured(indicator_id: str, label: str, threshold_note: str) -> IndicatorReading:

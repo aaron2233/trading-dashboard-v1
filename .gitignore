@@ -16,3 +16,7 @@ env/
 .DS_Store
 .idea/
 .vscode/
+
+# Local env (FRED_API_KEY, ANTHROPIC_API_KEY, etc.)
+.env
+.env.local
