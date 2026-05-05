@@ -175,9 +175,14 @@ def test_kill_sheet_renders_apex_options_block(mock_scan, mock_multi, client):
 
 
 def _open_args(**overrides):
+    # Phase B: tests that aren't specifically exercising the kill-sheet
+    # authorization gate use the bypass affordance (with a documented reason
+    # in notes — required by the validator).
     base = dict(
         ticker="SPY", direction="long", instrument="call", account="main",
         strike=580, expiry="2026-06-19", premium=5.50, contracts=1,
+        bypass_kill_sheet=True,
+        notes="test fixture — kill-sheet gate not under test",
     )
     base.update(overrides)
     return base
@@ -195,10 +200,12 @@ def test_open_position_returns_201(client):
 
 def test_open_position_missing_required_returns_400(client):
     c, _ = client
-    # missing premium
+    # missing premium — bypass the gate so the missing-premium 400 surfaces
     r = c.post("/api/v1/positions", json={
         "ticker": "SPY", "instrument": "call",
         "strike": 580, "expiry": "2026-06-19", "contracts": 1,
+        "bypass_kill_sheet": True,
+        "notes": "test fixture",
     })
     assert r.status_code == 400
 

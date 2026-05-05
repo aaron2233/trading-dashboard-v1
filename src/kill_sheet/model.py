@@ -14,6 +14,7 @@ Discipline-layer extensions (2026-05-02, per
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
@@ -132,6 +133,10 @@ class KillSheet:
 
     # Metadata
     generated_at: str = field(default_factory=_now_iso)
+    # Stable identifier — required for the position-open authorization gate
+    # (Phase B). Generated when the sheet is built; persisted only on
+    # AUTHORIZED sheets so the position record can reference its origin.
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
     def to_dict(self) -> dict:
         d = asdict(self)

@@ -56,6 +56,28 @@ class Position:
     skill: str | None = None
     tier: int | None = None
 
+    # Greeks at entry (snapshot — not updated as the trade ages). Captured
+    # so the journal has the actual data for after-the-fact analysis. All
+    # nullable; legacy positions and shares positions leave them None.
+    delta: float | None = None     # rate of premium change w/ underlying
+    gamma: float | None = None     # rate of delta change
+    theta: float | None = None     # daily premium decay (typically negative)
+    vega: float | None = None      # premium change per 1% IV change
+    iv: float | None = None        # implied volatility at entry, decimal (0.45 = 45%)
+    iv_rank: float | None = None   # IVR percentile 0-100
+
+    # Premium-level exit thresholds — separate from underlying-price target /
+    # invalidation. Per CLAUDE.md cut rule (-60 to -70% max loss). Live
+    # premium-feed alerts are out of scope for V1 (no real-time options data
+    # source); these fields persist the user's intent for audit + future use.
+    premium_stop: float | None = None     # exit when premium drops to this $/share
+    premium_target: float | None = None   # take profit when premium rises to this $/share
+
+    # Phase B (authorization gate, 2026-05-04): every non-bypassed position
+    # references the kill sheet that authorized it. Nullable for legacy
+    # positions and for explicit bypasses (recorded with reason in notes).
+    kill_sheet_id: str | None = None
+
     @classmethod
     def open_options_position(
         cls,
@@ -73,6 +95,18 @@ class Position:
         notes: str | None = None,
         skill: str | None = None,
         tier: int | None = None,
+        # Greeks/IV snapshot (all optional)
+        delta: float | None = None,
+        gamma: float | None = None,
+        theta: float | None = None,
+        vega: float | None = None,
+        iv: float | None = None,
+        iv_rank: float | None = None,
+        # Premium-level thresholds
+        premium_stop: float | None = None,
+        premium_target: float | None = None,
+        # Phase B authorization gate
+        kill_sheet_id: str | None = None,
     ) -> "Position":
         if contracts <= 0:
             raise ValueError("contracts must be positive")
@@ -96,6 +130,15 @@ class Position:
             notes=notes,
             skill=skill,
             tier=tier,
+            delta=delta,
+            gamma=gamma,
+            theta=theta,
+            vega=vega,
+            iv=iv,
+            iv_rank=iv_rank,
+            premium_stop=premium_stop,
+            premium_target=premium_target,
+            kill_sheet_id=kill_sheet_id,
         )
 
     @classmethod
@@ -157,4 +200,10 @@ class Position:
 
     @classmethod
     def from_dict(cls, payload: dict) -> "Position":
-        return cls(**payload)
+        # Tolerate unknown keys (forward-compat: a newer JSON written by a
+        # future version with extra fields can still be loaded by an older
+        # binary). Missing fields fall back to dataclass defaults.
+        from dataclasses import fields as _fields
+        known = {f.name for f in _fields(cls)}
+        filtered = {k: v for k, v in payload.items() if k in known}
+        return cls(**filtered)

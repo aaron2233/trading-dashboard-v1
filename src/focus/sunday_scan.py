@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from storage.atomic import load_json_safe, write_json_atomic
+
 
 SUNDAY_SCANS_DIR = Path.home() / ".trading-dashboard" / "sunday_scans"
 
@@ -287,6 +289,7 @@ def persist_sunday_scan(
     scan: SundayScan,
     sunday_scans_dir: Path | None = None,
     now: datetime | None = None,
+    cache: Any | None = None,
 ) -> Path:
     """Write the scan to ~/.trading-dashboard/sunday_scans/YYYY-MM-DD.json.
 
@@ -296,7 +299,13 @@ def persist_sunday_scan(
 
     `sunday_scans_dir` defaults to the module-level SUNDAY_SCANS_DIR resolved
     at call time so tests can monkeypatch the constant without re-importing.
+
+    If `cache` is provided, the scan is also upserted to the SQLite cache.
+    Cache failures are logged but never raised — JSON remains canonical.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     if sunday_scans_dir is None:
         sunday_scans_dir = SUNDAY_SCANS_DIR
     sunday_scans_dir.mkdir(parents=True, exist_ok=True)
@@ -309,7 +318,14 @@ def persist_sunday_scan(
     else:
         date_str = scan.scan_time_utc[:10]  # YYYY-MM-DD prefix from ISO timestamp
     path = sunday_scans_dir / f"{date_str}.json"
-    path.write_text(json.dumps(payload, indent=2, default=str))
+    write_json_atomic(path, payload)
+    if cache is not None:
+        try:
+            cache.upsert_sunday_scan(payload)
+        except Exception:
+            logger.exception(
+                "cache upsert failed for sunday scan date=%s", date_str
+            )
     return path
 
 

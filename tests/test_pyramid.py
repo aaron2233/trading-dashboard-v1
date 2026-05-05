@@ -833,6 +833,32 @@ def test_pyramid_store_skips_corrupt_files(tmp_path: Path):
     assert len(found) == 1
 
 
+def test_pyramid_store_writes_are_atomic(tmp_path: Path):
+    """save() should leave no .tmp sibling — confirms write_json_atomic
+    cleanup. Critical for the durability guarantee on a power-loss event."""
+    store = PyramidStore(base_dir=tmp_path)
+    p = Pyramid.create(ticker="SPY", direction="long", total_allocation_usd=1000)
+    store.save(p)
+    store.save(p)  # rewrite same file
+    json_files = list(tmp_path.glob("*.json"))
+    tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+    assert len(json_files) == 1
+    assert tmp_files == []
+
+
+def test_pyramid_store_load_truncated_file_raises_keyerror(tmp_path: Path):
+    """load() of a truncated file should raise KeyError (corruption), not
+    JSONDecodeError or similar — keeps the API surface clean."""
+    store = PyramidStore(base_dir=tmp_path)
+    p = Pyramid.create(ticker="SPY", direction="long", total_allocation_usd=1000)
+    store.save(p)
+    # Truncate the file mid-record
+    p_path = tmp_path / f"{p.id}.json"
+    p_path.write_text('{"id": "abc", "ticker": "SP')
+    with pytest.raises(KeyError, match="corrupt"):
+        store.load(p.id)
+
+
 # ── Top-level evaluator (mocked data) ───────────────────────────────────────
 
 

@@ -248,6 +248,20 @@ def test_persist_sunday_scan_creates_dir_if_missing(tmp_path: Path):
     assert nested.is_dir()
 
 
+def test_persist_sunday_scan_writes_are_atomic(tmp_path: Path):
+    """No .tmp sibling left after persist — confirms atomic write behavior."""
+    rows = {"SPY": _row(), "QQQ": _row(), "GLD": _row()}
+    persist_sunday_scan(run_sunday_scan(_make_scan_fn(rows)),
+                        sunday_scans_dir=tmp_path)
+    persist_sunday_scan(run_sunday_scan(_make_scan_fn(rows)),
+                        sunday_scans_dir=tmp_path)  # rewrite
+
+    json_files = list(tmp_path.glob("*.json"))
+    tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+    assert len(json_files) == 1
+    assert tmp_files == []
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # list_recent_sunday_scans
 # ─────────────────────────────────────────────────────────────────────────

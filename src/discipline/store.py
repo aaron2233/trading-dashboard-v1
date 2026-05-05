@@ -9,12 +9,18 @@ caller (CLI/API) enforces legacy exemption when appropriate.
 """
 from __future__ import annotations
 
-import json
+import logging
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from discipline.model import DisciplineScore, WeeklyReview
+from storage.atomic import load_json_safe, write_json_atomic
+
+if TYPE_CHECKING:
+    from storage.cache import Cache
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_DISCIPLINE_DIR = Path.home() / ".trading-dashboard" / "discipline"
@@ -39,10 +45,15 @@ def is_legacy_position(closed_date_iso: str | None) -> bool:
 
 
 class DisciplineStore:
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        base_dir: Path | None = None,
+        cache: "Cache | None" = None,
+    ) -> None:
         self.base_dir = base_dir or DEFAULT_DISCIPLINE_DIR
         self.base_dir.mkdir(parents=True, exist_ok=True)
         (self.base_dir / WEEKLY_SUBDIR).mkdir(parents=True, exist_ok=True)
+        self.cache = cache
 
     # ── Per-trade scores ────────────────────────────────────────────────────
 
@@ -51,14 +62,28 @@ class DisciplineStore:
 
     def save_score(self, score: DisciplineScore) -> Path:
         path = self._score_path(score.position_id)
-        path.write_text(json.dumps(score.to_dict(), indent=2, default=str))
+        payload = score.to_dict()
+        write_json_atomic(path, payload)
+        if self.cache is not None:
+            try:
+                self.cache.upsert_discipline_score(payload)
+            except Exception:
+                logger.exception(
+                    "cache upsert failed for discipline score position_id=%s",
+                    score.position_id,
+                )
         return path
 
     def load_score(self, position_id: str) -> DisciplineScore:
         path = self._score_path(position_id)
         if not path.exists():
             raise KeyError(f"No discipline score for position_id={position_id}")
-        return DisciplineScore.from_dict(json.loads(path.read_text()))
+        data = load_json_safe(path)
+        if data is None:
+            raise KeyError(
+                f"Discipline score file for position_id={position_id} is corrupt"
+            )
+        return DisciplineScore.from_dict(data)
 
     def has_score(self, position_id: str) -> bool:
         return self._score_path(position_id).exists()
@@ -68,14 +93,24 @@ class DisciplineStore:
         if not path.exists():
             return False
         path.unlink()
+        if self.cache is not None:
+            try:
+                self.cache.delete_discipline_score(position_id)
+            except Exception:
+                logger.exception(
+                    "cache delete failed for discipline score position_id=%s",
+                    position_id,
+                )
         return True
 
     def iter_scores(self) -> Iterable[DisciplineScore]:
         for path in sorted(self.base_dir.glob("*.json")):
+            data = load_json_safe(path)
+            if data is None:
+                continue
             try:
-                data = json.loads(path.read_text())
                 yield DisciplineScore.from_dict(data)
-            except (json.JSONDecodeError, OSError, TypeError, ValueError):
+            except (TypeError, ValueError, KeyError):
                 continue
 
     def list_scores(self) -> list[DisciplineScore]:
@@ -88,14 +123,26 @@ class DisciplineStore:
 
     def save_weekly(self, review: WeeklyReview) -> Path:
         path = self._weekly_path(review.week_start)
-        path.write_text(json.dumps(review.to_dict(), indent=2, default=str))
+        payload = review.to_dict()
+        write_json_atomic(path, payload)
+        if self.cache is not None:
+            try:
+                self.cache.upsert_weekly_review(payload)
+            except Exception:
+                logger.exception(
+                    "cache upsert failed for weekly review week_start=%s",
+                    review.week_start,
+                )
         return path
 
     def load_weekly(self, week_start: str) -> WeeklyReview | None:
         path = self._weekly_path(week_start)
         if not path.exists():
             return None
-        return WeeklyReview.from_dict(json.loads(path.read_text()))
+        data = load_json_safe(path)
+        if data is None:
+            return None
+        return WeeklyReview.from_dict(data)
 
     def update_lockdown(self, week_start: str, lockdown_behavior: str) -> WeeklyReview:
         review = self.load_weekly(week_start)

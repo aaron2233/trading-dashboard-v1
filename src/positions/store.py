@@ -1,33 +1,79 @@
-"""JSON-backed position store at ~/.trading-dashboard/positions.json."""
+"""JSON-backed position store at ~/.trading-dashboard/positions.json.
+
+Durability invariant: positions written here survive process crashes,
+mid-write OOM kills, and accidental file corruption. The single-file
+shape (one JSON array of all positions) is the highest-leverage place
+for atomic-write semantics — a partial write would lose every trade.
+
+`save()` uses `write_json_atomic` (tmp + os.replace, fsynced).
+`_ensure_loaded` uses `load_json_safe` so a corrupt file logs and starts
+empty rather than crashing the app at boot.
+"""
 from __future__ import annotations
 
-import json
+import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from positions.model import Position
+from storage.atomic import load_json_safe, write_json_atomic
+
+if TYPE_CHECKING:
+    from storage.cache import Cache
 
 
 DEFAULT_POSITIONS_PATH = Path.home() / ".trading-dashboard" / "positions.json"
 
+logger = logging.getLogger(__name__)
+
 
 class PositionStore:
-    def __init__(self, path: Path | None = None):
+    def __init__(self, path: Path | None = None, cache: "Cache | None" = None):
+        """Construct a position store.
+
+        `cache` is an optional SQLite cache wired write-through — every
+        save() will upsert affected positions. JSON remains canonical;
+        cache write failures are logged but never raised, so a broken
+        cache never prevents a trade from being recorded.
+        """
         self.path = path if path is not None else DEFAULT_POSITIONS_PATH
+        self.cache = cache
         self._positions: list[Position] = []
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
         if self._loaded:
             return
-        if self.path.exists():
-            data = json.loads(self.path.read_text() or "[]")
-            self._positions = [Position.from_dict(p) for p in data]
+        data = load_json_safe(self.path, default=None)
+        if data is None and self.path.exists():
+            # File exists but was corrupt/unreadable. Surface loudly so the
+            # user can recover from a backup, but don't crash the app.
+            logger.error(
+                "positions.json at %s could not be parsed; starting empty. "
+                "Inspect/restore the file before opening new trades.",
+                self.path,
+            )
+            data = []
+        elif data is None:
+            data = []
+        self._positions = [Position.from_dict(p) for p in data]
         self._loaded = True
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = [p.to_dict() for p in self._positions]
-        self.path.write_text(json.dumps(payload, indent=2, default=str))
+        write_json_atomic(self.path, payload)
+        # Write-through to SQLite cache. Never fail the JSON save if the
+        # cache write blows up — the cache is rebuildable.
+        if self.cache is not None:
+            for entry in payload:
+                try:
+                    self.cache.upsert_position(entry)
+                except Exception:
+                    logger.exception(
+                        "cache upsert failed for position id=%s; cache "
+                        "will be inconsistent until rebuilt",
+                        entry.get("id"),
+                    )
 
     def add(self, position: Position) -> Position:
         self._ensure_loaded()

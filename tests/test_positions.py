@@ -143,6 +143,44 @@ def test_store_close_marks_position_closed(tmp_path: Path):
     assert again.pnl_usd == 100.0
 
 
+def test_store_recovers_from_corrupt_file(tmp_path: Path, caplog):
+    """A truncated/corrupt positions.json must not crash the app — it logs
+    an error and starts empty so the user can recover from a backup.
+    Aaron's invariant: the dashboard always boots, even after disk damage.
+    """
+    path = tmp_path / "positions.json"
+    path.write_text('[{"id": "abc", "ticker": "AA')  # truncated mid-write
+
+    import logging
+    with caplog.at_level(logging.ERROR, logger="positions.store"):
+        s = PositionStore(path=path)
+        loaded = s.list_all()
+
+    assert loaded == []
+    assert any("could not be parsed" in r.message for r in caplog.records)
+
+
+def test_store_writes_are_atomic(tmp_path: Path):
+    """After save() returns, no .tmp sibling files remain — confirming
+    write_json_atomic cleaned up its tempfile."""
+    path = tmp_path / "positions.json"
+    s = PositionStore(path=path)
+    s.add(_new_position())
+    s.add(_new_position(ticker="QQQ"))
+
+    siblings = sorted(p.name for p in tmp_path.iterdir())
+    assert siblings == ["positions.json"]
+
+
+def test_store_handles_empty_file(tmp_path: Path):
+    """An empty file (0 bytes or whitespace-only) should load as empty,
+    not crash."""
+    path = tmp_path / "positions.json"
+    path.write_text("")
+    s = PositionStore(path=path)
+    assert s.list_all() == []
+
+
 def test_store_list_open_filters_to_account(tmp_path: Path):
     s = PositionStore(path=tmp_path / "p.json")
     s.add(_new_position(ticker="SPY", account="main"))

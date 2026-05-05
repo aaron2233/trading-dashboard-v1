@@ -185,8 +185,18 @@ def _pyramid_evaluation_to_response(ev) -> PyramidEvaluationResponse:
     )
 
 
-def create_app(store_factory=PositionStore, config_loader=load_config) -> FastAPI:
-    """Build a FastAPI app. store_factory and config_loader are injectable for tests."""
+def create_app(
+    store_factory=PositionStore,
+    config_loader=load_config,
+    cache_factory=None,
+) -> FastAPI:
+    """Build a FastAPI app. store_factory, config_loader, and cache_factory
+    are injectable for tests."""
+    from api.query_routes import make_query_router
+    from storage.cache import get_cache
+
+    if cache_factory is None:
+        cache_factory = get_cache
     app = FastAPI(
         title="Trading Dashboard API",
         version=VERSION,
@@ -808,13 +818,47 @@ def create_app(store_factory=PositionStore, config_loader=load_config) -> FastAP
             if report is not None:
                 devil_payload = _devil_to_response(report)
 
+        # Phase B: persist authorized kill sheets so the position-open
+        # endpoint can validate kill_sheet_id against the canonical record.
+        # Rejected kill sheets stay transient — they're diagnostic, not
+        # load-bearing.
+        kill_sheet_id: str | None = None
+        if sheet.status == "AUTHORIZED":
+            try:
+                from kill_sheet.store import KillSheetStore
+                ks_store = KillSheetStore()
+                ks_store.save(sheet)
+                kill_sheet_id = sheet.id
+            except Exception:
+                # Persistence failure shouldn't break sheet generation —
+                # the user still sees the analysis. The position-open
+                # endpoint will simply have no record to validate against.
+                import logging
+                logging.getLogger(__name__).exception(
+                    "kill sheet persistence failed for id=%s", sheet.id
+                )
+
         return KillSheetResponse(
             kill_sheet=sheet.to_dict(),
             rendered_text=sheet.to_text(),
             rule_violations=violations,
             rules_blocked=rules_blocked,
             devil=devil_payload,
+            kill_sheet_id=kill_sheet_id,
         )
+
+    @app.get("/api/v1/kill_sheet/{kill_sheet_id}")
+    def get_kill_sheet(kill_sheet_id: str) -> dict[str, Any]:
+        """Fetch a previously-generated kill sheet by ID. Used by the
+        position-open authorization gate and for review UI."""
+        from kill_sheet.store import KillSheetStore
+        ks = KillSheetStore().load(kill_sheet_id)
+        if ks is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No kill sheet with id={kill_sheet_id}",
+            )
+        return ks.to_dict()
 
     # ─── Positions ────────────────────────────────────────────────────────────
 
@@ -836,6 +880,73 @@ def create_app(store_factory=PositionStore, config_loader=load_config) -> FastAP
 
     @app.post("/api/v1/positions", response_model=PositionResponse, status_code=201)
     def open_position(req: OpenPositionRequest):
+        # Phase B authorization gate: every new position must reference an
+        # AUTHORIZED kill sheet whose ticker + direction match, unless the
+        # caller explicitly bypasses with a documented reason in notes.
+        validated_kill_sheet_id: str | None = None
+        if not req.bypass_kill_sheet:
+            if not req.kill_sheet_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "kill_sheet_id is required to open a position. Generate "
+                        "an AUTHORIZED kill sheet first, or set bypass_kill_sheet=true "
+                        "with a reason in notes for emergency logging."
+                    ),
+                )
+            from kill_sheet.store import KillSheetStore
+            ks = KillSheetStore().load(req.kill_sheet_id)
+            if ks is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"kill_sheet_id={req.kill_sheet_id!r} not found",
+                )
+            if ks.status != "AUTHORIZED":
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"kill_sheet_id={req.kill_sheet_id!r} is {ks.status}, "
+                        "not AUTHORIZED. Resolve the rejection or document a "
+                        "divergence thesis and regenerate."
+                    ),
+                )
+            if ks.ticker.upper() != req.ticker.upper():
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"kill_sheet ticker {ks.ticker!r} doesn't match "
+                        f"position ticker {req.ticker!r}"
+                    ),
+                )
+            if ks.direction.lower() != req.direction.lower():
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"kill_sheet direction {ks.direction!r} doesn't match "
+                        f"position direction {req.direction!r}"
+                    ),
+                )
+            # Discipline attestation must have authorized entry — otherwise the
+            # kill sheet rendered for review but the user didn't pass §8.
+            if ks.discipline_attestation is not None and not ks.discipline_attestation.entry_authorized:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "kill sheet did not pass discipline §8 attestation "
+                        "(entry_authorized=false)"
+                    ),
+                )
+            validated_kill_sheet_id = ks.id
+        elif req.bypass_kill_sheet and not (req.notes or "").strip():
+            # Bypass requires a documented reason for audit
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "bypass_kill_sheet=true requires a non-empty notes field "
+                    "documenting the reason for bypass"
+                ),
+            )
+
         store = store_factory()
         try:
             if req.instrument == "shares":
@@ -856,6 +967,7 @@ def create_app(store_factory=PositionStore, config_loader=load_config) -> FastAP
                     skill=req.skill,
                     tier=req.tier,
                 )
+                position.kill_sheet_id = validated_kill_sheet_id
             else:
                 missing = [
                     k for k in ("strike", "expiry", "premium", "contracts")
@@ -881,6 +993,15 @@ def create_app(store_factory=PositionStore, config_loader=load_config) -> FastAP
                     notes=req.notes,
                     skill=req.skill,
                     tier=req.tier,
+                    delta=req.delta,
+                    gamma=req.gamma,
+                    theta=req.theta,
+                    vega=req.vega,
+                    iv=req.iv,
+                    iv_rank=req.iv_rank,
+                    premium_stop=req.premium_stop,
+                    premium_target=req.premium_target,
+                    kill_sheet_id=validated_kill_sheet_id,
                 )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -1294,6 +1415,9 @@ def create_app(store_factory=PositionStore, config_loader=load_config) -> FastAP
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         return WeeklyReviewResponse(**review.to_dict())
+
+    # ── Query API + L0 agent endpoints ────────────────────────────────────
+    app.include_router(make_query_router(cache_factory=cache_factory))
 
     return app
 

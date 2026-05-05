@@ -116,6 +116,10 @@ class KillSheetResponse(BaseModel):
     rule_violations: list[RuleViolationResponse]
     rules_blocked: bool
     devil: DevilReportResponse | None = None
+    # Phase B: clients pass this back to POST /api/v1/positions to satisfy
+    # the authorization gate. Only populated when the kill sheet was
+    # AUTHORIZED (REJECTED kill sheets aren't persisted).
+    kill_sheet_id: str | None = None
 
 
 # ─── Positions ────────────────────────────────────────────────────────────────
@@ -141,6 +145,25 @@ class OpenPositionRequest(BaseModel):
     # Nullable; legacy positions stay None.
     skill: str | None = None
     tier: int | None = None
+
+    # Greeks / IV at entry (snapshot, not updated as the trade ages)
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+    iv: float | None = None
+    iv_rank: float | None = None
+
+    # Premium-level exit thresholds — discipline cut rule lives here
+    premium_stop: float | None = None
+    premium_target: float | None = None
+
+    # Phase B authorization gate. Pass kill_sheet_id from the AUTHORIZED
+    # KillSheetResponse to satisfy the gate. To bypass (legacy / emergency
+    # logging only), set bypass_kill_sheet=True and supply a reason in
+    # notes — the bypass is recorded for audit.
+    kill_sheet_id: str | None = None
+    bypass_kill_sheet: bool = False
 
 
 class ClosePositionRequest(BaseModel):
@@ -171,6 +194,16 @@ class PositionResponse(BaseModel):
     notes: str | None = None
     skill: str | None = None
     tier: int | None = None
+
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+    iv: float | None = None
+    iv_rank: float | None = None
+    premium_stop: float | None = None
+    premium_target: float | None = None
+    kill_sheet_id: str | None = None
 
 
 class AlertResponse(BaseModel):
