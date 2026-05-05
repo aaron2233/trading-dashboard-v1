@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, LineSeries, type IChartApi } from "lightweight-charts";
-import { api } from "../api/client";
 
 
 interface SparklineProps {

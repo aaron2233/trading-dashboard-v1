@@ -10,14 +10,10 @@ import type {
   LottoTradeSummary,
 } from "../api/types";
 
-/** Candidate is "lotto-actionable" when:
- *   - Tier tag includes Tier 2 (lotto playbook), AND
- *   - Direction is long or short (not "none"), AND
- *   - Score clears the FREE_RANGE_MIN_SCORE floor (already enforced upstream
- *     for free_range/baseline phases — this is belt-and-suspenders for the UI)
- */
+/** Candidate is "lotto-actionable" when its tier tag includes Tier 2.
+ * Score-floor is already enforced upstream by the free_range scanner. */
 function isLottoActionable(c: CandidateSnapshot): boolean {
-  return (c.tier === "2" || c.tier === "1+2") && c.direction !== "none";
+  return c.tier === "2" || c.tier === "1+2";
 }
 
 
