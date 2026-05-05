@@ -17,6 +17,8 @@ from regime_health.model import (
     RegimeHealthSnapshot,
     TierBundle,
 )
+from regime_health.snapshot import assemble_snapshot, is_snapshot_fresh
+from regime_health.store import RegimeHealthStore
 from regime_health.thresholds import DEFAULT_THRESHOLDS, ThresholdConfig
 
 __all__ = [
@@ -24,6 +26,9 @@ __all__ = [
     "IndicatorReading",
     "IndicatorStatus",
     "RegimeHealthSnapshot",
+    "RegimeHealthStore",
     "ThresholdConfig",
     "TierBundle",
+    "assemble_snapshot",
+    "is_snapshot_fresh",
 ]

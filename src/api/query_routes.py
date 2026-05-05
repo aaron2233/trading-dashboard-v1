@@ -139,15 +139,19 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
     def agent_snapshot() -> dict[str, Any]:
         """One-shot read-only state bundle for chat-Claude. Read-only
         access to: open positions, recent discipline scores, latest
-        weekly review, last 5 Sunday scans, summary aggregates. No
-        regime data here — caller pulls /api/v1/scan/SPY for that since
-        the regime read is computed live, not cached."""
+        weekly review, last 5 Sunday scans, latest regime_health
+        snapshot, summary aggregates. Regime health is the cached
+        snapshot — agent doesn't trigger a fresh fetch (that's the
+        /regime-health endpoint's job)."""
         cache = _cache()
+        regime_recent = cache.query_regime_health_recent(limit=1)
+        regime_health = regime_recent[0] if regime_recent else None
         return {
             "open_positions": cache.query_positions(status="open"),
             "recent_discipline_scores": cache.query_discipline_scores(limit=10),
             "weekly_reviews": cache.query_weekly_reviews(limit=4),
             "recent_sunday_scans": cache.query_recent_sunday_scans(limit=5),
+            "regime_health": regime_health,
             "summary": {
                 "discipline": cache.discipline_summary(),
                 "realized_pnl_total": cache.realized_pnl(),

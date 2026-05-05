@@ -253,6 +253,58 @@ def create_app(
             errors=result.errors,
         )
 
+    # ─── Regime Health ────────────────────────────────────────────────────────
+
+    @app.get("/api/v1/regime-health/snapshot")
+    def regime_health_snapshot() -> dict[str, Any]:
+        """Return today's Regime Health snapshot. Reads cached JSON if it
+        exists and is <12h old; otherwise fetches fresh and persists.
+        Per-tier failures degrade gracefully — the response always includes
+        every tier with its readings (some may be 'unknown' or 'error')."""
+        from regime_health import (
+            RegimeHealthStore,
+            assemble_snapshot,
+            is_snapshot_fresh,
+        )
+        store = RegimeHealthStore(cache=cache_factory())
+        cached = store.load_today()
+        if cached is not None and is_snapshot_fresh(cached):
+            return cached.to_dict()
+        try:
+            snapshot = assemble_snapshot()
+        except Exception as exc:
+            # Total failure — return an empty snapshot rather than 500.
+            # Frontend renders a "regime health unavailable" panel.
+            from regime_health.model import RegimeHealthSnapshot
+            placeholder = RegimeHealthSnapshot.empty()
+            placeholder.overall_drivers = [f"snapshot assembly failed: {exc}"]
+            return placeholder.to_dict()
+        try:
+            store.save(snapshot)
+        except Exception:
+            # Persistence failure shouldn't block the response — the user
+            # still gets the live read. Logged for diagnosis.
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "regime_health snapshot persistence failed",
+            )
+        return snapshot.to_dict()
+
+    @app.post("/api/v1/regime-health/refresh")
+    def regime_health_refresh() -> dict[str, Any]:
+        """Force a fresh snapshot fetch + persist, ignoring cache freshness."""
+        from regime_health import RegimeHealthStore, assemble_snapshot
+        snapshot = assemble_snapshot()
+        store = RegimeHealthStore(cache=cache_factory())
+        try:
+            store.save(snapshot)
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "regime_health snapshot persistence failed (refresh)",
+            )
+        return snapshot.to_dict()
+
     # ─── Dashboard state ──────────────────────────────────────────────────────
 
     @app.get("/api/v1/dashboard/state", response_model=DashboardStateResponse)

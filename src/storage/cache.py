@@ -33,7 +33,7 @@ DEFAULT_CACHE_PATH = Path.home() / ".trading-dashboard" / "cache.sqlite"
 # Bump when DDL changes in a way old caches can't handle. On version
 # mismatch, the cache drops all tables and recreates with the new DDL —
 # data is recoverable via /api/v1/cache/rebuild since JSON is canonical.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 DDL = """
 CREATE TABLE IF NOT EXISTS _cache_meta (
@@ -167,6 +167,15 @@ CREATE TABLE IF NOT EXISTS sunday_scans (
     top_setup_score INTEGER,
     top_setup_status TEXT
 );
+
+CREATE TABLE IF NOT EXISTS regime_health_snapshots (
+    snapshot_date TEXT PRIMARY KEY,
+    fetched_at TEXT NOT NULL,
+    overall_status TEXT NOT NULL,
+    payload TEXT NOT NULL  -- full JSON blob (tier readings + drivers)
+);
+CREATE INDEX IF NOT EXISTS idx_rh_fetched_at
+  ON regime_health_snapshots(fetched_at DESC);
 """
 
 
@@ -250,6 +259,7 @@ class Cache:
                     "discipline_scores",
                     "weekly_reviews",
                     "sunday_scans",
+                    "regime_health_snapshots",
                     "kill_sheets",
                     "positions",
                 ):
@@ -279,6 +289,7 @@ class Cache:
                 "discipline_scores",
                 "weekly_reviews",
                 "sunday_scans",
+                "regime_health_snapshots",
                 "kill_sheets",
                 "positions",
             ):
@@ -443,6 +454,28 @@ class Cache:
                 ),
             )
 
+    def upsert_regime_health_snapshot(self, payload: dict[str, Any]) -> None:
+        """Upsert a regime_health snapshot. One row per snapshot_date —
+        force-refresh during the day overwrites the same row."""
+        snapshot_date = payload.get("snapshot_date") or ""
+        if not snapshot_date:
+            raise ValueError("regime_health snapshot missing snapshot_date")
+        import json as _json
+        with self._tx() as cur:
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO regime_health_snapshots (
+                    snapshot_date, fetched_at, overall_status, payload
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    snapshot_date,
+                    payload.get("fetched_at", ""),
+                    payload.get("overall_status", "unknown"),
+                    _json.dumps(payload, default=str),
+                ),
+            )
+
     def upsert_sunday_scan(self, payload: dict[str, Any]) -> None:
         """Upsert a Sunday scan from the SundayScan.to_dict() shape."""
         scan_time = payload.get("scan_time_utc", "")
@@ -554,6 +587,25 @@ class Cache:
             params.append(limit)
         rows = self.conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
+
+    def query_regime_health_recent(
+        self, *, limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        """List recent regime_health snapshots, newest first. Returns the
+        full payload dict (parsed from the stored JSON blob)."""
+        import json as _json
+        rows = self.conn.execute(
+            "SELECT payload FROM regime_health_snapshots "
+            "ORDER BY snapshot_date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            try:
+                out.append(_json.loads(r["payload"]))
+            except Exception:
+                logger.exception("regime_health cache row has malformed JSON")
+        return out
 
     def query_recent_sunday_scans(
         self, *, limit: int = 10,
