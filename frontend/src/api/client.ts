@@ -17,6 +17,7 @@ import type {
   WeeklyScanResponse,
   Position,
   PositionAlert,
+  RegimeHealthHistoryResponse,
   RegimeHealthSnapshot,
   ScanResult,
   SundayScanResponse,
@@ -58,6 +59,11 @@ export const api = {
     request<RegimeHealthSnapshot>("/api/v1/regime-health/refresh", {
       method: "POST",
     }),
+
+  regimeHealthHistory: (days = 30) =>
+    request<RegimeHealthHistoryResponse>(
+      `/api/v1/regime-health/history?days=${days}`,
+    ),
 
   scan: (ticker: string, timeframe = "1d") =>
     request<ScanResult>(

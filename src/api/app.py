@@ -305,6 +305,19 @@ def create_app(
             )
         return snapshot.to_dict()
 
+    @app.get("/api/v1/regime-health/history")
+    def regime_health_history(
+        days: int = Query(30, ge=1, le=365),
+    ) -> dict[str, Any]:
+        """Return the most recent N snapshots (newest first), filesystem-backed.
+        SQLite cache is queryable too but JSON is canonical and the directory
+        scan is plenty fast for the sizes we're talking about (one snapshot
+        per day; 30-365 entries max)."""
+        from regime_health import RegimeHealthStore
+        store = RegimeHealthStore(cache=cache_factory())
+        snapshots = store.list_recent(limit=days)
+        return {"snapshots": [s.to_dict() for s in snapshots]}
+
     # ─── Dashboard state ──────────────────────────────────────────────────────
 
     @app.get("/api/v1/dashboard/state", response_model=DashboardStateResponse)

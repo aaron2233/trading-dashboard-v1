@@ -134,6 +134,42 @@ def test_refresh_endpoint_forces_assemble(client: TestClient):
 # ── Agent snapshot integration ───────────────────────────────────────────────
 
 
+def test_history_endpoint_returns_recent_snapshots(client: TestClient, tmp_path: Path):
+    """History endpoint returns list_recent() output as a JSON envelope."""
+    from regime_health.store import RegimeHealthStore
+    store = RegimeHealthStore()
+    # Seed three snapshots directly via the store (skips assemble path)
+    for d in ("2026-05-01", "2026-05-03", "2026-05-05"):
+        store.save(_fake_snapshot(snapshot_date=d))
+
+    r = client.get("/api/v1/regime-health/history?days=10")
+    assert r.status_code == 200
+    body = r.json()
+    snapshots = body["snapshots"]
+    dates = [s["snapshot_date"] for s in snapshots]
+    assert dates == ["2026-05-05", "2026-05-03", "2026-05-01"]
+
+
+def test_history_endpoint_respects_limit(client: TestClient):
+    from regime_health.store import RegimeHealthStore
+    store = RegimeHealthStore()
+    for d in ("2026-05-01", "2026-05-02", "2026-05-03"):
+        store.save(_fake_snapshot(snapshot_date=d))
+
+    r = client.get("/api/v1/regime-health/history?days=2")
+    body = r.json()
+    assert len(body["snapshots"]) == 2
+    assert body["snapshots"][0]["snapshot_date"] == "2026-05-03"
+
+
+def test_history_endpoint_validates_days_range(client: TestClient):
+    """days must be 1-365."""
+    r = client.get("/api/v1/regime-health/history?days=0")
+    assert r.status_code == 422
+    r = client.get("/api/v1/regime-health/history?days=999")
+    assert r.status_code == 422
+
+
 def test_agent_snapshot_includes_regime_health_after_assemble(client: TestClient):
     """After a snapshot has been assembled + persisted, /agent/snapshot
     returns it as `regime_health`."""

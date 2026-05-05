@@ -376,6 +376,10 @@ export interface RegimeHealthSnapshot {
   overall_drivers: string[];
 }
 
+export interface RegimeHealthHistoryResponse {
+  snapshots: RegimeHealthSnapshot[];
+}
+
 // ─── Free-range scan ───────────────────────────────────────────────────
 
 export type FreeRangePhase = "baseline" | "user" | "free_range";

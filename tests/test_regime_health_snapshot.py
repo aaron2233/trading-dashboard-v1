@@ -76,13 +76,14 @@ def test_assemble_returns_all_four_tiers():
     assert isinstance(snap, RegimeHealthSnapshot)
     tiers = {t.tier for t in snap.tiers}
     assert tiers == {1, 2, 3, 4}
-    # Tier 3 + Tier 4 are stubs in Sprint 1
     tier3 = next(t for t in snap.tiers if t.tier == 3)
     tier4 = next(t for t in snap.tiers if t.tier == 4)
     assert tier3.label == "Breadth"
     assert tier4.label == "AI Capex Calendar"
-    assert tier3.readings == []
-    assert tier4.readings == []
+    # Sprint 3 wires both — readings are present (status varies per the
+    # provided load_fn / config, but the bundle is no longer a stub).
+    assert len(tier3.readings) >= 1
+    assert len(tier4.readings) >= 1
 
 
 def test_assemble_all_green_overall_is_green():

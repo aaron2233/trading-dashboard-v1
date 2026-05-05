@@ -26,19 +26,11 @@ from regime_health.model import (
 from regime_health.thresholds import DEFAULT_THRESHOLDS, ThresholdConfig
 from regime_health.tier1_market import assemble_tier1
 from regime_health.tier2_macro import assemble_tier2
+from regime_health.tier3_breadth import assemble_tier3
+from regime_health.tier4_capex import assemble_tier4
 
 
 logger = logging.getLogger(__name__)
-
-
-def _stub_tier3() -> TierBundle:
-    """Sprint 3 will fill in RSP/SPY 5d ratio. Stub for now."""
-    return TierBundle(tier=3, label="Breadth", readings=[], error=None)
-
-
-def _stub_tier4() -> TierBundle:
-    """Sprint 3 will fill in AI capex calendar. Stub for now."""
-    return TierBundle(tier=4, label="AI Capex Calendar", readings=[], error=None)
 
 
 def _compute_overall(
@@ -88,8 +80,8 @@ def assemble_snapshot(
 
     tier1 = assemble_tier1(thresholds=cfg, scan_fn=scan_fn, load_fn=load_fn)
     tier2 = assemble_tier2(thresholds=cfg, fetch=fetch, api_key=api_key)
-    tier3 = _stub_tier3()
-    tier4 = _stub_tier4()
+    tier3 = assemble_tier3(thresholds=cfg, load_fn=load_fn)
+    tier4 = assemble_tier4()
 
     overall, drivers = _compute_overall(tier1, tier2)
 
