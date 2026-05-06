@@ -59,7 +59,7 @@ def _bars(close: float, n: int = 5) -> pd.DataFrame:
 
 
 def test_read_sqn_bull_is_green():
-    r = read_sqn_for_ticker("SPY", scan_fn=lambda t, tf: _scan_row(sqn_regime="bull"))
+    r = read_sqn_for_ticker("SPY", scan_fn=lambda t, **kw: _scan_row(sqn_regime="bull"))
     assert r.status == "green"
     assert r.tier == 1
     assert r.indicator_id == "spy_sqn_100"
@@ -67,13 +67,13 @@ def test_read_sqn_bull_is_green():
 
 
 def test_read_sqn_neutral_is_amber():
-    r = read_sqn_for_ticker("QQQ", scan_fn=lambda t, tf: _scan_row(sqn_regime="neutral"))
+    r = read_sqn_for_ticker("QQQ", scan_fn=lambda t, **kw: _scan_row(sqn_regime="neutral"))
     assert r.status == "amber"
     assert r.indicator_id == "qqq_sqn_100"
 
 
 def test_read_sqn_bear_is_red():
-    r = read_sqn_for_ticker("SPY", scan_fn=lambda t, tf: _scan_row(sqn_regime="strong_bear"))
+    r = read_sqn_for_ticker("SPY", scan_fn=lambda t, **kw: _scan_row(sqn_regime="strong_bear"))
     assert r.status == "red"
 
 
@@ -89,24 +89,24 @@ def test_read_sqn_failure_yields_error_status():
 
 
 def test_read_weekly_ma_full_bull_is_green():
-    r = read_weekly_ma_for_ticker("SPY", scan_fn=lambda t, tf: _scan_row(stack_state="full_bull"))
+    r = read_weekly_ma_for_ticker("SPY", scan_fn=lambda t, **kw: _scan_row(stack_state="full_bull"))
     assert r.status == "green"
     assert r.value == "full_bull"
     assert r.indicator_id == "spy_weekly_ma"
 
 
 def test_read_weekly_ma_compression_is_amber():
-    r = read_weekly_ma_for_ticker("QQQ", scan_fn=lambda t, tf: _scan_row(stack_state="compression"))
+    r = read_weekly_ma_for_ticker("QQQ", scan_fn=lambda t, **kw: _scan_row(stack_state="compression"))
     assert r.status == "amber"
 
 
 def test_read_weekly_ma_full_bear_is_red():
-    r = read_weekly_ma_for_ticker("SPY", scan_fn=lambda t, tf: _scan_row(stack_state="full_bear"))
+    r = read_weekly_ma_for_ticker("SPY", scan_fn=lambda t, **kw: _scan_row(stack_state="full_bear"))
     assert r.status == "red"
 
 
 def test_read_weekly_ma_unknown_state_is_unknown():
-    r = read_weekly_ma_for_ticker("SPY", scan_fn=lambda t, tf: _scan_row(stack_state="something_new"))
+    r = read_weekly_ma_for_ticker("SPY", scan_fn=lambda t, **kw: _scan_row(stack_state="something_new"))
     assert r.status == "unknown"
 
 
@@ -116,7 +116,7 @@ def test_read_weekly_ma_unknown_state_is_unknown():
 def test_sqn20_diagnostic_aligned_is_green():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, tf: _scan_row(diagnostic="regime aligned, healthy trend"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="regime aligned, healthy trend"),
     )
     assert r.status == "green"
 
@@ -124,7 +124,7 @@ def test_sqn20_diagnostic_aligned_is_green():
 def test_sqn20_diagnostic_divergence_is_amber():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, tf: _scan_row(diagnostic="diverging — early shift signal"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="diverging — early shift signal"),
     )
     assert r.status == "amber"
 
@@ -132,7 +132,7 @@ def test_sqn20_diagnostic_divergence_is_amber():
 def test_sqn20_diagnostic_extreme_is_amber():
     r = read_sqn20_diagnostic(
         "QQQ",
-        scan_fn=lambda t, tf: _scan_row(diagnostic="extreme reading — chase risk"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="extreme reading — chase risk"),
     )
     assert r.status == "amber"
 
@@ -140,7 +140,7 @@ def test_sqn20_diagnostic_extreme_is_amber():
 def test_sqn20_diagnostic_capitulation_is_amber():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, tf: _scan_row(diagnostic="capitulation reset inside Bull"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="capitulation reset inside Bull"),
     )
     assert r.status == "amber"
 
@@ -148,7 +148,7 @@ def test_sqn20_diagnostic_capitulation_is_amber():
 def test_sqn20_diagnostic_missing_is_unknown():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, tf: _scan_row(diagnostic=""),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic=""),
     )
     assert r.status == "unknown"
 
@@ -207,7 +207,7 @@ def test_vvix_load_failure_yields_error():
 
 def test_assemble_tier1_returns_eight_readings():
     bundle = assemble_tier1(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(16.0),
     )
     assert bundle.tier == 1

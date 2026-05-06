@@ -68,7 +68,7 @@ def _all_green_fred_fetch(url: str) -> dict:
 
 def test_assemble_returns_all_four_tiers():
     snap = assemble_snapshot(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(15.0),
         fetch=_all_green_fred_fetch,
         api_key="k",
@@ -88,7 +88,7 @@ def test_assemble_returns_all_four_tiers():
 
 def test_assemble_all_green_overall_is_green():
     snap = assemble_snapshot(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(15.0),  # VIX=15 → green
         fetch=_all_green_fred_fetch,
         api_key="k",
@@ -100,7 +100,7 @@ def test_assemble_all_green_overall_is_green():
 def test_assemble_one_amber_flips_overall_amber():
     snap = assemble_snapshot(
         # Neutral SQN regime → amber
-        scan_fn=lambda t, tf: _scan_row(sqn_regime="neutral"),
+        scan_fn=lambda t, **kw: _scan_row(sqn_regime="neutral"),
         load_fn=lambda *a, **k: _bars(15.0),
         fetch=_all_green_fred_fetch,
         api_key="k",
@@ -112,7 +112,7 @@ def test_assemble_one_amber_flips_overall_amber():
 
 def test_assemble_one_red_flips_overall_red():
     snap = assemble_snapshot(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(30.0),  # VIX=30 → red
         fetch=_all_green_fred_fetch,
         api_key="k",
@@ -143,7 +143,7 @@ def test_assemble_no_fred_key_does_not_break_snapshot(monkeypatch):
     falls back to whatever Tier 1 reports."""
     monkeypatch.delenv("FRED_API_KEY", raising=False)
     snap = assemble_snapshot(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(15.0),
     )
     # Tier 1 is fully green → overall green even with no Tier 2 data.
@@ -155,7 +155,7 @@ def test_assemble_no_fred_key_does_not_break_snapshot(monkeypatch):
 
 def test_assemble_passes_through_snapshot_date():
     snap = assemble_snapshot(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(15.0),
         fetch=_all_green_fred_fetch,
         api_key="k",
@@ -166,7 +166,7 @@ def test_assemble_passes_through_snapshot_date():
 
 def test_to_dict_round_trippable():
     snap = assemble_snapshot(
-        scan_fn=lambda t, tf: _scan_row(),
+        scan_fn=lambda t, **kw: _scan_row(),
         load_fn=lambda *a, **k: _bars(15.0),
         fetch=_all_green_fred_fetch,
         api_key="k",

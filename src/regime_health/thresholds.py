@@ -143,15 +143,16 @@ SQN_REGIME_TO_STATUS: dict[str, IndicatorStatus] = {
 }
 
 # Weekly MA stack state → status for the "Weekly MA on SPY/QQQ" indicator.
-# Mirrors the trading-edge cross-TF disagreement-resolution heuristic:
-#   - full_bull / bull_developing → green
-#   - compression / chop_tangled → amber
-#   - bear_developing / full_bear → red
+# States below are the exact strings emitted by indicators.ma_ribbon.MARibbon
+# (see ma_ribbon.py mask sequence). Mapping rationale:
+#   - full_bull / bull_developing → green (clean uptrend)
+#   - compression / chop → amber (mixed/tangled MAs, late-cycle ambiguity)
+#   - bear_developing / full_bear → red (downtrend or rolling over)
 MA_STACK_TO_STATUS: dict[str, IndicatorStatus] = {
     "full_bull": "green",
     "bull_developing": "green",
     "compression": "amber",
-    "chop_tangled": "amber",
+    "chop": "amber",
     "bear_developing": "red",
     "full_bear": "red",
 }

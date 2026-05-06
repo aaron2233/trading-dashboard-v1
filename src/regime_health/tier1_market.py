@@ -67,7 +67,7 @@ def read_sqn_for_ticker(
     label = f"{ticker} SQN(100)"
     indicator_id = f"{ticker.lower()}_sqn_100"
     try:
-        row = fn(ticker, "1d")
+        row = fn(ticker, timeframe="1d")
     except Exception as exc:
         logger.exception("scan_ticker failed for %s 1d", ticker)
         return IndicatorReading(
@@ -100,7 +100,7 @@ def read_weekly_ma_for_ticker(
     label = f"{ticker} Weekly MA"
     indicator_id = f"{ticker.lower()}_weekly_ma"
     try:
-        row = fn(ticker, "1wk")
+        row = fn(ticker, timeframe="1wk")
     except Exception as exc:
         logger.exception("scan_ticker failed for %s 1wk", ticker)
         return IndicatorReading(
@@ -137,7 +137,7 @@ def read_sqn20_diagnostic(
     label = f"{ticker} SQN(20) divergence"
     indicator_id = f"{ticker.lower()}_sqn20_diagnostic"
     try:
-        row = fn(ticker, "1d")
+        row = fn(ticker, timeframe="1d")
     except Exception as exc:
         logger.exception("scan_ticker failed for %s 1d (sqn20)", ticker)
         return IndicatorReading(

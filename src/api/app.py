@@ -239,7 +239,7 @@ def create_app(
         from lotto import suggest_strikes
         ticker_u = ticker.upper()
         try:
-            row = scan_ticker(ticker_u, "1d")
+            row = scan_ticker(ticker_u, timeframe="1d")
         except Exception as exc:
             raise HTTPException(
                 status_code=502,

@@ -130,8 +130,9 @@ def test_sqn_regime_mapping_directionality():
 
 
 def test_ma_stack_mapping_covers_all_states():
+    # Mirror exactly what indicators.ma_ribbon.MARibbon emits.
     for stack in (
         "full_bull", "bull_developing", "compression",
-        "chop_tangled", "bear_developing", "full_bear",
+        "chop", "bear_developing", "full_bear",
     ):
         assert stack in MA_STACK_TO_STATUS
