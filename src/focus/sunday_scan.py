@@ -130,6 +130,9 @@ class Setup:
     status: str              # "fires" | "watch" | "blocked"
     components: dict[str, int] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
+    # Focus action verdict — populated when 2H read available for the
+    # asset. Computed via classify_focus_action(daily, 2h, direction).
+    action_verdict: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -226,7 +229,7 @@ def _headline(top: Setup, recommendation: str) -> str:
 
 
 def run_sunday_scan(
-    scan_fn: Callable[[str], dict[str, Any]],
+    scan_fn: Callable[..., dict[str, Any]],
 ) -> SundayScan:
     """Run the Sunday scan workflow.
 
@@ -234,14 +237,28 @@ def run_sunday_scan(
     callers pass `scan_ticker` from src/scan.py. SPY/QQQ/GLD failures are
     captured in `errors` rather than raising — a partial scan still produces
     useful setups for the assets that did load.
+
+    For action_verdict computation, this also attempts a 2H scan on QQQ
+    + GLD. 2H fetch failures are silently ignored — verdict stays None
+    and the rest of the scan proceeds normally.
     """
     rows: dict[str, dict[str, Any] | None] = {"SPY": None, "QQQ": None, "GLD": None}
+    rows_2h: dict[str, dict[str, Any] | None] = {"QQQ": None, "GLD": None}
     errors: dict[str, str] = {}
     for ticker in ("SPY", "QQQ", "GLD"):
         try:
             rows[ticker] = scan_fn(ticker)
         except Exception as exc:
             errors[ticker] = str(exc)
+    for ticker in ("QQQ", "GLD"):
+        try:
+            rows_2h[ticker] = scan_fn(ticker, timeframe="2h")
+        except TypeError:
+            # Legacy single-arg fixture — verdict not computable.
+            break
+        except Exception:
+            # 2H fetch failed for this asset; skip its verdict only.
+            pass
 
     spy_row = rows["SPY"] or {}
     qqq_row = rows["QQQ"]
@@ -259,6 +276,25 @@ def run_sunday_scan(
             score_setup("GLD", "short", gld_row, spy_row),
         ])
     setups.sort(key=lambda s: s.score, reverse=True)
+
+    # Action verdicts — best-effort enrichment.
+    for s in setups:
+        daily = qqq_row if s.asset == "QQQ" else gld_row
+        two_h = rows_2h.get(s.asset)
+        if daily is None or two_h is None:
+            continue
+        try:
+            from action_gate import classify_focus_action
+            verdict = classify_focus_action(
+                {"1d": daily, "2h": two_h},
+                s.direction,  # type: ignore[arg-type]
+            )
+            s.action_verdict = verdict.to_dict()
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "focus verdict failed for %s %s", s.asset, s.direction,
+            )
 
     if not setups:
         recommendation = "cash"

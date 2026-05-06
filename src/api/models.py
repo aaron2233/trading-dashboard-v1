@@ -254,6 +254,7 @@ class FocusSetup(BaseModel):
     status: Literal["fires", "watch", "blocked"]
     components: dict[str, int]
     blockers: list[str]
+    action_verdict: dict | None = None
 
 
 class SundayScanResponse(BaseModel):

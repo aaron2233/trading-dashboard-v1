@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { VerdictBadge } from "../components/Verdict";
+import { ActionVerdictBanner } from "../components/ActionVerdictBanner";
 import { fromFocusSetup, fromSundayScan } from "../lib/verdict";
 import type {
   FocusRecentSummary,
@@ -131,6 +132,9 @@ export function SetupRow({ setup, isTop }: { setup: FocusSetup; isTop: boolean }
         isTop ? "bg-signal-info/5" : ""
       }`}
     >
+      {setup.action_verdict && (
+        <ActionVerdictBanner verdict={setup.action_verdict} compact={!isTop} />
+      )}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <span className="font-mono text-text-secondary text-xs w-8">

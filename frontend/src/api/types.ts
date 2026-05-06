@@ -209,6 +209,7 @@ export interface FocusSetup {
   status: "fires" | "watch" | "blocked";
   components: Record<string, number>;
   blockers: string[];
+  action_verdict: ActionVerdict | null;
 }
 
 export interface SundayScanResponse {
