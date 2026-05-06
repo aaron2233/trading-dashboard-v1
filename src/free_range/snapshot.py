@@ -53,6 +53,10 @@ class CandidateSnapshot:
     score: int                  # additive heuristic, used to rank the free-range top-5
     why_now: str                # one-line trigger summary
     notes: list[str] = field(default_factory=list)  # filter caveats, e.g. "ETF — price band exempt"
+    # Lotto-context action verdict — populated when the scanner can fetch
+    # 2H reads for the passing candidate. None when the verdict can't be
+    # computed (2H scan failed). Serialized form of action_gate.ActionVerdict.
+    action_verdict: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

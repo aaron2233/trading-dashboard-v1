@@ -17,6 +17,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from action_gate import classify_lotto_action
 from free_range.filters import (
     FREE_RANGE_MIN_SCORE,
     best_direction,
@@ -25,6 +26,10 @@ from free_range.filters import (
 )
 from free_range.snapshot import CandidateSnapshot, FreeRangeScan
 from free_range.universe import free_range_universe, is_etf
+
+
+import logging as _logging
+_logger = _logging.getLogger(__name__)
 
 
 BASELINE_TICKERS: tuple[str, ...] = ("QQQ", "GLD")
@@ -102,10 +107,39 @@ def build_snapshot(
     )
 
 
+def _attach_lotto_verdict(
+    snap: CandidateSnapshot,
+    daily_row: dict[str, Any],
+    scan_fn: Callable[..., dict[str, Any]],
+) -> None:
+    """Attempt a 2H scan + classify_lotto_action; attach the verdict to
+    `snap`. Swallows all errors — verdict is best-effort enrichment, not
+    load-bearing for the snapshot itself.
+
+    Skips entirely if scan_fn can't accept a timeframe kwarg (legacy
+    single-arg fixtures used by older tests)."""
+    if snap.direction not in ("long", "short"):
+        return
+    try:
+        two_h_row = scan_fn(snap.ticker, timeframe="2h")
+    except TypeError:
+        # Old fixture signature `def fn(ticker)` — verdict not computable.
+        return
+    except Exception as exc:
+        _logger.debug("2H scan failed for %s: %s", snap.ticker, exc)
+        return
+    try:
+        reads = {"1d": daily_row, "2h": two_h_row}
+        verdict = classify_lotto_action(reads, snap.direction)
+        snap.action_verdict = verdict.to_dict()
+    except Exception:
+        _logger.exception("verdict classification failed for %s", snap.ticker)
+
+
 def _scan_one(
     ticker: str,
     phase: str,
-    scan_fn: Callable[[str], dict[str, Any]],
+    scan_fn: Callable[..., dict[str, Any]],
     errors: dict[str, str],
     *,
     enforce_price_band: bool,
@@ -123,13 +157,16 @@ def _scan_one(
             errors[ticker.upper()] = price_violation
             return None
 
-    return build_snapshot(ticker, phase, scan_row)
+    snap = build_snapshot(ticker, phase, scan_row)
+    if snap is not None:
+        _attach_lotto_verdict(snap, scan_row, scan_fn)
+    return snap
 
 
 def run_free_range_scan(
     user_tickers: list[str] | None = None,
     *,
-    scan_fn: Callable[[str], dict[str, Any]] | None = None,
+    scan_fn: Callable[..., dict[str, Any]] | None = None,
     free_range_cap: int = 5,
     universe_override: tuple[str, ...] | None = None,
     enable_free_range: bool = True,

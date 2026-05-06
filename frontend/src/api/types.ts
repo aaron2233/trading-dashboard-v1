@@ -344,6 +344,26 @@ export interface WeeklyReviewDTO {
   lockdown_behavior: string | null;
 }
 
+// ─── Action gate verdict (per-candidate buy/wait/skip) ────────────────
+
+export type ActionState =
+  | "enter_now"
+  | "setup_forming"
+  | "chase_zone"
+  | "stale"
+  | "disqualified";
+
+export interface ActionVerdict {
+  state: ActionState;
+  direction: "long" | "short" | "none";
+  skill: string;
+  headline: string;
+  suggested_entry_price: number | null;
+  blockers: string[];
+  advance_conditions: string[];
+  rule_citations: string[];
+}
+
 // ─── Lotto strike suggestions ──────────────────────────────────────────
 
 export type StrikeDirection = "call" | "put";
@@ -427,6 +447,7 @@ export interface CandidateSnapshot {
   score: number;
   why_now: string;
   notes: string[];
+  action_verdict: ActionVerdict | null;
 }
 
 export interface FreeRangeScanRequest {

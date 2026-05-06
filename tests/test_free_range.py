@@ -251,12 +251,29 @@ def test_tier_tag_weak_setup_tier_2_only():
 
 
 def make_scan_fn(mapping: dict[str, dict[str, Any]]):
-    """Build a scan_fn that returns rows from `mapping`, raising for unknown tickers."""
+    """Build a scan_fn that returns rows from `mapping`, raising for unknown tickers.
+
+    Legacy single-arg signature kept for back-compat with tests that
+    don't care about the action-gate verdict path. The scanner
+    `_attach_lotto_verdict` helper TypeError-catches this signature
+    and skips verdict computation, leaving snap.action_verdict = None.
+    """
     def fn(ticker: str) -> dict[str, Any]:
         t = ticker.upper()
         if t not in mapping:
             raise ValueError(f"unknown ticker {t}")
         return mapping[t]
+    return fn
+
+
+def make_multi_tf_scan_fn(mapping: dict[tuple[str, str], dict[str, Any]]):
+    """scan_fn that routes by (ticker, timeframe). Used for tests that
+    DO want the action-gate verdict computed."""
+    def fn(ticker: str, *, timeframe: str = "1d") -> dict[str, Any]:
+        key = (ticker.upper(), timeframe)
+        if key not in mapping:
+            raise ValueError(f"unknown read for {key}")
+        return mapping[key]
     return fn
 
 
@@ -508,3 +525,92 @@ def test_api_free_range_scan_handles_scanner_failure(monkeypatch):
     resp = client.post("/api/v1/free-range-scan", json={})
     assert resp.status_code == 502
     assert "yfinance dead" in resp.json()["detail"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Action gate verdict integration (Phase 2)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_legacy_single_arg_scan_fn_skips_verdict():
+    """Legacy single-arg fixtures still work; verdict stays None."""
+    rows = {"QQQ": make_row("QQQ", close=480.0, stack="full_bull",
+                             stoch_signal="bull_cross_oversold", sqn_regime="bull"),
+            "GLD": make_row("GLD", close=180.0, stack="full_bull",
+                             stoch_signal="bull_cross_oversold", sqn_regime="strong_bull")}
+    scan = run_free_range_scan(
+        scan_fn=make_scan_fn(rows),
+        universe_override=(),
+    )
+    for snap in scan.baseline:
+        assert snap.action_verdict is None
+
+
+def test_multi_tf_scan_fn_attaches_enter_now_verdict():
+    """When 2H read available + trigger fires, verdict is enter_now."""
+    daily = make_row("QQQ", close=480.0, stack="full_bull",
+                     stoch_signal="neutral", sqn_regime="bull")
+    two_h = make_row("QQQ", close=480.0, stack="full_bull",
+                     stoch_zone="oversold",
+                     stoch_signal="bull_cross_oversold",
+                     sqn_regime="bull")
+    gld_daily = make_row("GLD", close=180.0, stack="full_bull",
+                          stoch_signal="neutral", sqn_regime="bull")
+    gld_two_h = make_row("GLD", close=180.0, stack="full_bull",
+                          stoch_zone="oversold",
+                          stoch_signal="bull_cross_oversold",
+                          sqn_regime="bull")
+    scan = run_free_range_scan(
+        scan_fn=make_multi_tf_scan_fn({
+            ("QQQ", "1d"): daily, ("QQQ", "2h"): two_h,
+            ("GLD", "1d"): gld_daily, ("GLD", "2h"): gld_two_h,
+        }),
+        universe_override=(),
+    )
+    qqq = next(s for s in scan.baseline if s.ticker == "QQQ")
+    assert qqq.action_verdict is not None
+    assert qqq.action_verdict["state"] == "enter_now"
+    assert qqq.action_verdict["skill"] == "lotto-options"
+    assert "BUY CALLS" in qqq.action_verdict["headline"]
+
+
+def test_multi_tf_scan_fn_attaches_disqualified_verdict_for_2h_chop():
+    """2H stack is chop = disqualified verdict attached to snapshot."""
+    daily = make_row("QQQ", close=480.0, stack="full_bull",
+                     stoch_signal="bull_cross_oversold", sqn_regime="bull")
+    two_h_chop = make_row("QQQ", close=480.0, stack="chop",
+                           stoch_signal="neutral", sqn_regime="bull")
+    scan = run_free_range_scan(
+        user_tickers=[],
+        scan_fn=make_multi_tf_scan_fn({
+            ("QQQ", "1d"): daily, ("QQQ", "2h"): two_h_chop,
+            # GLD missing → its own scan_fn ValueError, ignored
+        }),
+        universe_override=(),
+    )
+    qqq = next((s for s in scan.baseline if s.ticker == "QQQ"), None)
+    assert qqq is not None
+    assert qqq.action_verdict is not None
+    assert qqq.action_verdict["state"] == "disqualified"
+
+
+def test_multi_tf_scan_fn_2h_failure_leaves_verdict_none():
+    """2H scan failure shouldn't break the candidate; verdict stays None."""
+    daily = make_row("QQQ", close=480.0, stack="full_bull",
+                     stoch_signal="bull_cross_oversold", sqn_regime="bull")
+
+    def fn(ticker: str, *, timeframe: str = "1d") -> dict[str, Any]:
+        if timeframe == "2h":
+            raise RuntimeError("yfinance dead on 2h")
+        if ticker.upper() == "QQQ":
+            return daily
+        raise ValueError(f"unknown ticker {ticker}")
+
+    scan = run_free_range_scan(
+        scan_fn=fn,
+        universe_override=(),
+    )
+    qqq = next((s for s in scan.baseline if s.ticker == "QQQ"), None)
+    assert qqq is not None
+    # Daily snapshot succeeded, verdict couldn't be computed
+    assert qqq.action_verdict is None
