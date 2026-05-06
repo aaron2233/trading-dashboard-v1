@@ -435,6 +435,7 @@ class CandidateSnapshotResponse(BaseModel):
     score: int
     why_now: str
     notes: list[str] = Field(default_factory=list)
+    action_verdict: dict | None = None
 
 
 class FreeRangeScanResponse(BaseModel):
