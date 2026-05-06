@@ -442,13 +442,57 @@ def create_app(
                 out[tf] = _scan_to_response(row).model_dump()
         return out
 
+    # ─── Action gate verdict (ScanView opt-in) ────────────────────────────────
+
+    @app.get("/api/v1/action-gate/verdict/{ticker}")
+    def action_gate_verdict(
+        ticker: str,
+        skill: str = Query(..., pattern="^(lotto|weekly|focus)$"),
+        direction: str = Query(..., pattern="^(long|short)$"),
+    ) -> dict[str, Any]:
+        """Compute an action verdict for a single ticker against a chosen
+        skill context. Used by ScanView's opt-in verdict feature — user
+        picks a tier (lotto/weekly/focus) + direction; backend fetches
+        the right TFs and runs the matching classifier.
+
+        Skill → required reads:
+          lotto, focus → 1d + 2h
+          weekly       → 1wk
+        """
+        from action_gate import (
+            classify_focus_action,
+            classify_lotto_action,
+            classify_weekly_trend_action,
+        )
+        ticker_u = ticker.upper()
+        try:
+            if skill == "weekly":
+                weekly_row = scan_ticker(ticker_u, timeframe="1wk")
+                verdict = classify_weekly_trend_action({"1wk": weekly_row}, direction)
+            else:
+                daily = scan_ticker(ticker_u, timeframe="1d")
+                two_h = scan_ticker(ticker_u, timeframe="2h")
+                reads = {"1d": daily, "2h": two_h}
+                if skill == "focus":
+                    verdict = classify_focus_action(reads, direction)
+                else:
+                    verdict = classify_lotto_action(reads, direction)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"verdict computation failed for {ticker_u}: {exc}",
+            )
+        return verdict.to_dict()
+
     # ─── Focus / Sunday scan ──────────────────────────────────────────────────
 
     @app.get("/api/v1/focus/sunday-scan", response_model=SundayScanResponse)
     def focus_sunday_scan(
         persist: bool = Query(True, description="Write scan to ~/.trading-dashboard/sunday_scans/"),
     ):
-        result = run_sunday_scan(scan_fn=lambda t: scan_ticker(t))
+        result = run_sunday_scan(
+            scan_fn=lambda t, **kw: scan_ticker(t, **kw),
+        )
         if persist:
             try:
                 persist_sunday_scan(result)

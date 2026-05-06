@@ -15,6 +15,7 @@ import type {
   ParsedOptionsResponse,
   WeeklyScanRequest,
   WeeklyScanResponse,
+  ActionVerdict,
   Position,
   PositionAlert,
   RegimeHealthHistoryResponse,
@@ -69,6 +70,16 @@ export const api = {
   regimeHealthHistory: (days = 30) =>
     request<RegimeHealthHistoryResponse>(
       `/api/v1/regime-health/history?days=${days}`,
+    ),
+
+  actionGateVerdict: (
+    ticker: string,
+    skill: "lotto" | "weekly" | "focus",
+    direction: "long" | "short",
+  ) =>
+    request<ActionVerdict>(
+      `/api/v1/action-gate/verdict/${encodeURIComponent(ticker)}` +
+        `?skill=${skill}&direction=${direction}`,
     ),
 
   scan: (ticker: string, timeframe = "1d") =>

@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { api } from "../api/client";
+import { ActionVerdictBanner } from "../components/ActionVerdictBanner";
 import { TradingViewChart } from "../components/TradingViewChart";
 import { VerdictHero } from "../components/Verdict";
 import { fromRawIndicators } from "../lib/verdict";
-import type { ScanResult } from "../api/types";
+import type { ActionVerdict, ScanResult } from "../api/types";
+
+type SkillContext = "none" | "lotto" | "weekly" | "focus";
+type GateDirection = "long" | "short";
 
 function fmt(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined) return "—";
@@ -35,18 +39,71 @@ export function ScanView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Opt-in action verdict — default to "none" so the page stays a
+  // pure indicator readout. User picks a skill context to get the
+  // buy/wait/skip call applied to that ticker.
+  const [skillContext, setSkillContext] = useState<SkillContext>("none");
+  const [gateDirection, setGateDirection] = useState<GateDirection>("long");
+  const [verdict, setVerdict] = useState<ActionVerdict | null>(null);
+  const [verdictLoading, setVerdictLoading] = useState(false);
+  const [verdictError, setVerdictError] = useState<string | null>(null);
+
   async function handleScan(t: string) {
     if (!t) return;
     setLoading(true);
     setError(null);
+    setVerdict(null);
+    setVerdictError(null);
     try {
       const result = await api.scan(t);
       setData(result);
+      // Auto-fetch verdict when a context is already selected
+      if (skillContext !== "none") {
+        void fetchVerdict(t, skillContext, gateDirection);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setData(null);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchVerdict(
+    t: string,
+    skill: SkillContext,
+    dir: GateDirection,
+  ) {
+    if (skill === "none") {
+      setVerdict(null);
+      return;
+    }
+    setVerdictLoading(true);
+    setVerdictError(null);
+    try {
+      const v = await api.actionGateVerdict(t, skill, dir);
+      setVerdict(v);
+    } catch (err) {
+      setVerdictError(err instanceof Error ? err.message : String(err));
+      setVerdict(null);
+    } finally {
+      setVerdictLoading(false);
+    }
+  }
+
+  function onContextChange(next: SkillContext) {
+    setSkillContext(next);
+    if (data && next !== "none") {
+      void fetchVerdict(data.ticker, next, gateDirection);
+    } else {
+      setVerdict(null);
+    }
+  }
+
+  function onDirectionChange(next: GateDirection) {
+    setGateDirection(next);
+    if (data && skillContext !== "none") {
+      void fetchVerdict(data.ticker, skillContext, next);
     }
   }
 
@@ -80,9 +137,60 @@ export function ScanView() {
         either way.
       </div>
 
+      {/* Opt-in action verdict — default "none" keeps ScanView as a
+          pure indicator readout; pick a skill to get the buy/wait/skip call. */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap text-xs">
+        <span className="text-text-secondary uppercase tracking-widest font-semibold">
+          Evaluate for
+        </span>
+        <select
+          className="input text-xs py-1"
+          value={skillContext}
+          onChange={(e) => onContextChange(e.target.value as SkillContext)}
+        >
+          <option value="none">— no verdict —</option>
+          <option value="lotto">Lotto (Daily / 2H / 0-14 DTE)</option>
+          <option value="weekly">Weekly trend (1wk / 120-180 DTE)</option>
+          <option value="focus">Sunday focus (Daily / 2H / 21-60 DTE)</option>
+        </select>
+        {skillContext !== "none" && (
+          <>
+            <span className="text-text-secondary">direction</span>
+            <div className="inline-flex border border-bg-border rounded overflow-hidden">
+              {(["long", "short"] as GateDirection[]).map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={`px-2 py-1 uppercase ${
+                    gateDirection === d
+                      ? "bg-signal-flag/20 text-signal-flag"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                  onClick={() => onDirectionChange(d)}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
       {error && (
         <div className="panel p-3 mb-4 border-signal-bear/50">
           <span className="text-signal-bear text-sm">{error}</span>
+        </div>
+      )}
+
+      {data && verdict && (
+        <ActionVerdictBanner verdict={verdict} />
+      )}
+      {data && skillContext !== "none" && verdictLoading && !verdict && (
+        <div className="text-xs text-text-secondary mb-2">Computing verdict…</div>
+      )}
+      {data && verdictError && (
+        <div className="text-xs text-signal-bear mb-2">
+          Verdict failed: {verdictError}
         </div>
       )}
 
