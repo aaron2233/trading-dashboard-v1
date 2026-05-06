@@ -176,6 +176,9 @@ def test_to_dict_round_trippable():
     assert "tiers" in d
     assert len(d["tiers"]) == 4
     assert all("readings" in t for t in d["tiers"])
+    # pending_capex_updates is always present (empty list when no config)
+    assert "pending_capex_updates" in d
+    assert isinstance(d["pending_capex_updates"], list)
 
 
 # ── Freshness ────────────────────────────────────────────────────────────────

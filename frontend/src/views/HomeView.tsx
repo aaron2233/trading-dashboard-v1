@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { PendingCapexCTA } from "../components/regime/PendingCapexCTA";
 import { RegimeHealthPanel } from "../components/RegimeHealthPanel";
 import { useDashboardState } from "../state/DashboardStateContext";
 
@@ -92,6 +93,7 @@ export function HomeView() {
       </p>
 
       <UnreviewedWeeksCTA />
+      <PendingCapexCTA />
 
       <RegimeHealthPanel />
 

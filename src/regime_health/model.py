@@ -64,6 +64,11 @@ class RegimeHealthSnapshot:
     # Tier-1/2 contributions to overall_status, in case the UI wants to
     # explain "why amber" without re-walking every reading.
     overall_drivers: list[str] = field(default_factory=list)
+    # Tickers in capex.next_prints whose date has passed but whose
+    # directions value is still "unknown" — the user hasn't logged what
+    # the company guided yet. Informational reminder; does NOT
+    # contribute to overall_status.
+    pending_capex_updates: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +77,7 @@ class RegimeHealthSnapshot:
             "overall_status": self.overall_status,
             "tiers": [t.to_dict() for t in self.tiers],
             "overall_drivers": list(self.overall_drivers),
+            "pending_capex_updates": list(self.pending_capex_updates),
         }
 
     @classmethod

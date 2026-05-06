@@ -197,6 +197,57 @@ def read_capex_calendar(
     )
 
 
+def find_pending_capex_updates(
+    *,
+    config: dict[str, Any] | None = None,
+    today: _date | None = None,
+) -> list[dict[str, str]]:
+    """Tickers whose next_prints date has passed but directions[ticker]
+    is still "unknown" — the user hasn't logged what the company guided.
+
+    Used to drive the "⚠ N capex prints pending direction update"
+    HomeView CTA. Informational only — does NOT contribute to
+    overall_status (per spec, paperwork-pending should not pollute the
+    regime read).
+
+    Returns a list of {"ticker": "...", "print_date": "YYYY-MM-DD"}
+    sorted by print_date ascending (oldest = most overdue first).
+    """
+    cfg = config if config is not None else _load_capex_config()
+    if cfg is None:
+        return []
+
+    tickers = cfg.get("tickers") or list(DEFAULT_CAPEX_TICKERS)
+    directions = cfg.get("directions") or {}
+    next_prints = cfg.get("next_prints") or {}
+    if not isinstance(directions, dict):
+        directions = {}
+    if not isinstance(next_prints, dict):
+        next_prints = {}
+
+    today_d = today or _date.today()
+    pending: list[tuple[str, _date]] = []
+    for ticker in tickers:
+        date_str = next_prints.get(ticker)
+        if not date_str:
+            continue
+        try:
+            print_date = _date.fromisoformat(str(date_str))
+        except (TypeError, ValueError):
+            continue
+        if print_date > today_d:
+            continue  # not yet — covered by the calendar reading
+        d_value = str(directions.get(ticker, "unknown")).lower()
+        if d_value == "unknown":
+            pending.append((ticker, print_date))
+
+    pending.sort(key=lambda x: x[1])
+    return [
+        {"ticker": t, "print_date": d.isoformat()}
+        for t, d in pending
+    ]
+
+
 def assemble_tier4(
     *,
     config: dict[str, Any] | None = None,

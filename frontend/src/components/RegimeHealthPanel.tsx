@@ -108,6 +108,19 @@ export function RegimeHealthPanel({ alwaysExpanded = false }: RegimeHealthPanelP
             Regime Health
           </span>
           <span className={`badge ${overallBadge} text-xs`}>{overallLabel}</span>
+          {snapshot?.pending_capex_updates && snapshot.pending_capex_updates.length > 0 && (
+            <span
+              className="badge badge-flag text-xs"
+              title={
+                "Capex prints with stale direction values:\n" +
+                snapshot.pending_capex_updates
+                  .map((p) => `${p.ticker} — ${p.print_date}`)
+                  .join("\n")
+              }
+            >
+              ⚠ {snapshot.pending_capex_updates.length} stale
+            </span>
+          )}
           {snapshot?.overall_drivers && snapshot.overall_drivers.length > 0 && (
             <span className="text-[11px] text-text-secondary">
               · driven by{" "}

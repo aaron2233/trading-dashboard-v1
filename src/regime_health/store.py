@@ -153,4 +153,5 @@ def _from_dict(data: dict) -> RegimeHealthSnapshot:
         overall_status=data.get("overall_status", "unknown"),
         tiers=tiers,
         overall_drivers=list(data.get("overall_drivers") or []),
+        pending_capex_updates=list(data.get("pending_capex_updates") or []),
     )

@@ -11,6 +11,7 @@ from regime_health.tier3_breadth import (
 )
 from regime_health.tier4_capex import (
     assemble_tier4,
+    find_pending_capex_updates,
     read_capex_aggregate,
     read_capex_calendar,
 )
@@ -239,3 +240,97 @@ def test_assemble_tier4_no_config_sets_bundle_error():
     bundle = assemble_tier4(config=None)
     assert bundle.error is not None
     assert "Tier 4 capex calendar not configured" in bundle.error
+
+
+# ── Pending capex updates ────────────────────────────────────────────────────
+
+
+def test_pending_updates_no_config_is_empty():
+    assert find_pending_capex_updates(config=None) == []
+
+
+def test_pending_updates_no_next_prints_is_empty():
+    cfg = {"directions": {"NVDA": "unknown"}}
+    assert find_pending_capex_updates(config=cfg, today=date(2026, 5, 5)) == []
+
+
+def test_pending_updates_flags_past_print_with_unknown_direction():
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {"NVDA": "2026-04-29"},  # past
+        "directions": {"NVDA": "unknown"},
+    }
+    pending = find_pending_capex_updates(config=cfg, today=today)
+    assert pending == [{"ticker": "NVDA", "print_date": "2026-04-29"}]
+
+
+def test_pending_updates_skips_when_direction_logged():
+    """If user has flipped directions[X] to raised/held/cut, no reminder."""
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {"NVDA": "2026-04-29"},
+        "directions": {"NVDA": "raised"},
+    }
+    assert find_pending_capex_updates(config=cfg, today=today) == []
+
+
+def test_pending_updates_skips_future_dates():
+    """Dates in the future aren't pending — they're upcoming (calendar reading)."""
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {"NVDA": "2026-05-21"},
+        "directions": {"NVDA": "unknown"},
+    }
+    assert find_pending_capex_updates(config=cfg, today=today) == []
+
+
+def test_pending_updates_includes_today():
+    """Boundary: a print dated today is treated as past (it has happened
+    by the time the user is opening the dashboard later in the day)."""
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {"NVDA": "2026-05-05"},
+        "directions": {"NVDA": "unknown"},
+    }
+    pending = find_pending_capex_updates(config=cfg, today=today)
+    assert len(pending) == 1
+    assert pending[0]["ticker"] == "NVDA"
+
+
+def test_pending_updates_sorted_oldest_first():
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {
+            "NVDA": "2026-04-30",
+            "MSFT": "2026-03-15",
+            "META":  "2026-04-15",
+        },
+        "directions": {
+            "NVDA": "unknown", "MSFT": "unknown", "META": "unknown",
+        },
+    }
+    pending = find_pending_capex_updates(config=cfg, today=today)
+    tickers = [p["ticker"] for p in pending]
+    assert tickers == ["MSFT", "META", "NVDA"]
+
+
+def test_pending_updates_skips_invalid_date():
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {"NVDA": "garbage", "MSFT": "2026-04-15"},
+        "directions": {"NVDA": "unknown", "MSFT": "unknown"},
+    }
+    pending = find_pending_capex_updates(config=cfg, today=today)
+    assert [p["ticker"] for p in pending] == ["MSFT"]
+
+
+def test_pending_updates_treats_missing_direction_as_unknown():
+    """Ticker in next_prints but absent from directions → unknown by default."""
+    today = date(2026, 5, 5)
+    cfg = {
+        "next_prints": {"NVDA": "2026-04-29"},
+        "directions": {},
+    }
+    pending = find_pending_capex_updates(config=cfg, today=today)
+    assert len(pending) == 1
+    assert pending[0]["ticker"] == "NVDA"

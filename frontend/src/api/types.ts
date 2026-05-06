@@ -389,12 +389,18 @@ export interface TierBundle {
   error: string | null;
 }
 
+export interface PendingCapexUpdate {
+  ticker: string;
+  print_date: string;
+}
+
 export interface RegimeHealthSnapshot {
   snapshot_date: string;
   fetched_at: string;
   overall_status: IndicatorStatus;
   tiers: TierBundle[];
   overall_drivers: string[];
+  pending_capex_updates: PendingCapexUpdate[];
 }
 
 export interface RegimeHealthHistoryResponse {

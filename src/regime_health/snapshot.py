@@ -27,7 +27,7 @@ from regime_health.thresholds import DEFAULT_THRESHOLDS, ThresholdConfig
 from regime_health.tier1_market import assemble_tier1
 from regime_health.tier2_macro import assemble_tier2
 from regime_health.tier3_breadth import assemble_tier3
-from regime_health.tier4_capex import assemble_tier4
+from regime_health.tier4_capex import assemble_tier4, find_pending_capex_updates
 
 
 logger = logging.getLogger(__name__)
@@ -85,12 +85,22 @@ def assemble_snapshot(
 
     overall, drivers = _compute_overall(tier1, tier2)
 
+    # Pending updates are informational — separate from overall_status.
+    # Reads the same YAML config tier4 uses; failures degrade to empty
+    # list (no reminder shown).
+    try:
+        pending = find_pending_capex_updates()
+    except Exception:
+        logger.exception("find_pending_capex_updates failed")
+        pending = []
+
     snapshot = RegimeHealthSnapshot(
         snapshot_date=today,
         fetched_at=_now_iso(),
         overall_status=overall,
         tiers=[tier1, tier2, tier3, tier4],
         overall_drivers=drivers,
+        pending_capex_updates=pending,
     )
     return snapshot
 
