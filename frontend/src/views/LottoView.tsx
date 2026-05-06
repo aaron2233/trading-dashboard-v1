@@ -272,16 +272,67 @@ function deriveVerdict(
     };
   }
 
-  // Direction is candidate-specific. Pick the single most-aligned candidate's
-  // direction for the dashboard verdict; per-card verdicts handle the rest.
-  const direction = actionable[0].direction === "short" ? "short" : "long";
+  // Drive the hero off action verdicts — count candidates by state so
+  // the top-line call matches what's actually on the board, not just
+  // "candidates exist".
+  const counts = { enter_now: 0, setup_forming: 0, chase_zone: 0, stale: 0, disqualified: 0, no_verdict: 0 };
+  for (const c of actionable) {
+    const st = c.action_verdict?.state;
+    if (st === "enter_now") counts.enter_now++;
+    else if (st === "setup_forming") counts.setup_forming++;
+    else if (st === "chase_zone") counts.chase_zone++;
+    else if (st === "stale") counts.stale++;
+    else if (st === "disqualified") counts.disqualified++;
+    else counts.no_verdict++;
+  }
   const sizeLockNote = state?.size_lock_active
     ? " ⚠ Size lock: do not increase size after the recent loss."
     : "";
+
+  // 1+ ENTER_NOW → directional call with high confidence
+  if (counts.enter_now > 0) {
+    const enterCandidates = actionable.filter((c) => c.action_verdict?.state === "enter_now");
+    const direction = enterCandidates[0].direction === "short" ? "short" : "long";
+    const tickers = enterCandidates.map((c) => c.ticker).join(", ");
+    return {
+      kind: direction,
+      confidence: state?.size_lock_active ? 6 : 8,
+      rationale: `${counts.enter_now} ready to enter (${tickers}) — kill sheet at top.${sizeLockNote}`,
+    };
+  }
+
+  // 1+ SETUP_FORMING → WAIT, trigger conditions still pending
+  if (counts.setup_forming > 0) {
+    const formingTickers = actionable
+      .filter((c) => c.action_verdict?.state === "setup_forming")
+      .map((c) => c.ticker)
+      .join(", ");
+    return {
+      kind: "wait",
+      confidence: 4,
+      rationale: `${counts.setup_forming} setup${counts.setup_forming === 1 ? "" : "s"} forming (${formingTickers}) — waiting for 2H trigger. No clean entries yet.`,
+    };
+  }
+
+  // No actionable verdicts at all — every candidate is stale/chase/disqualified
+  if (counts.chase_zone + counts.stale + counts.disqualified > 0) {
+    const parts: string[] = [];
+    if (counts.chase_zone) parts.push(`${counts.chase_zone} chase`);
+    if (counts.stale) parts.push(`${counts.stale} stale`);
+    if (counts.disqualified) parts.push(`${counts.disqualified} disqualified`);
+    return {
+      kind: "skip",
+      confidence: 2,
+      rationale: `Stand down — 0 clean entries. ${actionable.length} candidate${actionable.length === 1 ? "" : "s"} flagged: ${parts.join(" · ")}. Check back after the next 2H candle.`,
+    };
+  }
+
+  // Fallback (legacy data with no verdicts): WAIT, since we can't make
+  // a confident call without verdicts wired up.
   return {
-    kind: direction,
-    confidence: state?.size_lock_active ? 5 : 7,
-    rationale: `${actionable.length} actionable setup${actionable.length === 1 ? "" : "s"} — pre-write a kill sheet from any candidate below.${sizeLockNote}`,
+    kind: "wait",
+    confidence: 3,
+    rationale: `${actionable.length} candidate${actionable.length === 1 ? "" : "s"} surfaced; verdicts not computed (try Refresh).${sizeLockNote}`,
   };
 }
 
