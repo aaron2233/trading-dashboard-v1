@@ -58,6 +58,9 @@ class WeeklySetup:
     rank_score: int               # higher = better; used for top-N ordering
     why_now: str                  # one-line summary for the snapshot card
     blockers: list[str] = field(default_factory=list)
+    # Weekly-trend action verdict — populated for setups with a directional
+    # bias (long or short). None for chop/compression/no_setup confluence.
+    action_verdict: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -337,6 +340,21 @@ def scan_weekly_watchlist(
             blockers=blockers,
         )
         setup.rank_score = _rank_score(setup)
+
+        # Action verdict — only meaningful for directional setups.
+        # No-direction confluences (chop, compression, no_setup) leave
+        # action_verdict=None so the frontend renders no banner.
+        if direction in ("long", "short"):
+            try:
+                from action_gate import classify_weekly_trend_action
+                verdict = classify_weekly_trend_action({"1wk": row}, direction)
+                setup.action_verdict = verdict.to_dict()
+            except Exception:
+                import logging as _logging
+                _logging.getLogger(__name__).exception(
+                    "weekly_trend verdict failed for %s", ticker,
+                )
+
         setups.append(setup)
 
     # Rank: highest score first, ties broken by ticker for determinism

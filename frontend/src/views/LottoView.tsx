@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import {
+  ActionVerdictBanner,
+  ACTION_VERDICT_SORT_ORDER,
+} from "../components/ActionVerdictBanner";
 import { StrikeSuggestionsPanel } from "../components/lotto/StrikeSuggestionsPanel";
 import { VerdictHero } from "../components/Verdict";
 import type { Verdict } from "../lib/verdict";
 import type {
-  ActionState,
-  ActionVerdict,
   CandidateSnapshot,
   LottoCooldownReason,
   LottoState,
@@ -294,54 +296,6 @@ function badgeClassForDirection(direction: string): string {
   return direction === "long" ? "badge-bull" : "badge-bear";
 }
 
-// ── Action verdict banner ──────────────────────────────────────────────
-
-const VERDICT_STYLE: Record<ActionState, { container: string; pill: string; glyph: string; label: string }> = {
-  enter_now:     { container: "border-l-4 border-signal-bull bg-signal-bull/10",  pill: "badge-bull",  glyph: "🟢", label: "ENTER NOW" },
-  setup_forming: { container: "border-l-4 border-signal-flag bg-signal-flag/10",  pill: "badge-flag",  glyph: "🟡", label: "SETUP FORMING" },
-  chase_zone:    { container: "border-l-4 border-signal-bear bg-signal-bear/10",  pill: "badge-bear",  glyph: "🟠", label: "CHASE ZONE" },
-  stale:         { container: "border-l-4 border-text-muted bg-bg-elevated",      pill: "badge-muted", glyph: "⚪", label: "STALE" },
-  disqualified:  { container: "border-l-4 border-text-muted bg-bg-elevated",      pill: "badge-muted", glyph: "⛔", label: "DISQUALIFIED" },
-};
-
-const VERDICT_SORT_ORDER: Record<ActionState, number> = {
-  enter_now: 0,
-  setup_forming: 1,
-  chase_zone: 2,
-  stale: 3,
-  disqualified: 4,
-};
-
-function VerdictBanner({ verdict }: { verdict: ActionVerdict }) {
-  const style = VERDICT_STYLE[verdict.state];
-  const conditions = verdict.advance_conditions ?? [];
-  const blockers = verdict.blockers ?? [];
-  return (
-    <div className={`px-3 py-2 mb-2 rounded-r ${style.container}`}>
-      <div className="flex items-center gap-2 flex-wrap">
-        <span aria-hidden="true">{style.glyph}</span>
-        <span className={`badge ${style.pill} text-[10px] uppercase tracking-widest`}>
-          {style.label}
-        </span>
-        <span className="font-mono text-sm font-semibold">{verdict.headline}</span>
-      </div>
-      {conditions.length > 0 && (
-        <ul className="text-[11px] text-text-secondary mt-1 space-y-0.5">
-          {conditions.slice(0, 2).map((c, i) => (
-            <li key={i}>→ {c}</li>
-          ))}
-        </ul>
-      )}
-      {blockers.length > 0 && (
-        <ul className="text-[11px] text-text-secondary mt-1 space-y-0.5">
-          {blockers.slice(0, 2).map((b, i) => (
-            <li key={i}>· {b}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 function lottoKillSheetLink(c: CandidateSnapshot): string {
   const params = new URLSearchParams({
@@ -360,7 +314,7 @@ function ActionableCandidateCard({ candidate }: { candidate: CandidateSnapshot }
   const isEnterNow = verdict?.state === "enter_now";
   return (
     <div className="panel p-3 border-signal-bull/30">
-      {verdict && <VerdictBanner verdict={verdict} />}
+      {verdict && <ActionVerdictBanner verdict={verdict} />}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <span className="font-mono font-semibold text-base">{candidate.ticker}</span>
@@ -406,10 +360,10 @@ function ActionableSetupsSection({ setups, scanLoading, onFullScan, fullScanLoad
     .slice()
     .sort((a, b) => {
       const aOrd = a.action_verdict
-        ? VERDICT_SORT_ORDER[a.action_verdict.state] ?? 99
+        ? ACTION_VERDICT_SORT_ORDER[a.action_verdict.state] ?? 99
         : 99;
       const bOrd = b.action_verdict
-        ? VERDICT_SORT_ORDER[b.action_verdict.state] ?? 99
+        ? ACTION_VERDICT_SORT_ORDER[b.action_verdict.state] ?? 99
         : 99;
       return aOrd - bOrd;
     });

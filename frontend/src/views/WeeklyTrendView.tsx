@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
 import { VerdictBadge } from "../components/Verdict";
 import { fromWeeklyConfluence } from "../lib/verdict";
+import { ActionVerdictBanner } from "../components/ActionVerdictBanner";
 import type { WeeklyScanResponse, WeeklySetup } from "../api/types";
 
 
@@ -95,6 +96,7 @@ function TopSetupCard({ setup, rank, onSelect }: {
   return (
     <div className="panel">
       <div className="panel-body">
+        {setup.action_verdict && <ActionVerdictBanner verdict={setup.action_verdict} />}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-text-muted text-xs font-mono">#{rank}</span>

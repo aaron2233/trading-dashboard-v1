@@ -568,6 +568,7 @@ class WeeklySetupResponse(BaseModel):
     rank_score: int
     why_now: str
     blockers: list[str] = Field(default_factory=list)
+    action_verdict: dict | None = None
 
 
 class WeeklyScanResponse(BaseModel):

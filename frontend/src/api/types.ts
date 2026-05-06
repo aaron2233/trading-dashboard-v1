@@ -499,6 +499,7 @@ export interface WeeklySetup {
   rank_score: number;
   why_now: string;
   blockers: string[];
+  action_verdict: ActionVerdict | null;
 }
 
 export interface WeeklyScanRequest {
