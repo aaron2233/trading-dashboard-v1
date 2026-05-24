@@ -1,12 +1,12 @@
 # Trading Dashboard
 
-**The trading dashboard that won't let you break your own rules.**
+**A scaffold for building a trading-discipline dashboard that won't let you break your own rules.**
 
-Built because I kept breaking mine.
+Built originally because the author kept breaking theirs. Released as an opinionated reference implementation you can fork, configure, or rip out and replace with your own strategy logic — see [CUSTOMIZATION.md](./CUSTOMIZATION.md) for how.
 
-A localhost-first web app + Python CLI that runs an opinionated indicator stack (MA Ribbon, Stochastic 14/7/7, SQN regime — 100-day + 20-day windows) against live market data, generates kill sheets with built-in discipline gates, and tracks positions through close.
+A localhost-first web app + Python CLI that runs an indicator stack (MA Ribbon, Stochastic 14/7/7, SQN regime — 100-day + 20-day windows) against live market data, generates kill sheets with built-in discipline gates, and tracks positions through close.
 
-Single-user, cash account, long calls/puts only. No spreads, no margin, no shared/multi-tenant instance.
+The bundled reference implementation is single-user, cash account, long calls/puts only. The framework around it (data layer, indicator plugin system, kill-sheet builder, positions store, journal, regime dashboard, trade-devil gate) is strategy-agnostic. Read CUSTOMIZATION.md to see what's keep-as-is vs replace-with-your-own.
 
 **What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering regime header, scan, free-range scan, weekly trend, lotto, crypto (Crypto.com), focus (QQQ/GLD), kill sheet builder with options-input paste/screenshot, trade-devil, 15-rule discipline scorecard, 3-tranche pyramid state machine, positions, journal (P&L + discipline tabs), weekly review. CLI mirrors every action. 740 pytest tests.
 
