@@ -1,9 +1,5 @@
 """SQN Regime — strategic (100-day) and tactical (20-day) windows on log returns.
 
-Source of truth: TRADING-DASHBOARD-HANDOFF.md sections 345-357,
-weekly-trend-trader/references/sqn-regime-guide.md, and the SQN(20) tactical
-extension documented in the same guide (lines 171-262).
-
 Formula:
     log_returns = log(close[t] / close[t-1])
     SQN = mean(log_returns, lookback) / stdev(log_returns, lookback) * sqrt(lookback)

@@ -73,7 +73,7 @@ Scanners are the "find me a setup on this ticker" units — one per strategy. Pa
 
 1. Add a `your_strategy_verdict()` function in `src/scan_verdict.py` (or your own module). Input: indicator state. Output: `TradeVerdict(verdict, reason)`.
 2. Copy `src/lotto/scanner.py` → `src/your_strategy/scanner.py`. Swap the verdict call. Adjust the watchlist constants.
-3. Expose a CLI: copy `src/lotto/__main__.py` → `src/your_strategy/__main__.py`.
+3. Expose a CLI: copy any existing `src/<module>/__main__.py` (e.g., `src/free_range/__main__.py` or `src/kill_sheet/__main__.py`) → `src/your_strategy/__main__.py`. Then `python -m your_strategy ...` works.
 4. Wire an API route: add `@app.get("/api/v1/your-strategy/scan")` in `src/api/app.py` following the lotto-scan pattern.
 5. Build the frontend view (Tier 5).
 

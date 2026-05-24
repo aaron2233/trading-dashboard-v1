@@ -1,7 +1,5 @@
 """Stochastic (14, 7, 7) with 7-type signal classification.
 
-Source of truth: TRADING-DASHBOARD-HANDOFF.md sections 332-343 and 86-103.
-
 Formula:
     K_raw = 100 * (close - LL(14)) / (HH(14) - LL(14))
     K     = SMA(K_raw, 7)
@@ -22,9 +20,8 @@ Outputs per bar:
 Cross priority: oversold/overbought cross beats continuation; divergence fires
 independently when no cross fires; ties resolved by cross > divergence.
 
-Handoff note [TRADING-DASHBOARD-HANDOFF.md:102]: overbought during breakouts =
-strength, not a sell. Downstream code should consider MA Ribbon state before
-treating overbought as a reversal.
+Design note: overbought during breakouts = strength, not a sell. Downstream
+code should consider MA Ribbon state before treating overbought as a reversal.
 """
 from dataclasses import dataclass
 

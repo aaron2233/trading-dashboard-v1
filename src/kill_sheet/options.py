@@ -1,10 +1,9 @@
 """Options structure helpers for the options template.
 
-Sources:
-  - delta target by conviction: TRADING-DASHBOARD-HANDOFF.md:201
-  - DTE band by trigger TF:    trading-edge/SKILL.md:202-203
-  - IV Rank classification:    trading-edge/SKILL.md:124-128
-  - Liquidity (OI, spread):    TRADING-DASHBOARD-HANDOFF.md:206
+Encodes the bundled-reference defaults for delta target by conviction,
+DTE band by trigger TF, IV Rank classification, and liquidity thresholds
+(open interest, bid-ask spread). Tune the constants below to your own
+strategy spec.
 """
 from __future__ import annotations
 

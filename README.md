@@ -142,4 +142,4 @@ To build static assets: `cd frontend && npm run build` — outputs to `frontend/
 
 Production-personal. Tag `v0.1.0` ships when MA Ribbon and Stochastic match TradingView at >95% accuracy across 10 tickers — populate `tests/fixtures/truth/<TICKER>_ma_ribbon.csv` and `<TICKER>_stochastic.csv` with hand-sourced TradingView values (see `tests/fixtures/truth/README.md`); accuracy tests skip until fixtures exist, then fire automatically. SQN is excluded from the gate (regime-context indicator, no canonical external reference; covered by unit tests).
 
-See `CONTEXT.md` for the story backlog and `HANDOFF.md` for the deep technical handoff. Source-of-truth specs live at `~/Documents/Product Specs/Trading Dashboard/`.
+See [CUSTOMIZATION.md](./CUSTOMIZATION.md) for how to adapt the scaffold to your own trading style.

@@ -1,7 +1,5 @@
 """MA Ribbon indicator (10/20/50/200 SMA of close).
 
-Source of truth: TRADING-DASHBOARD-HANDOFF.md sections 313-330 and 67-84.
-
 Outputs per bar:
   - ma_10, ma_20, ma_50, ma_200 : simple moving averages of close
   - stack_state : one of {full_bull, bull_developing, compression, chop,
