@@ -51,7 +51,7 @@ RULE_TEXT: dict[str, str] = {
     "daily_not_chop":       "Daily MA stack not chop at entry",
     "weekly_not_opposing":  "Weekly not opposing (or counter-Weekly downsized + thesis documented)",
     "cut_at_60_70":         "Cut at -60% to -70% if invalidation hit (or exit at target)",
-    "exit_within_dte_band": "Exited before 50% DTE (apex/lotto) or held >60 DTE (weekly-trend-trader)",
+    "exit_within_dte_band": "Exited before 50% DTE (lotto/trading-edge) or held >60 DTE (weekly-trend-trader) or closed with >=21 DTE remaining (index-swing)",
     "no_average_down":      "Did not average down without a new signal",
 }
 

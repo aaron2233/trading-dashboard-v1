@@ -199,6 +199,12 @@ class SundayScan:
     headline: str                  # human-readable one-liner
     errors: dict[str, str]         # ticker → error string for any failed scan
     scan_time_utc: str             # ISO-8601 UTC timestamp set when scan ran
+    # Index-swing setups on QQQ/IWM/SPY. Independent from the focus setups
+    # above — the Sunday scan surfaces both views so the user can compare
+    # weekly-bias (focus) and daily-breakout (index-swing) reads on the
+    # overlapping universe.
+    index_swing_setups: list[dict[str, Any]] = field(default_factory=list)
+    index_swing_actionable: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -210,6 +216,8 @@ class SundayScan:
             "recommendation": self.recommendation,
             "headline": self.headline,
             "errors": self.errors,
+            "index_swing_setups": self.index_swing_setups,
+            "index_swing_actionable": self.index_swing_actionable,
         }
 
 
@@ -309,6 +317,18 @@ def run_sunday_scan(
             recommendation = "cash"
         headline = _headline(top, recommendation)
 
+    # Index-swing overlay on QQQ/IWM/SPY — best-effort. Failure is silent;
+    # the focus scan (SPY/QQQ/GLD) is the canonical Sunday output.
+    index_swing_setups: list[dict[str, Any]] = []
+    index_swing_actionable: list[dict[str, Any]] = []
+    try:
+        from index_swing import scan_index_swing_watchlist
+        is_result = scan_index_swing_watchlist()  # default QQQ/IWM/SPY universe
+        index_swing_setups = [s.to_dict() for s in is_result.setups]
+        index_swing_actionable = [s.to_dict() for s in is_result.actionable_setups]
+    except Exception as exc:
+        errors["INDEX_SWING"] = f"index-swing scan failed: {exc}"
+
     return SundayScan(
         spy=rows["SPY"],
         qqq=rows["QQQ"],
@@ -318,6 +338,8 @@ def run_sunday_scan(
         headline=headline,
         errors=errors,
         scan_time_utc=datetime.now(timezone.utc).isoformat(),
+        index_swing_setups=index_swing_setups,
+        index_swing_actionable=index_swing_actionable,
     )
 
 

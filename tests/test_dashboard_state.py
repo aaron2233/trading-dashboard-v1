@@ -259,6 +259,15 @@ def test_api_dashboard_state_endpoint(tmp_path, monkeypatch):
     original_store = dash_mod.DisciplineStore
     dash_mod.DisciplineStore = lambda: original_store(base_dir=discipline_dir)
 
+    # Point the recovery-plan loader at tmp_path so the user's live
+    # ~/.trading-dashboard/recovery_plan.json doesn't override the balance.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    import recovery_plan.config as rp_config_mod
+    monkeypatch.setattr(
+        rp_config_mod, "DEFAULT_CONFIG_PATH",
+        tmp_path / "recovery_plan.json",
+    )
+
     try:
         app = create_app(store_factory=fake_store_factory)
         client = TestClient(app)

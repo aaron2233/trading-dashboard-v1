@@ -108,23 +108,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="yfinance period for the Daily scan (default: timeframe-appropriate).",
     )
-    apex = p.add_argument_group(
-        "Apex options template",
-        "Pass --strike + --premium + --expiry to render the full Apex options block. "
+    options = p.add_argument_group(
+        "Options template",
+        "Pass --strike + --premium + --expiry to render the full options block. "
         "Without these flags, the Standard template renders.",
     )
-    apex.add_argument("--strike", type=float, help="Option strike price")
-    apex.add_argument("--premium", type=float, help="Option premium (per share)")
-    apex.add_argument("--expiry", help="Expiry as ISO date YYYY-MM-DD")
-    apex.add_argument(
+    options.add_argument("--strike", type=float, help="Option strike price")
+    options.add_argument("--premium", type=float, help="Option premium (per share)")
+    options.add_argument("--expiry", help="Expiry as ISO date YYYY-MM-DD")
+    options.add_argument(
         "--type", dest="contract_type", choices=["call", "put"],
         help="Contract type (default inferred from --direction: long→call, short→put)",
     )
-    apex.add_argument("--delta", type=float, help="Option delta")
-    apex.add_argument("--iv-rank", type=float, help="IV Rank percentile (0-100)")
-    apex.add_argument("--oi", type=int, help="Open interest")
-    apex.add_argument("--spread", type=float, help="Bid-ask spread (in dollars)")
-    apex.add_argument(
+    options.add_argument("--delta", type=float, help="Option delta")
+    options.add_argument("--iv-rank", type=float, help="IV Rank percentile (0-100)")
+    options.add_argument("--oi", type=int, help="Open interest")
+    options.add_argument("--spread", type=float, help="Bid-ask spread (in dollars)")
+    options.add_argument(
         "--screenshot",
         help=(
             "Path to a broker screenshot (PNG/JPG). Sends the image to Claude "
@@ -187,11 +187,11 @@ def _maybe_interactive_fill(args, input_fn=input) -> None:
     if args.notes is None:
         args.notes = _prompt("Notes", optional=True, input_fn=input_fn)
 
-    # Apex options block: only prompt if any of the core options fields are set
+    # Options block: only prompt if any of the core options fields are set
     # OR the user explicitly says yes to "add options data?"
-    any_apex = any(v is not None for v in (args.strike, args.premium, args.expiry))
-    if not any_apex:
-        ans = _prompt("Add options data (Apex template)? [y/N]",
+    any_options = any(v is not None for v in (args.strike, args.premium, args.expiry))
+    if not any_options:
+        ans = _prompt("Add options data (options template)? [y/N]",
                       optional=True, input_fn=input_fn)
         if ans is None or ans.lower() not in {"y", "yes"}:
             return
@@ -223,7 +223,7 @@ def _maybe_interactive_fill(args, input_fn=input) -> None:
 
 
 def _maybe_apply_screenshot(args) -> None:
-    """If --screenshot was passed, fill in any unset apex fields from vision."""
+    """If --screenshot was passed, fill in any unset options fields from vision."""
     if not getattr(args, "screenshot", None):
         return
 
@@ -263,10 +263,10 @@ def _maybe_apply_screenshot(args) -> None:
 
 
 def _build_options_from_args(args) -> OptionsStructure | None:
-    """Construct OptionsStructure if user passed apex flags; else None."""
-    has_apex = (args.strike is not None and args.premium is not None
-                and args.expiry is not None)
-    if not has_apex:
+    """Construct OptionsStructure if user passed options flags; else None."""
+    has_options = (args.strike is not None and args.premium is not None
+                   and args.expiry is not None)
+    if not has_options:
         return None
 
     contract_type = args.contract_type
@@ -330,13 +330,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # Lazy import to keep import-time light when only --help is run
-    from scan import compute_multi_tf, scan_ticker
+    from scan import compute_multi_tf, populate_trigger_bar, scan_ticker
 
     try:
         scan_row = scan_ticker(args.ticker.upper(), period=args.period)
     except Exception as exc:
         print(f"⚠ Scan failed for {args.ticker}: {exc}", file=sys.stderr)
         return 1
+
+    # G4 trigger-bar capture for 2H lotto sheets — soft-fails on yfinance hiccup.
+    scan_row = populate_trigger_bar(scan_row, args.ticker, args.trigger_tf)
 
     multi_tf: dict | None = None
     if not args.no_multi_tf:

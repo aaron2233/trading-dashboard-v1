@@ -113,6 +113,20 @@ def test_default_thresholds_match_spec():
     assert DEFAULT_THRESHOLDS.hy_oas_bps.red_at == 500.0
 
 
+def test_default_breadth_thresholds_are_backtest_calibrated():
+    """Backtest-calibrated 2026-05-07 — see scripts/backtest_rsp_spy_5d_slope.py.
+
+    Locked in so a casual revert to the old conservative-permissive
+    defaults (-0.5/-1.5) trips the test.
+    """
+    assert DEFAULT_THRESHOLDS.rsp_spy_5d_slope.amber_at == -1.5
+    assert DEFAULT_THRESHOLDS.rsp_spy_5d_slope.red_at == -2.5
+    assert DEFAULT_THRESHOLDS.rsp_spy_5d_slope.direction == "below"
+    assert DEFAULT_THRESHOLDS.iwm_spy_5d_slope.amber_at == -2.0
+    assert DEFAULT_THRESHOLDS.iwm_spy_5d_slope.red_at == -3.0
+    assert DEFAULT_THRESHOLDS.iwm_spy_5d_slope.direction == "below"
+
+
 # ── Categorical mappings ─────────────────────────────────────────────────────
 
 

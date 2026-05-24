@@ -3,7 +3,7 @@
 Format anchored on trading-edge/SKILL.md sections 144-198. Fields not derivable
 from a Daily scan in v0.2 are rendered as [TBD] placeholders for the user to
 fill in (or for later modules to populate: weekly-trend-trader for the Weekly
-context, apex-options-trader for the Option Structure, etc).
+context, etc).
 
 Discipline-layer extensions (2026-05-02, per
 ~/Documents/Product Specs/Trading Dashboard/DISCIPLINE-LAYER-ADDITION.md):
@@ -36,6 +36,36 @@ class DisciplineAttestation:
     daily_chop: bool = False
     fighting_sqn_regime: bool = False
     averaging_down: bool = False
+    # Chase-warning gate: lotto longs (any underlying) when SQN(20) > +2.5.
+    # Backtest 2026-05-07 found lotto-QQQ in extended uptrends loses ~5% avg
+    # @ 0% win — calibration of the canonical "stop chasing" signal in
+    # ~/CLAUDE.md orchestrator rule 12.
+    lotto_chase_warning: bool = False
+    # Weekly-trend-trader asset gate. Backtest 2026-05-07: IWM Sharpe -0.72
+    # over 26yr (33% win, all bull-regime trades lost) → hard block. SPY
+    # Sharpe 0.80, MaxDD -26% → soft warn (informational only, does not gate).
+    # QQQ (1.16) + GLD (1.92) pass and are not flagged. Update the constants
+    # in builder.py if forward data revises these findings.
+    weekly_trend_asset_blocked: bool = False
+    weekly_trend_asset_marginal: bool = False  # informational; does not gate
+    # Index-swing skill universe gate. Backtest 2026-05-09 (370 trades):
+    # strategy is hard-locked to QQQ/IWM/SPY. Single-name extension is
+    # unvalidated. NO override path — kill sheets generated under
+    # skill="index-swing" with non-universe tickers are rejected outright.
+    index_swing_universe_violation: bool = False
+    # Index-swing structural Bear-Volatile gate. Backtest's only net-negative
+    # regime (n=24, WR 37.5%, avgR -0.06) — labeled "Bear Volatile" but the
+    # underlying SQN measure is 100-day with a realized-vol overlay, NOT
+    # SQN(20) alone. In-code analog: SQN(100) Strong Bear, OR SQN(100) Bear
+    # AND SQN(20) < -1.9 (extreme low). SQN(20) < -1.9 inside SQN(100) Bull
+    # is the OPPOSITE — buy-the-dip zone per orchestrator rule 12.
+    # Hard block, no override.
+    index_swing_bear_volatile_block: bool = False
+    # Track A (19/39 weekly cross) per-asset gate for weekly-trend-trader.
+    # Backtest 2026-05-09: QQQ/GLD/SPY/AMZN/NFLX/AMD/TSLA had net-negative
+    # avg R on the 19/39 cross signal in recent data. These tickers should
+    # use Track B (10/20/50/200 ribbon) instead.
+    weekly_trend_track_a_asset_blocked: bool = False
 
     # User-attested (UI checkboxes)
     spreads_or_margin: bool = False  # MUST be False for cash-account compliance
@@ -43,6 +73,9 @@ class DisciplineAttestation:
     explicit_0dte_framing: bool = False                # required if dte_under_7
     divergence_thesis_documented: bool = False         # required if fighting_sqn_regime
     new_signal_for_average_down: bool = False          # required if averaging_down
+    lotto_chase_documented: bool = False               # required if lotto_chase_warning
+    weekly_trend_asset_override_documented: bool = False  # required if weekly_trend_asset_blocked
+    weekly_trend_track_a_override_documented: bool = False  # required if weekly_trend_track_a_asset_blocked
 
     # Final
     entry_authorized: bool = False
@@ -102,13 +135,28 @@ class KillSheet:
     tf_4h_stack: str | None = None
     tf_4h_pullback: str | None = None
 
+    # G4 trigger-bar momentum (tracked, NOT a gate as of 2026-05-16).
+    # Captures the most recently closed 2H trigger bar's open/close for the
+    # forward-data collection that will decide whether to promote G4 to a
+    # code-enforced gate. Backtest analysis in
+    # [[project-lotto-g4-trigger-bar]] showed G4 lifts PF on the curated
+    # LOTTO_HIGH_VOL_WATCHLIST but hurts on broad NDX-100 / broad ETFs,
+    # so it's not a universal hard rule yet.
+    #   trigger_bar_color: "green" | "red" | "doji" | None
+    #   trigger_bar_in_direction: True if color matches direction
+    #     (long+green or short+red), False otherwise. Doji → False.
+    trigger_bar_open: float | None = None
+    trigger_bar_close: float | None = None
+    trigger_bar_color: str | None = None
+    trigger_bar_in_direction: bool | None = None
+
     # User-supplied (placeholders if None)
     target_price: float | None = None
     trigger_description: str | None = None
     invalidation_price: float | None = None
     notes: str | None = None
 
-    # Apex Options structure (None = render Standard placeholder)
+    # Options structure (None = render Standard placeholder)
     options: OptionsStructure | None = None
 
     # Tactical 20-day SQN window (Tier 1 propagation, 2026-05-02).
@@ -216,6 +264,18 @@ class KillSheet:
         lines.append(f"  Zone:      {self.stoch_zone}")
         lines.append("  TF Source: Daily")
         lines.append("")
+        if self.trigger_bar_open is not None and self.trigger_bar_close is not None:
+            lines.append("TRIGGER BAR (2H, most recent closed) — tracked, not gated:")
+            lines.append(f"  Open:      ${self.trigger_bar_open:,.2f}")
+            lines.append(f"  Close:     ${self.trigger_bar_close:,.2f}")
+            color_label = (self.trigger_bar_color or "n/a").capitalize()
+            in_dir_label = (
+                "Y" if self.trigger_bar_in_direction
+                else ("N" if self.trigger_bar_in_direction is False else "n/a")
+            )
+            lines.append(f"  Color:     {color_label}")
+            lines.append(f"  In-direction: {in_dir_label}  (G4 informational)")
+            lines.append("")
         lines.append("POSITION SIZING:")
         lines.append(f"  Account balance:   ${self.account_balance_usd:,.2f}")
         lines.append(
@@ -250,7 +310,7 @@ class KillSheet:
             lines.append(f"DTE GUIDANCE:  {self.dte_band_label}")
             lines.append("")
         if self.options is None:
-            lines.append("OPTION STRUCTURE: [pass --strike/--premium/... for Apex template]")
+            lines.append("OPTION STRUCTURE: [pass --strike/--premium/... for options template]")
         else:
             o = self.options
             be = breakeven(o.strike, o.premium, o.contract_type)

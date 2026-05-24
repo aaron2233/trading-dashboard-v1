@@ -3,7 +3,7 @@
 For Standard kill sheets we report the dollar risk budget. The unit count
 (shares or contracts) requires a max_loss_per_unit which depends on
 invalidation distance for shares, or premium for options — both of which
-are user-supplied or filled in by later modules (Apex template).
+are user-supplied or filled in by later modules (options template).
 """
 from __future__ import annotations
 

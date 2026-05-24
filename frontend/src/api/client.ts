@@ -2,19 +2,24 @@ import type {
   DashboardState,
   DisciplineScoreDTO,
   DisciplineStatsDTO,
-  FocusOutcome,
-  FocusRecentSummary,
   FreeRangeScanRequest,
   FreeRangeScanResponse,
   JournalBreakdown,
+  JournalExit,
   JournalStats,
   KillSheetRequest,
   KillSheetResponse,
   LottoState,
   OpenPositionRequest,
   ParsedOptionsResponse,
+  RecoveryConfigUpdate,
+  RecoveryStatus,
   WeeklyScanRequest,
   WeeklyScanResponse,
+  IndexSwingScanRequest,
+  IndexSwingScanResponse,
+  LottoScanRequest,
+  LottoScanResponse,
   ActionVerdict,
   Position,
   PositionAlert,
@@ -22,8 +27,6 @@ import type {
   RegimeHealthSnapshot,
   ScanResult,
   StrikeSuggestionsResult,
-  SundayScanResponse,
-  SundayScanSummary,
   WeeklyReviewDTO,
 } from "./types";
 
@@ -55,6 +58,18 @@ export const api = {
 
   weeklyScan: (req: WeeklyScanRequest) =>
     request<WeeklyScanResponse>("/api/v1/weekly/scan", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  indexSwingScan: (req: IndexSwingScanRequest = {}) =>
+    request<IndexSwingScanResponse>("/api/v1/index-swing/scan", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+
+  lottoScan: (req: LottoScanRequest = {}) =>
+    request<LottoScanResponse>("/api/v1/lotto/scan", {
       method: "POST",
       body: JSON.stringify(req),
     }),
@@ -110,10 +125,15 @@ export const api = {
       body: JSON.stringify(req),
     }),
 
-  closePosition: (id: string, pnl?: number | null, notes?: string | null) =>
+  closePosition: (
+    id: string,
+    pnl?: number | null,
+    notes?: string | null,
+    contracts?: number | null,
+  ) =>
     request<Position>(`/api/v1/positions/${id}/close`, {
       method: "POST",
-      body: JSON.stringify({ pnl, notes }),
+      body: JSON.stringify({ pnl, notes, contracts }),
     }),
 
   positionAlerts: () =>
@@ -130,26 +150,8 @@ export const api = {
   journalRecent: (limit = 10) =>
     request<Position[]>(`/api/v1/journal/recent?limit=${limit}`),
 
-  focusSundayScan: () =>
-    request<SundayScanResponse>("/api/v1/focus/sunday-scan"),
-
-  focusRecentScans: (limit = 10) =>
-    request<SundayScanSummary[]>(
-      `/api/v1/focus/sunday-scan/recent?limit=${limit}`,
-    ),
-
-  focusSundayScanByDate: (date: string) =>
-    request<SundayScanResponse>(
-      `/api/v1/focus/sunday-scan/${encodeURIComponent(date)}`,
-    ),
-
-  focusOutcome: (date: string) =>
-    request<FocusOutcome>(
-      `/api/v1/focus/sunday-scan/${encodeURIComponent(date)}/outcome`,
-    ),
-
-  focusSummary: (weeks = 4) =>
-    request<FocusRecentSummary>(`/api/v1/focus/summary?weeks=${weeks}`),
+  journalExits: (limit = 20) =>
+    request<JournalExit[]>(`/api/v1/journal/exits?limit=${limit}`),
 
   disciplineScore: (positionId: string, scoreLegacy = false) =>
     request<DisciplineScoreDTO>(
@@ -199,6 +201,15 @@ export const api = {
     request<ParsedOptionsResponse>("/api/v1/options/extract/text", {
       method: "POST",
       body: JSON.stringify({ text, ticker }),
+    }),
+
+  recoveryStatus: () =>
+    request<RecoveryStatus>("/api/v1/recovery/status"),
+
+  recoveryConfigUpdate: (req: RecoveryConfigUpdate) =>
+    request<RecoveryStatus>("/api/v1/recovery/config", {
+      method: "PUT",
+      body: JSON.stringify(req),
     }),
 
   extractOptionsScreenshot: (

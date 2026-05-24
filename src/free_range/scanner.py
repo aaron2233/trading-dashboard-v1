@@ -169,6 +169,7 @@ def run_free_range_scan(
     scan_fn: Callable[..., dict[str, Any]] | None = None,
     free_range_cap: int = 5,
     universe_override: tuple[str, ...] | None = None,
+    universe: str | list[str] = ("nasdaq_100", "sp500_top_50", "russell_2000_top_50"),
     enable_free_range: bool = True,
 ) -> FreeRangeScan:
     """Run the 3-phase free-range scan (price + indicator only).
@@ -182,13 +183,21 @@ def run_free_range_scan(
     `scan_fn` defaults to scan_ticker from src/scan.py — left lazy here to
     avoid a circular import on module load.
 
-    `universe_override` lets callers (mostly tests) supply a custom candidate
-    universe instead of NASDAQ_100.
+    `universe` picks the Phase 3 candidate list(s). May be a single name
+    ("nasdaq_100" | "sp500_top_50" | "russell_2000_top_50") or a list of
+    names. When a list is provided, Phase 3 runs ONCE PER universe and
+    `free_range_cap` is applied PER universe — so passing all three names
+    with cap=5 yields up to 15 candidates (5 per index), each tagged with
+    its `source_universe`. Default = all three indexes. Each free-range
+    snapshot carries a `source_universe` attribute so the frontend can
+    group them by index.
+
+    `universe_override` (legacy / tests) takes precedence: when supplied,
+    Phase 3 scans only that tuple, tagged with source_universe="custom".
 
     `enable_free_range=False` skips Phase 3 entirely — returns baseline +
     user-submitted only. Used by views that want a fast read on the QQQ+GLD
-    baseline (LottoView verdict banner) without paying the ~30s NASDAQ 100
-    sweep cost.
+    baseline (LottoView verdict banner) without paying the ~30s sweep cost.
     """
     if scan_fn is None:
         from scan import scan_ticker
@@ -215,34 +224,52 @@ def run_free_range_scan(
             user_snaps.append(snap)
 
     # ─ Phase 3: free-range top-N (skipped when enable_free_range=False) ─
+    free_range: list[CandidateSnapshot] = []
+    universe_size = 0
     if enable_free_range:
         excluded = frozenset(BASELINE_TICKERS) | frozenset(user_tickers_norm)
-        universe = (
-            universe_override if universe_override is not None
-            else free_range_universe(excluded)
-        )
-        free_range: list[CandidateSnapshot] = []
-        for tkr in universe:
-            snap = _scan_one(tkr, "free_range", scan_fn, errors, enforce_price_band=True)
-            if snap is None:
-                continue
-            free_range.append(snap)
-        universe_size = len(universe)
-    else:
-        free_range = []
-        universe_size = 0
-        notes.append("Free-range Phase 3 skipped (baseline + user-submitted only)")
 
-    # Rank by score desc and apply hard cap. Padding is forbidden — if fewer
-    # than `free_range_cap` candidates pass, return what we have with a note.
-    free_range.sort(key=lambda s: s.score, reverse=True)
-    if enable_free_range and len(free_range) < free_range_cap:
-        notes.append(
-            f"Only {len(free_range)} free-range candidate(s) passed filters "
-            f"(cap is {free_range_cap}). Padding the slot count is forbidden — "
-            "the scan does not invent setups."
-        )
-    free_range = free_range[:free_range_cap]
+        if universe_override is not None:
+            # Legacy/test path — single custom universe, untagged.
+            scan_groups: list[tuple[str, tuple[str, ...]]] = [
+                ("custom", universe_override),
+            ]
+        else:
+            universe_names: list[str] = (
+                [universe] if isinstance(universe, str) else list(universe)
+            )
+            scan_groups = [
+                (name, free_range_universe(excluded, universe=name))
+                for name in universe_names
+            ]
+
+        for uni_name, candidate_list in scan_groups:
+            per_universe: list[CandidateSnapshot] = []
+            for tkr in candidate_list:
+                snap = _scan_one(
+                    tkr, "free_range", scan_fn, errors, enforce_price_band=True,
+                )
+                if snap is None:
+                    continue
+                snap.source_universe = uni_name
+                per_universe.append(snap)
+            universe_size += len(candidate_list)
+
+            # Per-universe ranking + cap. Padding still forbidden — if a
+            # given index produces fewer than `free_range_cap` passers, the
+            # note flags it by index name so the user knows which sleeve
+            # was thin (vs. assuming a bug).
+            per_universe.sort(key=lambda s: s.score, reverse=True)
+            if len(per_universe) < free_range_cap:
+                notes.append(
+                    f"{uni_name}: only {len(per_universe)} candidate(s) "
+                    f"passed filters (cap {free_range_cap}). Padding "
+                    "the slot count is forbidden — the scan does not "
+                    "invent setups."
+                )
+            free_range.extend(per_universe[:free_range_cap])
+    else:
+        notes.append("Free-range Phase 3 skipped (baseline + user-submitted only)")
 
     return FreeRangeScan(
         scan_time_utc=datetime.now(timezone.utc).isoformat(),

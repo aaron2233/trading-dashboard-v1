@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--expiry")
     po.add_argument("--premium", type=float, help="Premium per share for options")
     po.add_argument("--contracts", type=int)
-    po.add_argument("--shares", type=int)
+    po.add_argument("--shares", type=float)
     po.add_argument("--entry-price", type=float,
                     help="Underlying price at entry (options) or fill price (shares)")
     po.add_argument("--target", type=float, help="Target price for the underlying")

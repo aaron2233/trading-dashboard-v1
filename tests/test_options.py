@@ -176,7 +176,7 @@ def test_to_text_renders_placeholder_when_no_options():
     cfg = load_config(Path("/nonexistent.yaml"))
     sheet = build_standard(_row(), direction="long", account=cfg.account("main"))
     text = sheet.to_text()
-    assert "[pass --strike/--premium/... for Apex template]" in text
+    assert "[pass --strike/--premium/... for options template]" in text
 
 
 def test_to_dict_includes_options_when_set():

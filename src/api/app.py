@@ -35,6 +35,10 @@ from api.models import (
     FreeRangeScanRequest,
     FreeRangeScanResponse,
     HealthResponse,
+    JournalExitResponse,
+    PositionRuleCheckResponse,
+    RecoveryConfigUpdateRequest,
+    RecoveryStatusResponse,
     JournalReportResponse,
     JournalStatsResponse,
     KillSheetRequest,
@@ -46,6 +50,12 @@ from api.models import (
     WeeklyScanRequest,
     WeeklyScanResponse,
     WeeklySetupResponse,
+    IndexSwingScanRequest,
+    IndexSwingScanResponse,
+    IndexSwingSetupResponse,
+    LottoScanRequest,
+    LottoScanResponse,
+    LottoSetupResponse,
     MatchedPositionResponse,
     OpenPositionRequest,
     PositionResponse,
@@ -67,10 +77,16 @@ from focus import (
     summarize_recent_outcomes,
 )
 from free_range import run_free_range_scan
-from lotto import LOTTO_ACCOUNT_KEY, check_lotto_cooldown, compute_lotto_state
+from lotto import (
+    LOTTO_ACCOUNT_KEY,
+    check_lotto_cooldown,
+    compute_lotto_state,
+    scan_lotto_watchlist,
+)
 from options_input import parse_options_text
 from vision.options_extractor import ExtractError, extract_options_chain
 from weekly_trend import scan_weekly_watchlist
+from index_swing import scan_index_swing_watchlist
 from kill_sheet.builder import build_standard
 from kill_sheet.options import OptionsStructure, compute_dte
 from positions import (
@@ -92,7 +108,7 @@ from discipline import (
     score_trade,
 )
 from discipline.model import RuleResult
-from scan import compute_multi_tf, scan_ticker
+from scan import compute_multi_tf, populate_trigger_bar, scan_ticker
 from trade_devil import AGGREGATE_KILL, run_devil
 from journal import (
     by_account as journal_by_account,
@@ -265,13 +281,29 @@ def create_app(
 
     @app.post("/api/v1/weekly/scan", response_model=WeeklyScanResponse)
     def weekly_scan(req: WeeklyScanRequest):
-        """Sunday-scan workflow: weekly TF + benchmark regime over a watchlist."""
-        if not req.tickers:
-            raise HTTPException(status_code=400, detail="tickers list cannot be empty")
+        """Sunday-scan workflow: weekly TF + benchmark regime over a watchlist.
+
+        Two modes:
+          - Explicit tickers — fast, scans exactly the names you pass.
+          - Universe sweep — accepts ["nasdaq_100", "sp500_top_50",
+            "russell_2000_top_50"]; each setup is tagged with
+            `source_universe` so the UI can group by index. Slower
+            (~60-120s for ~200 names, Track A 5y weekly bars per ticker).
+        """
+        if not req.tickers and not req.universe:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide either `tickers` or `universe` — both empty",
+            )
         try:
             result = scan_weekly_watchlist(
-                req.tickers, benchmark=req.benchmark, top_n=req.top_n,
+                tickers=req.tickers,
+                universe=req.universe,
+                benchmark=req.benchmark,
+                top_n=req.top_n,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Weekly scan failed: {exc}")
 
@@ -284,6 +316,63 @@ def create_app(
             benchmark_regime=result.benchmark_regime,
             setups=[_to_response(s) for s in result.setups],
             top_setups=[_to_response(s) for s in result.top_setups],
+            errors=result.errors,
+        )
+
+    # ─── Lotto setup scan ─────────────────────────────────────────────────────
+
+    @app.post("/api/v1/lotto/scan", response_model=LottoScanResponse)
+    def lotto_scan(req: LottoScanRequest):
+        """Lotto setup scan across the configured universe(s) — defaults to
+        NASDAQ 100 + S&P 500 Top 50 + Russell 2000 Top 50 (~200 names,
+        ~60-90s). Each ticker yields TWO setups (long + short) classified
+        independently. Each setup is tagged with `source_universe` so the
+        frontend can group results by index.
+        """
+        try:
+            result = scan_lotto_watchlist(
+                tickers=req.tickers, universe=req.universe,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502, detail=f"Lotto scan failed: {exc}",
+            )
+
+        def _to_response(s) -> LottoSetupResponse:
+            return LottoSetupResponse(**s.to_dict())
+
+        return LottoScanResponse(
+            scan_time_utc=result.scan_time_utc,
+            setups=[_to_response(s) for s in result.setups],
+            actionable_setups=[_to_response(s) for s in result.actionable_setups],
+            errors=result.errors,
+        )
+
+    # ─── Index swing scan ─────────────────────────────────────────────────────
+
+    @app.post("/api/v1/index-swing/scan", response_model=IndexSwingScanResponse)
+    def index_swing_scan(req: IndexSwingScanRequest):
+        """Daily-TF index-swing scan: breakout above prior 5-bar swing high on
+        the hard-locked QQQ/IWM/SPY universe. Tickers outside the universe are
+        rejected with `confluence="universe_violation"`. SQN(20) Bear Volatile
+        is a hard skip per backtest evidence (only net-negative regime in
+        370-trade 1999-2022 sample).
+        """
+        try:
+            result = scan_index_swing_watchlist(req.tickers)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Index-swing scan failed: {exc}",
+            )
+
+        def _to_response(s) -> IndexSwingSetupResponse:
+            return IndexSwingSetupResponse(**s.to_dict())
+
+        return IndexSwingScanResponse(
+            scan_time_utc=result.scan_time_utc,
+            setups=[_to_response(s) for s in result.setups],
+            actionable_setups=[_to_response(s) for s in result.actionable_setups],
             errors=result.errors,
         )
 
@@ -356,11 +445,33 @@ def create_app(
 
     @app.get("/api/v1/dashboard/state", response_model=DashboardStateResponse)
     def dashboard_state():
-        """Aggregate stage + balance + unreviewed-weeks for the UX banner."""
+        """Aggregate stage + balance + unreviewed-weeks for the UX banner.
+
+        Balance source: the user-maintained `recovery_plan.json::current_balance`
+        when present (single source of truth shared with the Recovery view).
+        Falls back to config base + realized P&L when the recovery plan can't
+        be loaded.
+        """
         config = config_loader()
         store = store_factory()
         closed_positions = [p for p in store.list_all() if p.status == "closed"]
-        state = compute_dashboard_state(config, closed_positions)
+        # Pull authoritative balance from the recovery plan — only when the
+        # user has explicitly initialized it (file exists on disk). Don't
+        # auto-create a default config from here; that would shadow the
+        # account-config baseline silently.
+        balance_override: float | None = None
+        try:
+            from recovery_plan import DEFAULT_CONFIG_PATH as _RECOVERY_PATH
+            if _RECOVERY_PATH.exists():
+                from recovery_plan import load_config as _load_recovery_config
+                rcfg = _load_recovery_config()
+                if rcfg.current_balance and rcfg.current_balance > 0:
+                    balance_override = float(rcfg.current_balance)
+        except Exception:
+            pass
+        state = compute_dashboard_state(
+            config, closed_positions, balance_override_usd=balance_override,
+        )
         return DashboardStateResponse(
             stage=state.stage,
             stage_reminder=state.stage_reminder,
@@ -630,6 +741,7 @@ def create_app(
             result = run_free_range_scan(
                 user_tickers=req.user_tickers,
                 free_range_cap=req.free_range_cap,
+                universe=req.universe,
                 enable_free_range=req.enable_free_range,
             )
         except Exception as exc:
@@ -743,6 +855,9 @@ def create_app(
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Scan failed: {exc}")
 
+        # G4 trigger-bar capture for 2H lotto sheets — soft-fails on yfinance hiccup.
+        scan_row = populate_trigger_bar(scan_row, req.ticker, req.trigger_tf)
+
         multi_tf = None
         if req.include_multi_tf:
             multi_tf = compute_multi_tf(req.ticker.upper(),
@@ -771,6 +886,16 @@ def create_app(
         attestation_store = store_factory()
         attestation_open = attestation_store.list_open()
 
+        # Resolve skill tag: caller passes name; resolve to SkillConfig if
+        # known so builder gets full metadata (tier, defaults). Unknown names
+        # fall through as the bare string — builder still uses .name for gates.
+        skill_arg = None
+        if req.skill:
+            try:
+                skill_arg = config.skill(req.skill)
+            except KeyError:
+                skill_arg = req.skill
+
         sheet = build_standard(
             scan_row=scan_row,
             direction=req.direction,
@@ -789,6 +914,7 @@ def create_app(
             counter_weekly_thesis=req.counter_weekly_thesis,
             attestation_user_inputs=req.attestation_user_inputs,
             open_positions=attestation_open,
+            skill=skill_arg,
         )
 
         # Pre-check: account rules
@@ -848,7 +974,10 @@ def create_app(
                 )
 
             violations = [RuleViolationResponse(**v.to_dict()) for v in raw]
-            if violations and not req.bypass_rules:
+            # Only severity="block" gates the trade. Warn-level violations
+            # (e.g. lotto_size_lock) surface for the user but don't stop kill
+            # sheet generation — they're advisory, not a hard gate.
+            if any(v.severity == "block" for v in violations) and not req.bypass_rules:
                 rules_blocked = True
 
         devil_payload = None
@@ -942,15 +1071,11 @@ def create_app(
                     status_code=422,
                     detail=f"kill_sheet_id={req.kill_sheet_id!r} not found",
                 )
-            if ks.status != "AUTHORIZED":
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"kill_sheet_id={req.kill_sheet_id!r} is {ks.status}, "
-                        "not AUTHORIZED. Resolve the rejection or document a "
-                        "divergence thesis and regenerate."
-                    ),
-                )
+            # NOTE: kill-sheet status is RECORDED on the position, not used as
+            # a hard gate. Per user intent (2026-05-10): journal entries should
+            # never be blocked — record everything and reassess discipline
+            # adherence retrospectively via the per-trade scorecard.
+            # (Was: raise 422 when ks.status != "AUTHORIZED".)
             if ks.ticker.upper() != req.ticker.upper():
                 raise HTTPException(
                     status_code=422,
@@ -967,16 +1092,12 @@ def create_app(
                         f"position direction {req.direction!r}"
                     ),
                 )
-            # Discipline attestation must have authorized entry — otherwise the
-            # kill sheet rendered for review but the user didn't pass §8.
-            if ks.discipline_attestation is not None and not ks.discipline_attestation.entry_authorized:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "kill sheet did not pass discipline §8 attestation "
-                        "(entry_authorized=false)"
-                    ),
-                )
+            # NOTE: discipline §8 attestation is RECORDED, not enforced.
+            # Per user intent (2026-05-10): journal-entry creation must never
+            # be blocked. The attestation state lives on the kill sheet and
+            # is surfaced in the per-trade discipline scorecard for
+            # retrospective review.
+            # (Was: raise 422 when entry_authorized is False.)
             validated_kill_sheet_id = ks.id
         elif req.bypass_kill_sheet and not (req.notes or "").strip():
             # Bypass requires a documented reason for audit
@@ -1046,8 +1167,38 @@ def create_app(
                 )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+        # Evaluate R1/R2/R3 BEFORE storing — R2 looks at "today's prior
+        # entries" so we want to count what existed at the moment this
+        # journal entry was made.
+        from recovery_plan import (
+            check_r1_dollar_cap, check_r2_daily_entries, check_r3_standing_stop,
+        )
+        prior = store.list_all()
+        r1 = check_r1_dollar_cap(position.account_key, position.max_loss_usd)
+        r2 = check_r2_daily_entries(prior)
+        r3 = check_r3_standing_stop(
+            position.premium_paid_per_contract, position.premium_stop,
+        )
+
         store.add(position)
-        return _position_to_response(position)
+
+        # Surface violations on the response so the UI can warn loudly.
+        # Per dashboard design (api/app.py "journal entries should never be
+        # blocked"), we record the position regardless.
+        resp = _position_to_response(position)
+        violations: list[dict] = []
+        for r in (r1, r2, r3):
+            if not r.compliant and r.violation is not None:
+                violations.append({
+                    "rule": r.violation.rule,
+                    "severity": r.violation.severity,
+                    "message": r.violation.message,
+                    "details": dict(r.violation.details),
+                })
+        if violations:
+            resp.recovery_violations = violations
+        return resp
 
     @app.get("/api/v1/positions/alerts", response_model=list[AlertResponse])
     def position_alerts():
@@ -1071,15 +1222,21 @@ def create_app(
     def close_position(position_id: str, req: ClosePositionRequest):
         store = store_factory()
         try:
-            position = store.close(position_id, pnl_usd=req.pnl, notes=req.notes)
+            position = store.close(
+                position_id,
+                pnl_usd=req.pnl,
+                notes=req.notes,
+                contracts=req.contracts,
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
 
-        # Auto-score on close (Tier 3 closure). Skip for legacy positions and
-        # any failure here is non-fatal — the close itself succeeded.
-        if not is_legacy_position(position.closed_date):
+        # Auto-score only when the position is fully closed (partial closes
+        # leave status="open"). Skip for legacy positions; failures here are
+        # non-fatal — the close itself succeeded.
+        if position.status == "closed" and not is_legacy_position(position.closed_date):
             try:
                 score = score_trade(position)
                 DisciplineStore().save_score(score)
@@ -1088,6 +1245,28 @@ def create_app(
                 # the user can run `python -m discipline score <id>` later.
                 import sys as _sys
                 print(f"⚠ Auto-score failed for {position_id}", file=_sys.stderr)
+
+        # Auto-update recovery balance with this close event's realized P&L.
+        # `req.pnl` is the realized $ for this specific close action (full
+        # or partial leg). Skip if absent or zero. Failures here are
+        # non-fatal — the close itself succeeded.
+        if req.pnl is not None and req.pnl != 0:
+            try:
+                from recovery_plan import DEFAULT_CONFIG_PATH as _RECOVERY_PATH
+                if _RECOVERY_PATH.exists():
+                    from recovery_plan import load_config as _load_recovery_config
+                    from recovery_plan import save_config as _save_recovery_config
+                    rcfg = _load_recovery_config()
+                    rcfg.current_balance = round(rcfg.current_balance + float(req.pnl), 2)
+                    rcfg.ytd_realized_pnl = round(rcfg.ytd_realized_pnl + float(req.pnl), 2)
+                    _save_recovery_config(rcfg)
+            except Exception:
+                import sys as _sys
+                print(
+                    f"⚠ Recovery balance auto-update failed for {position_id} "
+                    f"(close pnl={req.pnl})",
+                    file=_sys.stderr,
+                )
 
         return _position_to_response(position)
 
@@ -1118,6 +1297,124 @@ def create_app(
         closed = [p for p in store.list_all() if p.status == "closed"]
         closed.sort(key=lambda p: p.closed_date or "", reverse=True)
         return [_position_to_response(p) for p in closed[:limit]]
+
+    @app.get("/api/v1/journal/exits", response_model=list[JournalExitResponse])
+    def journal_exits(limit: int = Query(20, ge=1, le=500)):
+        """Each exit decision as its own event — partial-close legs surface
+        here alongside fully-closed positions. A position closed via the
+        partial path produces N rows (one per leg); a position closed via
+        the legacy single-shot path produces 1 row.
+        """
+        store = store_factory()
+        events: list[JournalExitResponse] = []
+        for p in store.list_all():
+            legs = p.partial_exits or []
+            if legs:
+                # One event per partial leg. Covers both still-open positions
+                # and positions closed via the partial path (their final leg
+                # is the last entry in partial_exits).
+                for leg in legs:
+                    events.append(JournalExitResponse(
+                        position_id=p.id,
+                        date=leg.get("date") or p.closed_date or p.entry_date,
+                        ticker=p.ticker,
+                        account_key=p.account_key,
+                        instrument=p.instrument,
+                        direction=p.direction,
+                        contracts_closed=leg.get("contracts_closed"),
+                        pnl_usd=leg.get("pnl_usd"),
+                        notes=leg.get("notes"),
+                        is_partial=True,
+                    ))
+            elif p.status == "closed":
+                # Legacy single-shot close — no per-leg history. Render the
+                # position itself as the exit event.
+                events.append(JournalExitResponse(
+                    position_id=p.id,
+                    date=p.closed_date or p.entry_date,
+                    ticker=p.ticker,
+                    account_key=p.account_key,
+                    instrument=p.instrument,
+                    direction=p.direction,
+                    contracts_closed=p.contracts,
+                    pnl_usd=p.pnl_usd,
+                    notes=p.notes,
+                    is_partial=False,
+                ))
+        events.sort(key=lambda e: e.date, reverse=True)
+        return events[:limit]
+
+    # ─── Recovery plan (2026-05-13: R1/R2/R3 + milestones) ───────────────────
+
+    @app.get("/api/v1/recovery/status", response_model=RecoveryStatusResponse)
+    def recovery_status():
+        from recovery_plan import build_status, load_config
+        store = store_factory()
+        cfg = load_config()
+        status = build_status(cfg, store.list_all())
+        return RecoveryStatusResponse(**status.to_dict())
+
+    @app.put("/api/v1/recovery/config", response_model=RecoveryStatusResponse)
+    def update_recovery_config(req: RecoveryConfigUpdateRequest):
+        """Partial update. `delta_deposit_usd` adds to deposits_total AND
+        current_balance simultaneously (logging a cash add)."""
+        from recovery_plan import build_status, load_config, save_config
+        cfg = load_config()
+        if req.delta_deposit_usd is not None:
+            cfg.deposits_total = round(cfg.deposits_total + req.delta_deposit_usd, 2)
+            cfg.current_balance = round(cfg.current_balance + req.delta_deposit_usd, 2)
+        if req.current_balance is not None:
+            cfg.current_balance = round(req.current_balance, 2)
+        if req.ytd_realized_pnl is not None:
+            cfg.ytd_realized_pnl = round(req.ytd_realized_pnl, 2)
+        if req.year_start_balance is not None:
+            cfg.year_start_balance = round(req.year_start_balance, 2)
+        if req.year_breakeven_target is not None:
+            cfg.year_breakeven_target = round(req.year_breakeven_target, 2)
+        save_config(cfg)
+        status = build_status(cfg, store_factory().list_all())
+        return RecoveryStatusResponse(**status.to_dict())
+
+    @app.get(
+        "/api/v1/recovery/check-position/{position_id}",
+        response_model=PositionRuleCheckResponse,
+    )
+    def recovery_check_position(position_id: str):
+        """Retrospective per-position R1/R2/R3 check (useful for the scorecard
+        view to flag specific journal entries that violated rules)."""
+        from recovery_plan import (
+            check_r1_dollar_cap, check_r2_daily_entries, check_r3_standing_stop,
+        )
+        store = store_factory()
+        try:
+            position = store.get(position_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        r1 = check_r1_dollar_cap(position.account_key, position.max_loss_usd)
+        # R2: count entries on the position's own entry date (not "today")
+        # — what the user would have seen at entry time.
+        from datetime import datetime
+        try:
+            entry_dt = datetime.fromisoformat(position.entry_date)
+            same_day = [
+                p for p in store.list_all()
+                if p.id != position.id
+                and p.entry_date
+                and datetime.fromisoformat(p.entry_date).date() == entry_dt.date()
+                and datetime.fromisoformat(p.entry_date) <= entry_dt
+            ]
+        except Exception:
+            same_day = []
+        r2 = check_r2_daily_entries(same_day, now=entry_dt if 'entry_dt' in dir() else None)
+        r3 = check_r3_standing_stop(
+            position.premium_paid_per_contract, position.premium_stop,
+        )
+        return PositionRuleCheckResponse(
+            any_violations=not (r1.compliant and r2.compliant and r3.compliant),
+            r1=r1.to_dict(),
+            r2=r2.to_dict(),
+            r3=r3.to_dict(),
+        )
 
     # ─── Discipline ───────────────────────────────────────────────────────────
 
@@ -1153,20 +1450,7 @@ def create_app(
                 ),
             )
 
-        # Active pyramid lookup
-        pyramid_active: bool | None = False
-        try:
-            for pyr in PyramidStore().list_active():
-                if (
-                    pyr.ticker.upper() == position.ticker.upper()
-                    and pyr.direction.lower() == position.direction.lower()
-                ):
-                    pyramid_active = True
-                    break
-        except Exception:
-            pyramid_active = None
-
-        score = score_trade(position, pyramid_active_at_entry=pyramid_active)
+        score = score_trade(position)
         dstore.save_score(score)
         return _to_discipline_response(score)
 

@@ -57,6 +57,11 @@ class CandidateSnapshot:
     # 2H reads for the passing candidate. None when the verdict can't be
     # computed (2H scan failed). Serialized form of action_gate.ActionVerdict.
     action_verdict: dict[str, Any] | None = None
+    # Which index this candidate was scanned from. Set for phase="free_range"
+    # only; None for baseline (QQQ+GLD always-on) and user-submitted phases.
+    # Frontend groups free_range results by this field so each index gets
+    # its own top-N section.
+    source_universe: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

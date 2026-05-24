@@ -9,11 +9,11 @@ import { ScanView } from "./views/ScanView";
 import { KillSheetView } from "./views/KillSheetView";
 import { LottoView } from "./views/LottoView";
 import { WeeklyTrendView } from "./views/WeeklyTrendView";
+import { IndexSwingView } from "./views/IndexSwingView";
 import { PositionsView } from "./views/PositionsView";
 import { JournalView } from "./views/JournalView";
+import { RecoveryView } from "./views/RecoveryView";
 import { RegimeHealthView } from "./views/RegimeHealthView";
-import { SundayScanRetroView } from "./views/SundayScanRetroView";
-import { SundayScanView } from "./views/SundayScanView";
 import { WeeklyReviewView } from "./views/WeeklyReviewView";
 
 type NavItem =
@@ -34,7 +34,7 @@ const SCAN_GROUP: NavGroupDef = {
   items: [
     { kind: "link", to: "/scan", label: "Scan ticker" },
     { kind: "link", to: "/weekly", label: "Weekly trend" },
-    { kind: "link", to: "/focus", label: "Sunday focus" },
+    { kind: "link", to: "/index-swing", label: "Index swing" },
     { kind: "divider" },
     { kind: "link", to: "/lotto", label: "Lotto · $1K playbook" },
   ],
@@ -46,6 +46,7 @@ const TOP_LEVEL_LINKS: { to: string; label: string }[] = [
   { to: "/positions", label: "Positions" },
   { to: "/journal", label: "Journal" },
   { to: "/weekly-review", label: "Weekly Review" },
+  { to: "/recovery", label: "Recovery" },
 ];
 
 function navItemClass({ isActive }: { isActive: boolean }): string {
@@ -176,6 +177,24 @@ function StageBanner() {
 }
 
 export function App() {
+  // Disable mouse-wheel value-stepping on focused <input type="number">.
+  // Chromium/Firefox both interpret wheel-while-focused as a stepper input;
+  // that hijacks page scroll AND silently mutates the field. We blur the
+  // input on wheel so the page scrolls and the value stays put.
+  useEffect(() => {
+    const handler = (e: WheelEvent) => {
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement &&
+        active.type === "number"
+      ) {
+        active.blur();
+      }
+    };
+    document.addEventListener("wheel", handler);
+    return () => document.removeEventListener("wheel", handler);
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col">
       <RegimeHeader />
@@ -206,14 +225,14 @@ export function App() {
           <Route path="/" element={<HomeView />} />
           <Route path="/scan" element={<ScanView />} />
           <Route path="/weekly" element={<WeeklyTrendView />} />
-          <Route path="/focus" element={<SundayScanView />} />
-          <Route path="/focus/:date" element={<SundayScanRetroView />} />
+          <Route path="/index-swing" element={<IndexSwingView />} />
           <Route path="/kill-sheet" element={<KillSheetView />} />
           <Route path="/lotto" element={<LottoView />} />
           <Route path="/regime-health" element={<RegimeHealthView />} />
           <Route path="/weekly-review" element={<WeeklyReviewView />} />
           <Route path="/positions" element={<PositionsView />} />
           <Route path="/journal" element={<JournalView />} />
+          <Route path="/recovery" element={<RecoveryView />} />
         </Routes>
       </main>
       <StatusBar />

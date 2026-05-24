@@ -8,7 +8,7 @@ interface TierSectionProps {
 const TIER_BLURB: Record<number, string> = {
   1: "Existing SQN/MA stack + new VIX & VVIX",
   2: "FRED leading indicators",
-  3: "RSP/SPY ratio breadth",
+  3: "RSP/SPY + IWM/SPY breadth",
   4: "AI capex calendar (manual)",
 };
 

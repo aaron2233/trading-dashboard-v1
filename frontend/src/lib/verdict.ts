@@ -1,15 +1,12 @@
 // Unified verdict primitive for the dashboard. Single source of truth so every
 // view shows the same vocabulary: LONG / SHORT / WAIT / SKIP + confidence 1–10.
 //
-// Each domain enum (WeeklyConfluence, SundayScan recommendation, etc.) is
-// mapped into this shape via a `from*` helper. Keep these mappings here —
-// never inline new ones in views.
+// Each domain enum (WeeklyConfluence, etc.) is mapped into this shape via a
+// `from*` helper. Keep these mappings here — never inline new ones in views.
 
 import type {
   DevilReport,
-  FocusSetup,
   FreeRangeDirection,
-  SundayScanResponse,
   WeeklyConfluence,
   WeeklyDirection,
 } from "../api/types";
@@ -75,48 +72,6 @@ export function fromWeeklyConfluence(
   if (direction === "long") return { kind: "long", confidence, rationale };
   if (direction === "short") return { kind: "short", confidence, rationale };
   return { kind: "wait", confidence, rationale };
-}
-
-// ─── Sunday scan (focus) ─────────────────────────────────────────────────
-
-const FOCUS_STATUS_CONF: Record<FocusSetup["status"], number> = {
-  fires: 8,
-  watch: 5,
-  blocked: 2,
-};
-
-export function fromSundayScan(resp: SundayScanResponse): Verdict {
-  // Top setup drives direction; recommendation drives kind/confidence floor.
-  const topByScore = [...resp.setups].sort((a, b) => b.score - a.score)[0];
-  const top = topByScore ?? null;
-  const rationale = resp.headline || top?.asset;
-
-  if (resp.recommendation === "cash") {
-    return { kind: "skip", confidence: 1, rationale };
-  }
-  if (resp.recommendation === "watch") {
-    return { kind: "wait", confidence: 4, rationale };
-  }
-  // recommendation === "trade"
-  if (!top) return { kind: "wait", confidence: 4, rationale };
-  const conf = FOCUS_STATUS_CONF[top.status];
-  if (top.direction === "long") return { kind: "long", confidence: conf, rationale };
-  if (top.direction === "short") return { kind: "short", confidence: conf, rationale };
-  return { kind: "wait", confidence: conf, rationale };
-}
-
-export function fromFocusSetup(setup: FocusSetup): Verdict {
-  const conf = FOCUS_STATUS_CONF[setup.status];
-  if (setup.status === "blocked") {
-    return { kind: "skip", confidence: conf, rationale: setup.blockers[0] };
-  }
-  if (setup.status === "watch") {
-    return { kind: "wait", confidence: conf };
-  }
-  return {
-    kind: setup.direction === "long" ? "long" : "short",
-    confidence: conf,
-  };
 }
 
 // ─── KillSheet (devil aggregate + user-chosen direction) ─────────────────

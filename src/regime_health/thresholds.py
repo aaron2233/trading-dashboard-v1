@@ -1,10 +1,15 @@
 """Default threshold rules for each indicator.
 
-NOTE: these defaults are conservative-permissive starting values informed
-by trading literature, NOT backtested against 2018/2020/2022 SPX
-drawdowns. Per the spec, threshold defaults are user-overridable via
-~/.trading-dashboard/config.yaml under `regime_health.thresholds`.
-A backtest-calibration sprint is a follow-up.
+NOTE: most defaults are conservative-permissive starting values informed by
+trading literature; user-overridable via ~/.trading-dashboard/config.yaml
+under `regime_health.thresholds`.
+
+Tier 3 breadth thresholds (rsp_spy_5d_slope, iwm_spy_5d_slope) are calibrated
+from a 23-year SPY-drawdown backtest — see
+`scripts/backtest_rsp_spy_5d_slope.py` and
+`scripts/backtest_*_5d_slope_output.json` for the precision/lift tables that
+support these levels. Other indicators are still ⚠️ UNVERIFIED pending
+their own calibration sprints.
 """
 from __future__ import annotations
 
@@ -119,12 +124,23 @@ class ThresholdConfig:
     )
     # Yield-curve and dollar are categorical/regime-derived, handled in tier2.
 
-    # Tier 3 — breadth (slope-based)
+    # Tier 3 — breadth (slope-based). Amber/red levels backtest-calibrated
+    # against forward 20d SPY drawdown ≥5% over the 2003-2026 RSP+SPY sample
+    # (5,787 trading days). See scripts/backtest_rsp_spy_5d_slope.py.
+    #   RSP/SPY (cap-concentration breadth):
+    #     amber -1.5%/5d → 1.78x lift, 27.7% precision, ~7 fires/yr
+    #     red   -2.5%/5d → 3.30x lift, 51.4% precision, ~1.5 fires/yr
+    #   IWM/SPY (size-factor breadth, complementary):
+    #     amber -2.0%/5d → 2.41x lift @ 5d×5%, ~19 fires/yr (2000-2026 sample)
+    #     red   -3.0%/5d → 3.66x lift @ 5d×5%, ~6 fires/yr
     rsp_spy_5d_slope: NumericThreshold = field(
         default_factory=lambda: NumericThreshold(
-            # Slope here is (5d ratio change %). Negative = breadth deteriorating.
-            # We invert direction at evaluation site (lower is worse).
-            amber_at=-0.5, red_at=-1.5, direction="below", units="%",
+            amber_at=-1.5, red_at=-2.5, direction="below", units="%",
+        )
+    )
+    iwm_spy_5d_slope: NumericThreshold = field(
+        default_factory=lambda: NumericThreshold(
+            amber_at=-2.0, red_at=-3.0, direction="below", units="%",
         )
     )
 

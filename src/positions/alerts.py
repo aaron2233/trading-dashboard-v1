@@ -29,6 +29,12 @@ _BEAR_SIGNALS = {"bear_cross_overbought", "bear_continuation", "bearish_divergen
 _SEVERITY_ORDER = {"action": 0, "warn": 1, "info": 2}
 
 
+def _is_index_swing_position(position: Position) -> bool:
+    """Index-swing positions are tagged with skill='index-swing'.
+    Account is typically 'main' (no dedicated index-swing account)."""
+    return getattr(position, "skill", None) == "index-swing"
+
+
 @dataclass
 class PositionAlert:
     position_id: str
@@ -81,6 +87,25 @@ def _dte_alerts(position: Position, today: date | None) -> list[PositionAlert]:
                 message=f"{dte} DTE — roll alert (weekly approaching 60-DTE floor).",
                 details={"dte": dte, "threshold": 90},
             ))
+    elif _is_index_swing_position(position):
+        # index-swing: 21-DTE hard floor, 30-DTE roll alert
+        # [src: ~/.claude/skills/user/index-swing/SKILL.md anti-pattern
+        #  "Never hold options below 60 DTE" → "Never hold below 21 DTE"
+        #  for the swing horizon. 30-60 DTE entry, 21 DTE exit.]
+        if dte < 21:
+            out.append(PositionAlert(
+                position_id=position.id, ticker=position.ticker,
+                severity="action", rule="dte_21_floor",
+                message=f"{dte} DTE below the index-swing 21-DTE floor — close or roll.",
+                details={"dte": dte, "threshold": 21},
+            ))
+        elif dte < 30:
+            out.append(PositionAlert(
+                position_id=position.id, ticker=position.ticker,
+                severity="warn", rule="dte_30_warn",
+                message=f"{dte} DTE — roll alert (index-swing approaching 21-DTE floor).",
+                details={"dte": dte, "threshold": 30},
+            ))
     elif position.account_key == "lotto":
         # lotto runs 5-14 DTE; 0-2 DTE remaining = action
         if dte <= 2:
@@ -91,7 +116,7 @@ def _dte_alerts(position: Position, today: date | None) -> list[PositionAlert]:
                 details={"dte": dte},
             ))
     else:
-        # apex / main: 14-DTE warn, 7-DTE action
+        # main account: 14-DTE warn, 7-DTE action
         if dte <= 7:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
@@ -103,7 +128,7 @@ def _dte_alerts(position: Position, today: date | None) -> list[PositionAlert]:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="warn", rule="dte_warn",
-                message=f"{dte} DTE — apex time-stop window approaching.",
+                message=f"{dte} DTE — time-stop window approaching.",
                 details={"dte": dte},
             ))
     return out
@@ -115,9 +140,10 @@ def _price_alerts(position: Position, scan_row: dict[str, Any]) -> list[Position
         return []
 
     out: list[PositionAlert] = []
+    thesis = position.thesis_direction
 
     if position.target_price is not None:
-        if position.direction == "long" and close >= position.target_price:
+        if thesis == "bullish" and close >= position.target_price:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="action", rule="target_hit",
@@ -125,7 +151,7 @@ def _price_alerts(position: Position, scan_row: dict[str, Any]) -> list[Position
                         f"— take 50% per exit plan.",
                 details={"close": close, "target": position.target_price},
             ))
-        elif position.direction == "short" and close <= position.target_price:
+        elif thesis == "bearish" and close <= position.target_price:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="action", rule="target_hit",
@@ -135,7 +161,7 @@ def _price_alerts(position: Position, scan_row: dict[str, Any]) -> list[Position
             ))
 
     if position.invalidation_price is not None:
-        if position.direction == "long" and close <= position.invalidation_price:
+        if thesis == "bullish" and close <= position.invalidation_price:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="action", rule="invalidation_hit",
@@ -143,7 +169,7 @@ def _price_alerts(position: Position, scan_row: dict[str, Any]) -> list[Position
                         f"— thesis broken, exit.",
                 details={"close": close, "invalidation": position.invalidation_price},
             ))
-        elif position.direction == "short" and close >= position.invalidation_price:
+        elif thesis == "bearish" and close >= position.invalidation_price:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="action", rule="invalidation_hit",
@@ -157,24 +183,25 @@ def _price_alerts(position: Position, scan_row: dict[str, Any]) -> list[Position
 
 def _technical_alerts(position: Position, scan_row: dict[str, Any]) -> list[PositionAlert]:
     out: list[PositionAlert] = []
+    thesis = position.thesis_direction
 
     stack = (scan_row.get("ma_ribbon") or {}).get("stack_state")
     signal = (scan_row.get("stochastic") or {}).get("signal")
 
     # MA flip is a structural break in the trend
     if stack:
-        if position.direction == "long" and stack in _BEAR_STACKS:
+        if thesis == "bullish" and stack in _BEAR_STACKS:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="action", rule="ma_flip",
-                message=f"Daily stack flipped to {stack} — long thesis structurally broken.",
+                message=f"Daily stack flipped to {stack} — bullish thesis structurally broken.",
                 details={"stack": stack},
             ))
-        elif position.direction == "short" and stack in _BULL_STACKS:
+        elif thesis == "bearish" and stack in _BULL_STACKS:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="action", rule="ma_flip",
-                message=f"Daily stack flipped to {stack} — short thesis structurally broken.",
+                message=f"Daily stack flipped to {stack} — bearish thesis structurally broken.",
                 details={"stack": stack},
             ))
         elif stack == "chop":
@@ -187,18 +214,18 @@ def _technical_alerts(position: Position, scan_row: dict[str, Any]) -> list[Posi
 
     # Stoch reversal is timing-level
     if signal:
-        if position.direction == "long" and signal in _BEAR_SIGNALS:
+        if thesis == "bullish" and signal in _BEAR_SIGNALS:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="warn", rule="stoch_reversal",
-                message=f"Stochastic fired {signal} against the long.",
+                message=f"Stochastic fired {signal} against the bullish thesis.",
                 details={"signal": signal},
             ))
-        elif position.direction == "short" and signal in _BULL_SIGNALS:
+        elif thesis == "bearish" and signal in _BULL_SIGNALS:
             out.append(PositionAlert(
                 position_id=position.id, ticker=position.ticker,
                 severity="warn", rule="stoch_reversal",
-                message=f"Stochastic fired {signal} against the short.",
+                message=f"Stochastic fired {signal} against the bearish thesis.",
                 details={"signal": signal},
             ))
 
@@ -228,7 +255,8 @@ def _weekly_trail_alerts(
     if close is None or ma_10 is None:
         return []
 
-    if position.direction == "long" and close < ma_10:
+    thesis = position.thesis_direction
+    if thesis == "bullish" and close < ma_10:
         return [PositionAlert(
             position_id=position.id, ticker=position.ticker,
             severity="action", rule="weekly_10wma_trail_break",
@@ -238,13 +266,13 @@ def _weekly_trail_alerts(
             ),
             details={"weekly_close": close, "ma_10_wma": ma_10},
         )]
-    if position.direction == "short" and close > ma_10:
+    if thesis == "bearish" and close > ma_10:
         return [PositionAlert(
             position_id=position.id, ticker=position.ticker,
             severity="action", rule="weekly_10wma_trail_break",
             message=(
                 f"Weekly close ${close:,.2f} above 10 WMA ${ma_10:,.2f} — "
-                "short trail stop hit. Cover per skill exit plan."
+                "bearish trail stop hit. Cover per skill exit plan."
             ),
             details={"weekly_close": close, "ma_10_wma": ma_10},
         )]

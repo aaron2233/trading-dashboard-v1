@@ -173,14 +173,19 @@ def test_open_position_rejected_with_unknown_kill_sheet_id(client, tmp_path):
     assert "not found" in r.json()["detail"]
 
 
-def test_open_position_rejected_when_kill_sheet_was_rejected(client, tmp_path):
+def test_open_position_accepts_rejected_kill_sheet_for_retrospective_review(client, tmp_path):
+    """Per user intent (2026-05-10): a REJECTED kill sheet does NOT block
+    position creation. The position is recorded with the kill_sheet_id
+    attached so the per-trade discipline scorecard can flag the violation
+    retrospectively. The journal must never be hard-blocked."""
     ks_id = _persist_rejected(tmp_path)
     r = client.post(
         "/api/v1/positions",
         json=_open_payload(kill_sheet_id=ks_id),
     )
-    assert r.status_code == 422
-    assert "REJECTED" in r.json()["detail"]
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["kill_sheet_id"] == ks_id
 
 
 def test_open_position_rejected_when_ticker_mismatches(client, tmp_path):
@@ -203,9 +208,12 @@ def test_open_position_rejected_when_direction_mismatches(client, tmp_path):
     assert "direction" in r.json()["detail"]
 
 
-def test_open_position_rejected_when_attestation_failed(client, tmp_path):
-    """A kill sheet with status=AUTHORIZED but entry_authorized=false on the
-    attestation must NOT permit position open — §8 wasn't passed."""
+def test_open_position_accepts_failed_attestation_for_retrospective_review(client, tmp_path):
+    """Per user intent (2026-05-10): a kill sheet with §8 attestation
+    failures (entry_authorized=False) does NOT block position creation.
+    The kill sheet is attached to the position so the discipline
+    scorecard can flag the violation later. The journal must never be
+    hard-blocked."""
     ks_id = _persist_authorized(
         tmp_path,
         discipline_attestation=DisciplineAttestation(entry_authorized=False),
@@ -214,8 +222,9 @@ def test_open_position_rejected_when_attestation_failed(client, tmp_path):
         "/api/v1/positions",
         json=_open_payload(kill_sheet_id=ks_id),
     )
-    assert r.status_code == 422
-    assert "attestation" in r.json()["detail"]
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["kill_sheet_id"] == ks_id
 
 
 def test_open_position_accepts_authorized_kill_sheet(client, tmp_path):

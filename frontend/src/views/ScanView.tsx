@@ -6,7 +6,7 @@ import { VerdictHero } from "../components/Verdict";
 import { fromRawIndicators } from "../lib/verdict";
 import type { ActionVerdict, ScanResult } from "../api/types";
 
-type SkillContext = "none" | "lotto" | "weekly" | "focus";
+type SkillContext = "none" | "lotto" | "weekly";
 type GateDirection = "long" | "short";
 
 function fmt(value: number | null | undefined, digits = 2): string {
@@ -151,7 +151,6 @@ export function ScanView() {
           <option value="none">— no verdict —</option>
           <option value="lotto">Lotto (Daily / 2H / 0-14 DTE)</option>
           <option value="weekly">Weekly trend (1wk / 120-180 DTE)</option>
-          <option value="focus">Sunday focus (Daily / 2H / 21-60 DTE)</option>
         </select>
         {skillContext !== "none" && (
           <>

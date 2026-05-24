@@ -207,6 +207,28 @@ def test_sqn100_authorized_n_for_long_in_bear():
     assert rule.score == "N"
 
 
+def test_sqn100_authorized_y_for_long_put_in_bear():
+    # Regression (PYPL 2026-05-18): a long put = bearish thesis, so a Bear
+    # SQN(100) regime authorizes it. The previous code keyed off `direction`
+    # alone and would score this as misaligned.
+    p = _make_position(direction="long", instrument="put")
+    ks = _make_kill_sheet(regime="bear")
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "sqn100_authorized")
+    assert rule.score == "Y"
+
+
+def test_sqn20_respected_n_long_put_in_capitulation():
+    # Long put = bearish; SQN(20) < -2.5 = capitulation extreme = chase zone
+    # for bearish entries, should score N.
+    p = _make_position(direction="long", instrument="put")
+    ks = _make_kill_sheet(sqn_20_value=-2.6, regime_20="strong_bear",
+                          regime="bear")
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "sqn20_respected")
+    assert rule.score == "N"
+
+
 def test_sqn100_authorized_y_with_divergence_thesis():
     p = _make_position(direction="long")
     scan_row = _make_scan_row(regime="bear", sqn_value=-1.0)

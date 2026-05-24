@@ -80,9 +80,24 @@ def compute_stats(positions: Iterable[Position], label: str = "all") -> JournalS
     if decided:
         stats.win_rate = len(wins) / len(decided)
 
-    if closed:
-        stats.total_pnl_usd = sum(p.pnl_usd for p in closed)
-        stats.expectancy_usd = stats.total_pnl_usd / len(closed)
+    # Realized P&L from partial-close legs on still-open positions. Closed
+    # positions are excluded here because their pnl_usd already aggregates
+    # every leg (partial_close sets pnl_usd = sum(partial_exits[].pnl_usd)
+    # when the final contract closes). Including both would double-count.
+    partial_pnl = 0.0
+    for p in open_positions:
+        for leg in (p.partial_exits or []):
+            leg_pnl = leg.get("pnl_usd")
+            if leg_pnl is not None:
+                partial_pnl += float(leg_pnl)
+
+    if closed or partial_pnl:
+        closed_pnl = sum(p.pnl_usd for p in closed)
+        stats.total_pnl_usd = closed_pnl + partial_pnl
+        # Expectancy stays per-fully-closed-trade so it reflects completed
+        # decisions, not realized slices on still-open positions.
+        if closed:
+            stats.expectancy_usd = closed_pnl / len(closed)
 
     if wins:
         win_pnls = [p.pnl_usd for p in wins]

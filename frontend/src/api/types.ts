@@ -134,6 +134,23 @@ export interface Position {
   premium_target: number | null;
   // Phase B: kill sheet that authorized this position (null on legacy / bypass)
   kill_sheet_id: string | null;
+  // Partial exits — each leg is one scale-out. Empty until first partial.
+  partial_exits: PartialExit[];
+  // Recovery-plan R1/R2/R3 violations attached at journal time. Empty for
+  // compliant entries. Surfaced as loud warnings; never blocks the entry.
+  recovery_violations?: Array<{
+    rule: string;
+    severity: string;
+    message: string;
+    details: Record<string, unknown>;
+  }>;
+}
+
+export interface PartialExit {
+  date: string;
+  contracts_closed: number;
+  pnl_usd: number | null;
+  notes: string | null;
 }
 
 export interface PositionAlert {
@@ -202,87 +219,17 @@ export interface JournalBreakdown {
   by_direction: Record<string, JournalStats>;
 }
 
-export interface FocusSetup {
-  asset: "QQQ" | "GLD";
-  direction: "long" | "short";
-  score: number;
-  status: "fires" | "watch" | "blocked";
-  components: Record<string, number>;
-  blockers: string[];
-  action_verdict: ActionVerdict | null;
-}
-
-export interface SundayScanResponse {
-  scan_time_utc: string;
-  spy: ScanResult | null;
-  qqq: ScanResult | null;
-  gld: ScanResult | null;
-  setups: FocusSetup[];
-  recommendation: "trade" | "watch" | "cash";
-  headline: string;
-  errors: Record<string, string>;
-}
-
-export interface FocusTopSetupSummary {
-  asset: string;
-  direction: string;
-  score: number;
-  status: string;
-}
-
-export interface SundayScanSummary {
+export interface JournalExit {
+  position_id: string;
   date: string;
-  scan_time_utc: string;
-  recommendation: "trade" | "watch" | "cash";
-  headline: string;
-  top_setup: FocusTopSetupSummary | null;
-}
-
-export interface MatchedPosition {
-  id: string;
   ticker: string;
-  direction: string;
+  account_key: string;
   instrument: string;
-  entry_date: string;
-  status: string;
+  direction: string;
+  contracts_closed: number | null;
   pnl_usd: number | null;
-  max_loss_usd: number;
-  contracts: number | null;
-  strike: number | null;
-  expiry: string | null;
-}
-
-export type FocusOutcomeAggregate =
-  | "skipped"
-  | "no_recommendation"
-  | "open"
-  | "closed_winner"
-  | "closed_loser"
-  | "mixed";
-
-export interface FocusOutcome {
-  scan_date: string;
-  recommendation: "trade" | "watch" | "cash";
-  top_setup: FocusTopSetupSummary | null;
-  window_days: number;
-  followed: boolean;
-  matched: MatchedPosition[];
-  realized_pnl_usd: number;
-  open_count: number;
-  closed_count: number;
-  aggregate_status: FocusOutcomeAggregate;
-}
-
-export interface FocusRecentSummary {
-  weeks: number;
-  scans_count: number;
-  trade_recs: number;
-  watch_recs: number;
-  cash_recs: number;
-  followed_count: number;
-  skipped_count: number;
-  realized_pnl_usd: number;
-  open_count: number;
+  notes: string | null;
+  is_partial: boolean;
 }
 
 // ── Discipline ──────────────────────────────────────────────────────────────
@@ -449,12 +396,24 @@ export interface CandidateSnapshot {
   why_now: string;
   notes: string[];
   action_verdict: ActionVerdict | null;
+  /** Which index this candidate was scanned from. Set on free_range phase
+   * only; null for baseline + user-submitted. */
+  source_universe?: FreeRangeUniverse | null;
 }
+
+export type FreeRangeUniverse =
+  | "nasdaq_100"
+  | "sp500_top_50"
+  | "russell_2000_top_50";
 
 export interface FreeRangeScanRequest {
   user_tickers?: string[];
   free_range_cap?: number;
-  /** When false, skip the Nasdaq 100 sweep — fast read on baseline only. */
+  /** Phase 3 candidate list(s). Server applies the cap PER universe and
+   * tags each returned candidate with source_universe. Server default is
+   * all three indexes. */
+  universe?: FreeRangeUniverse[];
+  /** When false, skip the Phase 3 sweep — fast read on baseline only. */
   enable_free_range?: boolean;
 }
 
@@ -476,9 +435,40 @@ export type WeeklyConfluence =
   | "high_conviction_short"
   | "continuation_long"
   | "continuation_short"
+  | "track_a_cross_long"
+  | "track_a_cross_short"
   | "compression"
   | "chop"
   | "no_setup";
+
+export interface TrackASignal {
+  state: "cross_up" | "cross_down" | "above" | "below" | "none";
+  ma_19: number | null;
+  ma_39: number | null;
+  asset_blocked: boolean;
+}
+
+/** Unified Buy / Wait / No-Go verdict shared across all scan types. */
+export type ScanVerdict = "buy" | "wait" | "no_go";
+
+/** Common fields exposed by every scan setup so a single TradeCard can render. */
+export interface UnifiedSetupFields {
+  ticker: string;
+  bar_date: string | null;
+  close: number | null;
+  verdict: ScanVerdict;
+  verdict_reason: string;
+  entry_price: number | null;
+  stop_price: number | null;
+  target_price: number | null;
+  suggested_dte: string | null;
+  suggested_delta: string | null;
+  suggested_strike: number | null;
+  why_now: string;
+  blockers: string[];
+  sqn_100_regime?: string | null;
+  sqn_20_regime?: string | null;
+}
 
 export type WeeklyDirection = "long" | "short" | "none";
 export type WeeklyVehicle = "shares" | "options";
@@ -501,10 +491,27 @@ export interface WeeklySetup {
   why_now: string;
   blockers: string[];
   action_verdict: ActionVerdict | null;
+  track_a?: TrackASignal | null;
+  // Unified scan-card fields
+  verdict: ScanVerdict;
+  verdict_reason: string;
+  entry_price: number | null;
+  stop_price: number | null;
+  target_price: number | null;
+  suggested_dte: string | null;
+  suggested_delta: string | null;
+  suggested_strike: number | null;
+  source_universe: string | null;
 }
 
+export type WeeklyScanUniverseName =
+  | "nasdaq_100"
+  | "sp500_top_50"
+  | "russell_2000_top_50";
+
 export interface WeeklyScanRequest {
-  tickers: string[];
+  tickers?: string[];
+  universe?: WeeklyScanUniverseName[];
   benchmark?: string;
   top_n?: number;
 }
@@ -515,6 +522,117 @@ export interface WeeklyScanResponse {
   benchmark_regime: string | null;
   setups: WeeklySetup[];
   top_setups: WeeklySetup[];
+  errors: Record<string, string>;
+}
+
+// ─── Index swing scan ────────────────────────────────────────────────
+
+export type IndexSwingConfluence =
+  | "breakout_high_conviction"
+  | "breakout_standard"
+  | "no_breakout"
+  | "skip_bear_volatile"
+  | "skip_low_volume"
+  | "skip_macro_event"
+  | "universe_violation";
+
+export type IndexSwingTier = "primary" | "secondary" | "outside";
+
+export interface SwingHighBreakout {
+  swing_high_value: number;
+  swing_high_date: string;
+  swing_high_age_sessions: number;
+  breakout_close: number;
+  breakout_date: string;
+  breakout_volume: number;
+  avg_volume_30d: number;
+  volume_ratio: number;
+  base_range_atr_ratio: number | null;
+  bar_close_in_upper_third: boolean;
+  higher_lows_pattern: boolean;
+  nearby_failed_breakouts: number;
+  confluence_count: number;
+}
+
+export interface IndexSwingSetup {
+  ticker: string;
+  bar_date: string | null;
+  close: number | null;
+  in_universe: boolean;
+  universe_tier: IndexSwingTier;
+  sqn_20_regime: string | null;
+  sqn_100_regime: string | null;
+  confluence: IndexSwingConfluence;
+  breakout: SwingHighBreakout | null;
+  suggested_stop: number | null;
+  suggested_target_2r: number | null;
+  why_now: string;
+  blockers: string[];
+  // Unified scan-card fields
+  verdict: ScanVerdict;
+  verdict_reason: string;
+  entry_price: number | null;
+  stop_price: number | null;
+  target_price: number | null;
+  suggested_dte: string | null;
+  suggested_delta: string | null;
+  suggested_strike: number | null;
+}
+
+// ─── Lotto setup scan ────────────────────────────────────────────────
+
+export interface LottoSetup {
+  ticker: string;
+  direction: "long" | "short";
+  bar_date: string | null;
+  close: number | null;
+  daily_stack: string | null;
+  daily_stoch_k: number | null;
+  daily_stoch_d: number | null;
+  sqn_100_regime: string | null;
+  sqn_100_value: number | null;
+  sqn_20_regime: string | null;
+  sqn_20_value: number | null;
+  h2_stack: string | null;
+  h2_stoch_k: number | null;
+  h2_stoch_d: number | null;
+  h2_zone: string | null;
+  h2_signal: string | null;
+  why_now: string;
+  blockers: string[];
+  verdict: ScanVerdict;
+  verdict_reason: string;
+  entry_price: number | null;
+  stop_price: number | null;
+  target_price: number | null;
+  suggested_dte: string | null;
+  suggested_delta: string | null;
+  suggested_strike: number | null;
+  /** Which index this ticker was scanned from when universe scan ran. */
+  source_universe?: FreeRangeUniverse | null;
+}
+
+export interface LottoScanRequest {
+  tickers?: string[] | null;
+  /** Defaults server-side to all three indexes. */
+  universe?: FreeRangeUniverse[];
+}
+
+export interface LottoScanResponse {
+  scan_time_utc: string;
+  setups: LottoSetup[];
+  actionable_setups: LottoSetup[];
+  errors: Record<string, string>;
+}
+
+export interface IndexSwingScanRequest {
+  tickers?: string[] | null;
+}
+
+export interface IndexSwingScanResponse {
+  scan_time_utc: string;
+  setups: IndexSwingSetup[];
+  actionable_setups: IndexSwingSetup[];
   errors: Record<string, string>;
 }
 
@@ -598,4 +716,51 @@ export interface ParsedOptionsResponse {
   source_fields: string[];
   warnings: string[];
   extraction_source: OptionsExtractionSource;
+}
+
+
+// ─── Recovery plan (2026-05-13) ───────────────────────────────────────
+
+export interface RecoveryMilestone {
+  name: "floor" | "half" | "breakeven" | "stretch" | "aspirational";
+  label: string;
+  threshold: number;
+  hit: boolean;
+}
+
+export interface RecoveryStatus {
+  year_start_balance: number;
+  current_balance: number;
+  ytd_realized_pnl: number;
+  deposits_total: number;
+  year_breakeven_target: number;
+  plan_committed_at: string;
+  pnl_from_today_needed: number;
+  pct_to_breakeven: number;
+  milestones: RecoveryMilestone[];
+  milestone_status: {
+    last_hit: RecoveryMilestone | null;
+    next: RecoveryMilestone | null;
+    all_hit: boolean;
+  };
+  r1_lotto_cap_usd: number;
+  r1_main_cap_usd: number;
+  r2_max_daily_entries: number;
+  r2_entries_today: number;
+  r2_remaining_today: number;
+}
+
+export interface RecoveryConfigUpdate {
+  current_balance?: number;
+  ytd_realized_pnl?: number;
+  year_start_balance?: number;
+  year_breakeven_target?: number;
+  delta_deposit_usd?: number;
+}
+
+export interface RecoveryViolation {
+  rule: "R1" | "R2" | "R3";
+  severity: "warn";
+  message: string;
+  details: Record<string, unknown>;
 }

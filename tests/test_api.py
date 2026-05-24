@@ -271,6 +271,97 @@ def test_close_already_closed_returns_409(client):
     assert r3.status_code == 409
 
 
+def test_partial_close_keeps_position_open(client):
+    c, _ = client
+    r = c.post("/api/v1/positions", json=_open_args(contracts=3))
+    pid = r.json()["id"]
+
+    r2 = c.post(
+        f"/api/v1/positions/{pid}/close",
+        json={"pnl": 60.0, "notes": "trim 1", "contracts": 1},
+    )
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["status"] == "open"
+    assert body["contracts"] == 2
+    assert len(body["partial_exits"]) == 1
+    assert body["partial_exits"][0]["contracts_closed"] == 1
+    assert body["partial_exits"][0]["pnl_usd"] == 60.0
+
+
+def test_partial_then_full_close_aggregates_pnl(client):
+    c, _ = client
+    r = c.post("/api/v1/positions", json=_open_args(contracts=2))
+    pid = r.json()["id"]
+
+    c.post(f"/api/v1/positions/{pid}/close",
+           json={"pnl": 50.0, "contracts": 1})
+    r2 = c.post(f"/api/v1/positions/{pid}/close",
+                json={"pnl": 75.0, "contracts": 1})
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["status"] == "closed"
+    assert body["contracts"] == 0
+    assert body["pnl_usd"] == 125.0
+    assert len(body["partial_exits"]) == 2
+
+
+def test_partial_close_rejects_too_many_contracts(client):
+    c, _ = client
+    r = c.post("/api/v1/positions", json=_open_args(contracts=2))
+    pid = r.json()["id"]
+    r2 = c.post(f"/api/v1/positions/{pid}/close",
+                json={"pnl": 0.0, "contracts": 5})
+    assert r2.status_code == 409
+
+
+def test_journal_exits_lists_partial_legs(client):
+    c, _ = client
+    # Two positions: one partial-closed once (still open), one closed
+    # legacy-style (single shot, no contracts param).
+    r1 = c.post("/api/v1/positions", json=_open_args(contracts=3, ticker="HBM"))
+    p1_id = r1.json()["id"]
+    c.post(f"/api/v1/positions/{p1_id}/close",
+           json={"pnl": 78.0, "contracts": 2, "notes": "trim winner"})
+
+    r2 = c.post("/api/v1/positions", json=_open_args(contracts=1, ticker="RDW"))
+    p2_id = r2.json()["id"]
+    c.post(f"/api/v1/positions/{p2_id}/close", json={"pnl": 50.0})
+
+    r = c.get("/api/v1/journal/exits")
+    assert r.status_code == 200
+    events = r.json()
+    assert len(events) == 2
+
+    # Partial-close leg is present
+    hbm = next(e for e in events if e["ticker"] == "HBM")
+    assert hbm["is_partial"] is True
+    assert hbm["contracts_closed"] == 2
+    assert hbm["pnl_usd"] == 78.0
+    assert hbm["position_id"] == p1_id
+
+    # Legacy full close is also present as a single event
+    rdw = next(e for e in events if e["ticker"] == "RDW")
+    assert rdw["is_partial"] is False
+    assert rdw["pnl_usd"] == 50.0
+
+
+def test_journal_exits_no_double_count_on_partial_path_full_close(client):
+    """A position fully closed via the partial path should produce one event
+    per leg — not duplicate entries combining legs and the parent position."""
+    c, _ = client
+    r = c.post("/api/v1/positions", json=_open_args(contracts=2, ticker="ABC"))
+    pid = r.json()["id"]
+    c.post(f"/api/v1/positions/{pid}/close", json={"pnl": 40.0, "contracts": 1})
+    c.post(f"/api/v1/positions/{pid}/close", json={"pnl": 60.0, "contracts": 1})
+
+    events = c.get("/api/v1/journal/exits").json()
+    abc = [e for e in events if e["position_id"] == pid]
+    assert len(abc) == 2  # one event per leg, no third "parent" event
+    assert sum(e["pnl_usd"] for e in abc) == 100.0
+    assert all(e["is_partial"] for e in abc)
+
+
 # ─── Alerts ───────────────────────────────────────────────────────────────────
 
 

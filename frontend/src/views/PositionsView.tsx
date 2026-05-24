@@ -63,12 +63,44 @@ interface AdvancedOptionsFieldsProps {
  *   - iv_rank: 0-100 percentile.
  */
 function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsProps) {
+  // Per-field "in-progress" string so partial inputs like "0." or "-" or ".5"
+  // survive between keystrokes. React controlled-input + Number() round-trip
+  // collapses "0." → 0 → "0", which blocks the user from typing decimals.
+  // We render from the draft if present; commit the parsed number to form
+  // state on every keystroke that parses cleanly so auto-fill still works.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
   const num = (v: number | null | undefined): string =>
     v === null || v === undefined ? "" : String(v);
 
+  /** Display value: prefer the in-progress draft if there is one. */
+  const display = (key: keyof OpenPositionRequest): string => {
+    if (key in drafts) return drafts[key];
+    return num(form[key] as number | null | undefined);
+  };
+
   function setNum<K extends keyof OpenPositionRequest>(key: K, raw: string) {
-    const v = raw === "" ? null : Number(raw);
-    update(key, (Number.isFinite(v as number) ? v : null) as OpenPositionRequest[K]);
+    setDrafts((prev) => ({ ...prev, [key as string]: raw }));
+    if (raw === "") {
+      update(key, null as OpenPositionRequest[K]);
+      return;
+    }
+    const v = Number(raw);
+    // Only commit when the string parses cleanly to a finite number.
+    // Partial inputs like "0.", "-", "." are kept in the draft only.
+    if (Number.isFinite(v)) {
+      update(key, v as OpenPositionRequest[K]);
+    }
+  }
+
+  /** Drop the draft entry on blur so the field re-formats from form state. */
+  function clearDraft(key: keyof OpenPositionRequest) {
+    setDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key as string];
+      return next;
+    });
   }
 
   function autoFillFromDelta() {
@@ -111,8 +143,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
           className="input w-full md:w-1/3"
           type="number"
           step="0.01"
-          value={num(form.entry_price)}
+          value={display("entry_price")}
           onChange={(e) => setNum("entry_price", e.target.value)}
+          onBlur={() => clearDraft("entry_price")}
           placeholder="needed for delta-based auto-fill"
         />
       </div>
@@ -124,8 +157,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="0.001"
-            value={num(form.delta)}
+            value={display("delta")}
             onChange={(e) => setNum("delta", e.target.value)}
+            onBlur={() => clearDraft("delta")}
             placeholder="+0.5 / −0.5"
           />
         </div>
@@ -135,8 +169,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="0.0001"
-            value={num(form.gamma)}
+            value={display("gamma")}
             onChange={(e) => setNum("gamma", e.target.value)}
+            onBlur={() => clearDraft("gamma")}
           />
         </div>
         <div>
@@ -145,8 +180,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="0.01"
-            value={num(form.theta)}
+            value={display("theta")}
             onChange={(e) => setNum("theta", e.target.value)}
+            onBlur={() => clearDraft("theta")}
           />
         </div>
         <div>
@@ -155,8 +191,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="0.01"
-            value={num(form.vega)}
+            value={display("vega")}
             onChange={(e) => setNum("vega", e.target.value)}
+            onBlur={() => clearDraft("vega")}
           />
         </div>
       </div>
@@ -169,11 +206,24 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             type="number"
             step="0.1"
             // Stored as decimal; display ×100. Convert on read/write.
-            value={form.iv === null || form.iv === undefined ? "" : (form.iv * 100).toFixed(1)}
+            value={
+              "iv" in drafts
+                ? drafts["iv"]
+                : (form.iv === null || form.iv === undefined ? "" : (form.iv * 100).toFixed(1))
+            }
             onChange={(e) => {
-              const v = e.target.value === "" ? null : Number(e.target.value) / 100;
-              update("iv", Number.isFinite(v as number) ? v : null);
+              const raw = e.target.value;
+              setDrafts((prev) => ({ ...prev, iv: raw }));
+              if (raw === "") {
+                update("iv", null);
+                return;
+              }
+              const pct = Number(raw);
+              if (Number.isFinite(pct)) {
+                update("iv", pct / 100);
+              }
             }}
+            onBlur={() => clearDraft("iv")}
             placeholder="e.g. 45"
           />
         </div>
@@ -183,8 +233,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="1"
-            value={num(form.iv_rank)}
+            value={display("iv_rank")}
             onChange={(e) => setNum("iv_rank", e.target.value)}
+            onBlur={() => clearDraft("iv_rank")}
           />
         </div>
         <div>
@@ -205,8 +256,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="0.01"
-            value={num(form.premium_stop)}
+            value={display("premium_stop")}
             onChange={(e) => setNum("premium_stop", e.target.value)}
+            onBlur={() => clearDraft("premium_stop")}
           />
         </div>
         <div>
@@ -215,8 +267,9 @@ function AdvancedOptionsFields({ form, update, setForm }: AdvancedOptionsFieldsP
             className="input w-full"
             type="number"
             step="0.01"
-            value={num(form.premium_target)}
+            value={display("premium_target")}
             onChange={(e) => setNum("premium_target", e.target.value)}
+            onBlur={() => clearDraft("premium_target")}
           />
         </div>
       </div>
@@ -325,6 +378,8 @@ interface PositionRowFragmentProps {
   setClosePnl: (s: string) => void;
   closeNotes: string;
   setCloseNotes: (s: string) => void;
+  closeContracts: string;
+  setCloseContracts: (s: string) => void;
   onConfirmClose: () => void;
 }
 
@@ -338,9 +393,13 @@ function PositionRowFragment({
   setClosePnl,
   closeNotes,
   setCloseNotes,
+  closeContracts,
+  setCloseContracts,
   onConfirmClose,
 }: PositionRowFragmentProps) {
   const isClosing = closingId === p.id;
+  const isOptions = p.instrument === "call" || p.instrument === "put";
+  const remainingContracts = p.contracts ?? 0;
   return (
     <>
       <tr className="border-b border-bg-border/40">
@@ -389,9 +448,45 @@ function PositionRowFragment({
             </div>
 
             <GreeksDetail position={p} />
-            <div className="flex items-center justify-end gap-2 border-t border-bg-border pt-3">
+
+            {p.partial_exits && p.partial_exits.length > 0 && (
+              <div className="border-t border-bg-border pt-3 mb-3 text-xs">
+                <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1">
+                  Partial exits ({p.partial_exits.length})
+                </div>
+                <div className="space-y-1">
+                  {p.partial_exits.map((leg, i) => (
+                    <div key={i} className="flex items-center gap-3 font-mono">
+                      <span className="text-text-secondary">{leg.date.slice(0, 10)}</span>
+                      <span>−{leg.contracts_closed}c</span>
+                      <span className={leg.pnl_usd !== null && leg.pnl_usd >= 0 ? "text-green-400" : "text-red-400"}>
+                        {leg.pnl_usd !== null ? fmtUsd(leg.pnl_usd) : "—"}
+                      </span>
+                      {leg.notes && <span className="text-text-muted">{leg.notes}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-bg-border pt-3 flex-wrap">
               {isClosing ? (
                 <>
+                  {isOptions && remainingContracts > 1 && (
+                    <label className="flex items-center gap-1 text-xs">
+                      <span className="text-text-muted">Close</span>
+                      <input
+                        className="input w-16"
+                        type="number"
+                        min="1"
+                        max={remainingContracts}
+                        step="1"
+                        value={closeContracts}
+                        onChange={(e) => setCloseContracts(e.target.value)}
+                      />
+                      <span className="text-text-muted">/ {remainingContracts}</span>
+                    </label>
+                  )}
                   <input
                     className="input w-24"
                     type="number"
@@ -413,6 +508,7 @@ function PositionRowFragment({
                       setClosingId(null);
                       setClosePnl("");
                       setCloseNotes("");
+                      setCloseContracts("");
                     }}
                   >
                     Cancel
@@ -422,7 +518,9 @@ function PositionRowFragment({
                     className="btn btn-primary text-xs"
                     onClick={onConfirmClose}
                   >
-                    Confirm close
+                    {isOptions && Number(closeContracts) > 0 && Number(closeContracts) < remainingContracts
+                      ? `Close ${closeContracts} of ${remainingContracts}`
+                      : "Confirm close"}
                   </button>
                 </>
               ) : (
@@ -433,6 +531,7 @@ function PositionRowFragment({
                     setClosingId(p.id);
                     setClosePnl("");
                     setCloseNotes("");
+                    setCloseContracts(isOptions ? String(remainingContracts) : "");
                   }}
                 >
                   Close position
@@ -524,6 +623,7 @@ export function PositionsView() {
   const [closingId, setClosingId] = useState<string | null>(null);
   const [closePnl, setClosePnl] = useState<string>("");
   const [closeNotes, setCloseNotes] = useState<string>("");
+  const [closeContracts, setCloseContracts] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -545,6 +645,7 @@ export function PositionsView() {
       setClosingId(null);
       setClosePnl("");
       setCloseNotes("");
+      setCloseContracts("");
     }
   }
 
@@ -589,10 +690,12 @@ export function PositionsView() {
     try {
       const pnl = closePnl === "" ? null : Number(closePnl);
       const notes = closeNotes === "" ? null : closeNotes;
-      await api.closePosition(id, pnl, notes);
+      const contracts = closeContracts === "" ? null : Number(closeContracts);
+      await api.closePosition(id, pnl, notes, contracts);
       setClosingId(null);
       setClosePnl("");
       setCloseNotes("");
+      setCloseContracts("");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -835,6 +938,8 @@ export function PositionsView() {
                     setClosePnl={setClosePnl}
                     closeNotes={closeNotes}
                     setCloseNotes={setCloseNotes}
+                    closeContracts={closeContracts}
+                    setCloseContracts={setCloseContracts}
                     onConfirmClose={() => void handleClose(p.id)}
                   />
                 );

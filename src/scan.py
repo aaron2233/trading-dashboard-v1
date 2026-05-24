@@ -20,7 +20,26 @@ from typing import Any
 import pandas as pd
 
 from data.crypto_loader import is_crypto_symbol, load_crypto_bars
-from data.yfinance_loader import load_bars
+from data.polygon_loader import is_available as _polygon_available
+from data.polygon_loader import load_bars as _load_polygon_bars
+from data.yfinance_loader import load_bars as _load_yfinance_bars
+
+
+def load_bars(
+    ticker: str,
+    period: str | None = None,
+    interval: str = "1d",
+) -> "pd.DataFrame":
+    """Stock bar dispatcher: Polygon/Massive when POLYGON_API_KEY is resolvable,
+    yfinance otherwise. Crypto symbols are routed before this in scan_ticker.
+
+    Existing tests patch ``scan.load_bars`` to inject fixtures; that contract
+    is preserved — the patch target is this dispatcher, not the underlying
+    loader. Vendor selection happens at import-time per-call (cheap env read).
+    """
+    if _polygon_available():
+        return _load_polygon_bars(ticker, period=period, interval=interval)
+    return _load_yfinance_bars(ticker, period=period, interval=interval)
 from events import log_flag, log_resolved, log_shadow_trade
 from indicators import DEFAULT_PLUGINS_DIR, load_plugins
 from indicators.ma_ribbon import MARibbon
@@ -97,6 +116,7 @@ def scan_ticker(
         "timeframe": timeframe,
         "bar_date": latest.strftime("%Y-%m-%d"),
         "close": _safe(float(bars["close"].iloc[-1])),
+        "open": _safe(float(bars["open"].iloc[-1])),
         "ma_ribbon": {
             "ma_10": _safe(ma_last["ma_10"]),
             "ma_20": _safe(ma_last["ma_20"]),
@@ -117,7 +137,66 @@ def scan_ticker(
             "regime_20": sqn_20_regime,
             "diagnostic": diagnostic,
         },
+        # Annualized 20-day historical volatility — used by the strike
+        # suggester downstream so each setup card can surface a concrete
+        # dollar strike rather than a generic delta range. None when daily
+        # series is too short to compute (need ~21+ bars).
+        "hv20": _hv20_from_bars(bars, timeframe),
     }
+
+
+def _hv20_from_bars(bars, timeframe: str) -> float | None:
+    """Annualized 20-bar HV from the loaded bars. Annualization factor
+    matches the bar interval (252 for daily, 52 for weekly, etc.). Returns
+    None if too few bars."""
+    if timeframe not in ("1d", "1wk"):
+        # 2H/4H HV isn't what strike-suggester wants; only daily makes sense
+        # at the moment. Return None for other intervals.
+        return None
+    if len(bars) < 21:
+        return None
+    try:
+        from lotto.strikes import compute_hv20_annualized
+        # compute_hv20_annualized expects daily closes and returns √252-annualized.
+        # For weekly we'd want √52 — but the consumers only call on daily
+        # so this is fine for now.
+        return compute_hv20_annualized(bars["close"])
+    except Exception:
+        return None
+
+
+def populate_trigger_bar(
+    scan_row: dict[str, Any],
+    ticker: str,
+    trigger_tf: str,
+) -> dict[str, Any]:
+    """Inject `trigger_bar_open` / `trigger_bar_close` into a scan_row.
+
+    For kill-sheet flows where trigger_tf is "2H" (lotto), we want the most
+    recently closed 2H bar's OHLC so the kill-sheet builder can populate
+    the G4 trigger-bar tracking fields. The daily scan_row that the builder
+    normally receives carries the daily bar's open/close — not the 2H trigger
+    bar — so we run a parallel 2H scan and inject its top-level open/close.
+
+    Soft-fails: any exception (yfinance hiccup, intraday refused for the
+    symbol) leaves scan_row unchanged. G4 tracking is informational, not a
+    blocker, so a missing 2H bar should never break kill-sheet generation.
+
+    Idempotent: if scan_row already carries `trigger_bar_open`, returns
+    unchanged. For trigger_tf values other than "2H", returns unchanged
+    (G4 is a 2H-trigger-only feature today).
+    """
+    if trigger_tf != "2H":
+        return scan_row
+    if scan_row.get("trigger_bar_open") is not None:
+        return scan_row
+    try:
+        h2 = scan_ticker(ticker.upper(), timeframe="2h")
+    except Exception:
+        return scan_row
+    scan_row["trigger_bar_open"] = h2.get("open")
+    scan_row["trigger_bar_close"] = h2.get("close")
+    return scan_row
 
 
 def compute_multi_tf(

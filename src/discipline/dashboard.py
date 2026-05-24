@@ -144,10 +144,21 @@ def compute_dashboard_state(
     *,
     discipline_store: DisciplineStore | None = None,
     today: date | None = None,
+    balance_override_usd: float | None = None,
 ) -> DashboardState:
-    """Top-level state for the dynamic stage banner + HomeView CTA."""
+    """Top-level state for the dynamic stage banner + HomeView CTA.
+
+    `balance_override_usd` (optional): user-maintained authoritative balance
+    from the recovery plan. When provided, it wins over the config-derived
+    base + realized P&L computation. Keeps the StatusBar in lock-step with
+    the Recovery view's `current_balance`.
+    """
     closed_list = list(closed_positions)
     base, realized, total = compute_account_balance(config, closed_list)
+
+    if balance_override_usd is not None and balance_override_usd > 0:
+        total = float(balance_override_usd)
+
     stage = current_stage(total)
     progress = total / STAGE_1_THRESHOLD_USD if STAGE_1_THRESHOLD_USD > 0 else 0.0
 

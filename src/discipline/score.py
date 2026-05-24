@@ -76,16 +76,17 @@ def _r_sqn100_authorized(p: Position, ctx: ScoringContext) -> RuleResult:
     ks = ctx.kill_sheet
     if ks is None:
         return _result("sqn100_authorized", "N", True, note="No kill sheet")
-    long_ok = p.direction == "long" and ks.regime in ("bull", "strong_bull")
-    short_ok = p.direction == "short" and ks.regime in ("bear", "strong_bear")
-    if long_ok or short_ok:
+    thesis = p.thesis_direction
+    bull_ok = thesis == "bullish" and ks.regime in ("bull", "strong_bull")
+    bear_ok = thesis == "bearish" and ks.regime in ("bear", "strong_bear")
+    if bull_ok or bear_ok:
         return _result("sqn100_authorized", "Y", True,
                        note=f"SQN(100)={ks.sqn_value}, regime={ks.regime}")
     if ks.divergence_thesis:
         return _result("sqn100_authorized", "Y", True,
                        note=f"Counter-regime trade authorized by divergence thesis")
     return _result("sqn100_authorized", "N", True,
-                   note=f"SQN(100) regime '{ks.regime}' did not authorize {p.direction}")
+                   note=f"SQN(100) regime '{ks.regime}' did not authorize {thesis} thesis")
 
 
 def _r_sqn20_respected(p: Position, ctx: ScoringContext) -> RuleResult:
@@ -99,12 +100,13 @@ def _r_sqn20_respected(p: Position, ctx: ScoringContext) -> RuleResult:
     if ks is None or ks.sqn_20_value is None:
         return _result("sqn20_respected", "Y", False,
                        note="SQN(20) not captured on kill sheet")
-    if p.direction == "long" and ks.sqn_20_value > 2.5:
+    thesis = p.thesis_direction
+    if thesis == "bullish" and ks.sqn_20_value > 2.5:
         return _result("sqn20_respected", "N", True,
-                       note=f"SQN(20)={ks.sqn_20_value:.2f} > +2.5 (chase zone) at long entry")
-    if p.direction == "short" and ks.sqn_20_value < -2.5:
+                       note=f"SQN(20)={ks.sqn_20_value:.2f} > +2.5 (chase zone) at bullish entry")
+    if thesis == "bearish" and ks.sqn_20_value < -2.5:
         return _result("sqn20_respected", "N", True,
-                       note=f"SQN(20)={ks.sqn_20_value:.2f} < -2.5 (capitulation extreme) at short entry")
+                       note=f"SQN(20)={ks.sqn_20_value:.2f} < -2.5 (capitulation extreme) at bearish entry")
     return _result("sqn20_respected", "Y", True,
                    note=f"SQN(20)={ks.sqn_20_value:.2f} ({ks.regime_20})")
 
@@ -258,9 +260,27 @@ def _r_exit_within_dte_band(p: Position, ctx: ScoringContext) -> RuleResult:
         return _result("exit_within_dte_band", "Y", False, note="Non-positive DTE at entry")
     held = (closed_d - entry_d).days  # type: ignore[operator]
     held_fraction = held / dte_at_entry
-    # apex/lotto rule: exit before 50% DTE elapsed.
+    # lotto / trading-edge rule: exit before 50% DTE elapsed.
     # weekly-trend-trader rule: held with >60 DTE remaining.
-    # Without skill identification, use apex/lotto (most common per ~/CLAUDE.md).
+    # index-swing rule: closed with >21 DTE remaining (skill anti-pattern
+    # "Never hold options below 60 DTE" mapped to index-swing's 21-DTE floor).
+    skill = getattr(p, "skill", None)
+    if skill == "index-swing":
+        # Index-swing: exit-while-still-in-band means closing with 21+ DTE remaining.
+        expiry_d_local = expiry_d  # type: ignore[assignment]
+        dte_remaining_at_close = (expiry_d_local - closed_d).days  # type: ignore[operator]
+        if dte_remaining_at_close >= 21:
+            return _result(
+                "exit_within_dte_band", "Y", True,
+                note=f"Index-swing closed with {dte_remaining_at_close} DTE remaining "
+                     f"(>= 21 DTE floor)",
+            )
+        return _result(
+            "exit_within_dte_band", "N", True,
+            note=f"Index-swing closed with only {dte_remaining_at_close} DTE remaining "
+                 f"(below 21 DTE floor)",
+        )
+    # Without skill identification, use lotto/trading-edge default (50% DTE elapsed).
     if held_fraction <= 0.5:
         return _result("exit_within_dte_band", "Y", True,
                        note=f"Held {held}d of {dte_at_entry}d DTE ({held_fraction*100:.0f}%)")

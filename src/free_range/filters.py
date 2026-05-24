@@ -18,14 +18,39 @@ the trigger via kill sheet.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from free_range.universe import is_etf
 
 
+ScoringVersion = Literal["v1", "v2", "v3"]
+# Default scoring version. v1 is the original heavily-MA-weighted scorer.
+#
+# v2 halves the MA stack contribution and softens the chop penalty.
+# Backtest (2026-05-11, QQQ + GLD daily, 1999-2026): v2 LOST on every
+# primary metric — total return roughly halved on QQQ, max DD 15pp worse
+# on GLD. The MA chop block was filtering useful trades; softening it
+# admitted neutral-regime losers. v2 path kept for future experiments
+# but is NOT recommended for production.
+#
+# v3 layers a price-action signal (close through prior 5-bar swing high/
+# low, worth 0-20 pts) on TOP of unchanged v1 MA scoring. Targets the
+# original concern (MA lags trending entries) by adding a leading signal
+# rather than removing a lagging gate. Backtest result drives the
+# production switch decision.
+DEFAULT_SCORING_VERSION: ScoringVersion = "v1"
+
+
 # Single-stock price band per orchestrator (account profile in ~/CLAUDE.md):
-#   $15-50 for single stocks, ETFs at any price.
-PRICE_MIN_SINGLE_STOCK: float = 15.0
+#   $10-50 for single stocks, ETFs at any price.
+# 2026-05-14: lowered floor from $15 → $10 per backtest evidence on the
+# focused lotto universe (~/Documents/App Development/Trading Dashboard/v0.1/
+# scripts/lotto_focused_10_30_universe_2y.csv). The $10-$50 slice produced
+# PF 2.54 / mean R +1.38 vs the prior $15-$50 baseline at PF 1.31 / +0.27.
+# Captures RDW/MARA/RGTI-style cheap-premium high-vol names without
+# amputating PLTR/IONQ runs at higher prices. Applies to lotto + free-range
+# scanners (the only consumers of price_band_violation).
+PRICE_MIN_SINGLE_STOCK: float = 10.0
 PRICE_MAX_SINGLE_STOCK: float = 50.0
 
 
@@ -58,12 +83,44 @@ def price_band_violation(ticker: str, current_price: float | None) -> str | None
 # evaluate both long and short setups and let the higher score win. The
 # direction of the winning side becomes the candidate's recommended bias.
 
-def _stack_score(stack_state: str | None, direction: str) -> int:
-    """MA Ribbon stack alignment. Returns 0 for unknown / chop / tangled."""
+def _stack_score(
+    stack_state: str | None,
+    direction: str,
+    *,
+    scoring_version: ScoringVersion = DEFAULT_SCORING_VERSION,
+) -> int:
+    """MA Ribbon stack alignment. Returns 0 for unknown stack states.
+
+    v1 — Original weighting. MA stack worth up to +30 / -25 per direction;
+    chop is -25 ("tangled MAs = no trade").
+
+    v2 — MA lag mitigation. Halves both the aligned (+30 → +15) and
+    opposed (-20 → -10) contributions, and softens chop from -25 to -10.
+    Combined with unchanged Stoch (0-30) and SQN (0-30) scoring, this
+    drops MA from ~33% of max score to ~20%, letting price-action via
+    Stoch + regime drive the entry signal earlier on trending names.
+    """
     if stack_state is None:
         return 0
     s = stack_state.lower()
     long_ = direction == "long"
+
+    if scoring_version == "v2":
+        if s == "full_bull":
+            return 15 if long_ else -10
+        if s == "bull_developing":
+            return 10 if long_ else -5
+        if s == "compression":
+            return 5
+        if s in ("chop", "tangled"):
+            return -10
+        if s == "bear_developing":
+            return -5 if long_ else 10
+        if s == "full_bear":
+            return -10 if long_ else 15
+        return 0
+
+    # v1 (default)
     if s == "full_bull":
         return 30 if long_ else -20
     if s == "bull_developing":
@@ -129,16 +186,57 @@ def _regime_score(sqn_100: str | None, direction: str) -> int:
     return 0
 
 
-def score_direction(scan_row: dict[str, Any], direction: str) -> tuple[int, list[str]]:
-    """Score a (scan_row, direction) pair and return (total, blockers)."""
+def _price_action_score(
+    price_action: dict[str, Any] | None,
+    direction: str,
+    *,
+    scoring_version: ScoringVersion = DEFAULT_SCORING_VERSION,
+) -> int:
+    """Leading price-action signal — fires when current close pierces the
+    prior 5-bar swing high (long) or swing low (short). 0 outside v3.
+
+    Active only under v3. v1/v2 return 0 unconditionally so non-v3 callers
+    that don't supply `price_action` see no scoring change.
+
+    Expected keys on the `price_action` dict (callers populate from bars):
+      - breakout_5bar_long  : bool — close > prior 5-bar high
+      - breakout_5bar_short : bool — close < prior 5-bar low
+    Missing keys are treated as False (no contribution, not a penalty).
+    """
+    if scoring_version != "v3" or not price_action:
+        return 0
+    if direction == "long" and price_action.get("breakout_5bar_long"):
+        return 20
+    if direction == "short" and price_action.get("breakout_5bar_short"):
+        return 20
+    return 0
+
+
+def score_direction(
+    scan_row: dict[str, Any],
+    direction: str,
+    *,
+    scoring_version: ScoringVersion = DEFAULT_SCORING_VERSION,
+) -> tuple[int, list[str]]:
+    """Score a (scan_row, direction) pair and return (total, blockers).
+
+    `scoring_version` selects the weighting profile:
+      - v1: MA stack (0-30) + Stoch (0-30) + SQN (0-30) — current production.
+      - v2: halved MA stack + same Stoch/SQN. Backtest underperforms v1.
+      - v3: full v1 MA stack + Stoch + SQN + price-action breakout (0-20).
+    """
     stack = (scan_row.get("ma_ribbon") or {}).get("stack_state")
     stoch_zone = (scan_row.get("stochastic") or {}).get("zone")
     stoch_signal = (scan_row.get("stochastic") or {}).get("signal")
     sqn_100 = (scan_row.get("sqn") or {}).get("regime")
+    price_action = scan_row.get("price_action")
 
-    stack_pts = _stack_score(stack, direction)
+    stack_pts = _stack_score(stack, direction, scoring_version=scoring_version)
     stoch_pts = _stoch_score(stoch_zone, stoch_signal, direction)
     regime_pts = _regime_score(sqn_100, direction)
+    pa_pts = _price_action_score(
+        price_action, direction, scoring_version=scoring_version,
+    )
 
     blockers: list[str] = []
     if stack and stack.lower() in ("chop", "tangled"):
@@ -146,7 +244,7 @@ def score_direction(scan_row: dict[str, Any], direction: str) -> tuple[int, list
     if regime_pts <= -20:
         blockers.append(f"SQN(100) {sqn_100} opposes {direction}")
 
-    return stack_pts + stoch_pts + regime_pts, blockers
+    return stack_pts + stoch_pts + regime_pts + pa_pts, blockers
 
 
 # Minimum score for a free-range candidate to make the top-5 cut.
@@ -156,15 +254,23 @@ def score_direction(scan_row: dict[str, Any], direction: str) -> tuple[int, list
 FREE_RANGE_MIN_SCORE: int = 30
 
 
-def best_direction(scan_row: dict[str, Any]) -> tuple[str, int, list[str]]:
+def best_direction(
+    scan_row: dict[str, Any],
+    *,
+    scoring_version: ScoringVersion = DEFAULT_SCORING_VERSION,
+) -> tuple[str, int, list[str]]:
     """Pick the better of (long, short) for this scan_row.
 
     Returns (direction, score, blockers). When both sides are blocked or
     score below the floor, returns the higher-scoring side anyway — caller
     decides whether to keep it via the score floor + blockers list.
     """
-    long_score, long_blockers = score_direction(scan_row, "long")
-    short_score, short_blockers = score_direction(scan_row, "short")
+    long_score, long_blockers = score_direction(
+        scan_row, "long", scoring_version=scoring_version,
+    )
+    short_score, short_blockers = score_direction(
+        scan_row, "short", scoring_version=scoring_version,
+    )
     if long_score >= short_score:
         return "long", long_score, long_blockers
     return "short", short_score, short_blockers

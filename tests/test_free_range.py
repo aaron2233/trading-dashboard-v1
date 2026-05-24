@@ -110,7 +110,9 @@ def test_price_band_accepts_single_stock_in_range():
 
 
 def test_price_band_rejects_below_floor():
-    msg = price_band_violation("AAPL", 10.0)
+    # Floor lowered from $15 → $10 on 2026-05-14; test value at $8 to stay
+    # comfortably under the new floor without coupling to the exact constant.
+    msg = price_band_violation("AAPL", 8.0)
     assert msg is not None
     assert "floor" in msg
 

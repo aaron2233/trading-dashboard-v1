@@ -60,7 +60,7 @@ class KillSheetRequest(BaseModel):
     trigger_desc: str | None = None
     notes: str | None = None
 
-    # Apex options block
+    # Options block
     strike: float | None = None
     premium: float | None = None
     expiry: str | None = None
@@ -85,6 +85,11 @@ class KillSheetRequest(BaseModel):
     # User-attested booleans clearing each conditional anti-pattern. Keys must
     # match DisciplineAttestation field names; unknown keys are ignored.
     attestation_user_inputs: dict[str, bool] = Field(default_factory=dict)
+
+    # Skill tag — drives skill-specific gates (e.g. weekly-trend asset
+    # allowlist) and downstream cohort tagging. Caller passes the skill name
+    # as a string; builder resolves to SkillConfig if needed.
+    skill: str | None = None
 
 
 class RuleViolationResponse(BaseModel):
@@ -135,7 +140,7 @@ class OpenPositionRequest(BaseModel):
     expiry: str | None = None
     premium: float | None = None
     contracts: int | None = None
-    shares: int | None = None
+    shares: float | None = None
     entry_price: float | None = None
     target: float | None = None
     invalidation: float | None = None
@@ -169,6 +174,10 @@ class OpenPositionRequest(BaseModel):
 class ClosePositionRequest(BaseModel):
     pnl: float | None = None
     notes: str | None = None
+    # Optional partial-close: if provided and less than remaining contracts,
+    # closes only that many contracts and leaves the position open. Omit (or
+    # set to remaining) for a full close.
+    contracts: int | None = None
 
 
 class PositionResponse(BaseModel):
@@ -181,7 +190,7 @@ class PositionResponse(BaseModel):
     entry_date: str
     entry_underlying_price: float | None = None
     contracts: int | None = None
-    shares: int | None = None
+    shares: float | None = None
     strike: float | None = None
     expiry: str | None = None
     premium_paid_per_contract: float | None = None
@@ -204,6 +213,11 @@ class PositionResponse(BaseModel):
     premium_stop: float | None = None
     premium_target: float | None = None
     kill_sheet_id: str | None = None
+    partial_exits: list[dict] = Field(default_factory=list)
+    # Recovery-plan R1/R2/R3 violations evaluated at journal time. Surfaced
+    # for the UI to display loud warnings without blocking the entry — the
+    # discipline scorecard handles retrospective rule-adherence scoring.
+    recovery_violations: list[dict] = Field(default_factory=list)
 
 
 class AlertResponse(BaseModel):
@@ -244,6 +258,22 @@ class JournalReportResponse(BaseModel):
     by_direction: dict[str, JournalStatsResponse]
 
 
+class JournalExitResponse(BaseModel):
+    """One exit event: either a partial-close leg or a fully-closed
+    position's terminal event. The unit is the exit decision, not the
+    position."""
+    position_id: str
+    date: str
+    ticker: str
+    account_key: str
+    instrument: str
+    direction: str
+    contracts_closed: int | None = None
+    pnl_usd: float | None = None
+    notes: str | None = None
+    is_partial: bool = False
+
+
 # ─── Focus / Sunday scan ──────────────────────────────────────────────────────
 
 
@@ -266,6 +296,11 @@ class SundayScanResponse(BaseModel):
     recommendation: Literal["trade", "watch", "cash"]
     headline: str
     errors: dict[str, str] = Field(default_factory=dict)
+    # Index-swing overlay (QQQ/IWM/SPY breakout above prior swing high).
+    # Independent from the focus setups above; may be empty if the index-swing
+    # scan failed (errors["INDEX_SWING"] will explain).
+    index_swing_setups: list[dict] = Field(default_factory=list)
+    index_swing_actionable: list[dict] = Field(default_factory=list)
 
 
 class FocusTopSetupSummary(BaseModel):
@@ -405,18 +440,35 @@ class LockdownRequest(BaseModel):
 # ─── Free-range scan ──────────────────────────────────────────────────────────
 
 
+FreeRangeUniverseName = Literal[
+    "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
+]
+
+
 class FreeRangeScanRequest(BaseModel):
     """User-supplied parameters for the 3-phase free-range scan.
 
     `user_tickers` are explicit additions — they bypass the price-band filter
     (the user named them, surface the read regardless). Empty list is fine.
 
-    `enable_free_range=False` skips Phase 3 (Nasdaq 100 sweep) — returns
-    baseline + user-submitted only. Used by views that just need the QQQ+GLD
-    baseline read fast (~3s vs ~30s for the full scan).
+    `universe` picks the Phase 3 candidate list(s). Pass a list of names to
+    scan multiple indexes; `free_range_cap` is applied PER index so each
+    index gets its own top-N. Default = all three (NASDAQ 100 + S&P 500
+    Top 50 + Russell 2000 Top 50). Each returned free-range candidate
+    carries a `source_universe` field for grouped display.
+
+    `enable_free_range=False` skips Phase 3 entirely — returns baseline +
+    user-submitted only. Used by views that just need the QQQ+GLD baseline
+    read fast (~3s vs ~30s per index for the full scan).
     """
     user_tickers: list[str] = Field(default_factory=list)
     free_range_cap: int = Field(default=5, ge=1, le=10)
+    universe: list[FreeRangeUniverseName] = Field(
+        default_factory=lambda: [
+            "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
+        ],
+        min_length=1,
+    )
     enable_free_range: bool = True
 
 
@@ -436,6 +488,9 @@ class CandidateSnapshotResponse(BaseModel):
     why_now: str
     notes: list[str] = Field(default_factory=list)
     action_verdict: dict | None = None
+    # Which index this candidate was scanned from. Set on phase="free_range"
+    # candidates only; None for baseline + user-submitted.
+    source_universe: str | None = None
 
 
 class FreeRangeScanResponse(BaseModel):
@@ -543,10 +598,25 @@ class LottoStateResponse(BaseModel):
 
 
 class WeeklyScanRequest(BaseModel):
-    """Sunday-scan input — list of tickers + benchmark for SQN regime read."""
-    tickers: list[str]
+    """Sunday-scan input. Either explicit `tickers` OR a `universe` sweep
+    (one of "nasdaq_100" / "sp500_top_50" / "russell_2000_top_50"). When
+    both are provided, `tickers` wins. Pass at least one or the request
+    rejects with 400."""
+    tickers: list[str] | None = None
+    universe: list[FreeRangeUniverseName] | None = None
     benchmark: str = "SPY"
     top_n: int = Field(default=3, ge=1, le=10)
+
+
+class TrackASignalResponse(BaseModel):
+    state: Literal["cross_up", "cross_down", "above", "below", "none"]
+    ma_19: float | None = None
+    ma_39: float | None = None
+    asset_blocked: bool
+
+
+# Unified verdict + entry/stop block included in EVERY scan setup response.
+Verdict = Literal["buy", "wait", "no_go"]
 
 
 class WeeklySetupResponse(BaseModel):
@@ -564,6 +634,7 @@ class WeeklySetupResponse(BaseModel):
     confluence: Literal[
         "high_conviction_long", "high_conviction_short",
         "continuation_long", "continuation_short",
+        "track_a_cross_long", "track_a_cross_short",
         "compression", "chop", "no_setup",
     ]
     direction: Literal["long", "short", "none"]
@@ -571,6 +642,17 @@ class WeeklySetupResponse(BaseModel):
     why_now: str
     blockers: list[str] = Field(default_factory=list)
     action_verdict: dict | None = None
+    track_a: TrackASignalResponse | None = None
+    # Unified scan-card fields
+    verdict: Verdict = "wait"
+    verdict_reason: str = ""
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    suggested_dte: str | None = None
+    suggested_delta: str | None = None
+    suggested_strike: float | None = None
+    source_universe: str | None = None
 
 
 class WeeklyScanResponse(BaseModel):
@@ -579,6 +661,122 @@ class WeeklyScanResponse(BaseModel):
     benchmark_regime: str | None = None
     setups: list[WeeklySetupResponse] = Field(default_factory=list)
     top_setups: list[WeeklySetupResponse] = Field(default_factory=list)
+    errors: dict[str, str] = Field(default_factory=dict)
+
+
+# ─── Index swing scan ─────────────────────────────────────────────────────────
+
+
+class SwingHighBreakoutResponse(BaseModel):
+    swing_high_value: float
+    swing_high_date: str
+    swing_high_age_sessions: int
+    breakout_close: float
+    breakout_date: str
+    breakout_volume: float
+    avg_volume_30d: float
+    volume_ratio: float
+    base_range_atr_ratio: float | None = None
+    bar_close_in_upper_third: bool
+    higher_lows_pattern: bool
+    nearby_failed_breakouts: int
+    confluence_count: int
+
+
+class IndexSwingSetupResponse(BaseModel):
+    ticker: str
+    bar_date: str | None = None
+    close: float | None = None
+    in_universe: bool
+    universe_tier: Literal["primary", "secondary", "outside"]
+    sqn_20_regime: str | None = None
+    sqn_100_regime: str | None = None
+    confluence: Literal[
+        "breakout_high_conviction", "breakout_standard", "no_breakout",
+        "skip_bear_volatile", "skip_low_volume", "skip_macro_event",
+        "universe_violation",
+    ]
+    breakout: SwingHighBreakoutResponse | None = None
+    suggested_stop: float | None = None
+    suggested_target_2r: float | None = None
+    why_now: str
+    blockers: list[str] = Field(default_factory=list)
+    # Unified scan-card fields
+    verdict: Verdict = "wait"
+    verdict_reason: str = ""
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    suggested_dte: str | None = "30-60 DTE"
+    suggested_delta: str | None = "0.50-0.65 (ATM/slight ITM)"
+    suggested_strike: float | None = None
+
+
+class LottoSetupResponse(BaseModel):
+    ticker: str
+    direction: Literal["long", "short"]
+    bar_date: str | None = None
+    close: float | None = None
+    daily_stack: str | None = None
+    daily_stoch_k: float | None = None
+    daily_stoch_d: float | None = None
+    sqn_100_regime: str | None = None
+    sqn_100_value: float | None = None
+    sqn_20_regime: str | None = None
+    sqn_20_value: float | None = None
+    h2_stack: str | None = None
+    h2_stoch_k: float | None = None
+    h2_stoch_d: float | None = None
+    h2_zone: str | None = None
+    h2_signal: str | None = None
+    why_now: str
+    blockers: list[str] = Field(default_factory=list)
+    verdict: Verdict = "wait"
+    verdict_reason: str = ""
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    suggested_dte: str | None = "5-14 DTE"
+    suggested_delta: str | None = "0.10-0.25 (deep OTM lotto)"
+    suggested_strike: float | None = None
+    source_universe: str | None = None
+
+
+class LottoScanRequest(BaseModel):
+    """Lotto setup scan target.
+
+    `tickers` (explicit list, wins if both given) — scans exactly those names.
+    `universe` (list of FreeRangeUniverseName) — scans every ticker in the
+        listed indexes; each result is tagged with its source_universe so the
+        UI can group by index. Default = all three indexes (NASDAQ 100 +
+        S&P 500 Top 50 + Russell 2000 Top 50, ~200 names, ~60-90s scan).
+    Pass `tickers=[]` and `universe=[]` to fall back to the QQQ + GLD
+    legacy baseline.
+    """
+    tickers: list[str] | None = None
+    universe: list[FreeRangeUniverseName] = Field(
+        default_factory=lambda: [
+            "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
+        ],
+    )
+
+
+class LottoScanResponse(BaseModel):
+    scan_time_utc: str
+    setups: list[LottoSetupResponse] = Field(default_factory=list)
+    actionable_setups: list[LottoSetupResponse] = Field(default_factory=list)
+    errors: dict[str, str] = Field(default_factory=dict)
+
+
+class IndexSwingScanRequest(BaseModel):
+    """Optional ticker override; default is the hard-locked QQQ/IWM/SPY universe."""
+    tickers: list[str] | None = None
+
+
+class IndexSwingScanResponse(BaseModel):
+    scan_time_utc: str
+    setups: list[IndexSwingSetupResponse] = Field(default_factory=list)
+    actionable_setups: list[IndexSwingSetupResponse] = Field(default_factory=list)
     errors: dict[str, str] = Field(default_factory=dict)
 
 
@@ -595,6 +793,64 @@ class SparklineResponse(BaseModel):
     timeframe: str
     dates: list[str] = Field(default_factory=list)
     closes: list[float] = Field(default_factory=list)
+
+
+# ─── Recovery plan (2026-05-13 — R1/R2/R3 + milestones) ───────────────────────
+
+
+class RecoveryMilestoneResponse(BaseModel):
+    name: str
+    label: str
+    threshold: float
+    hit: bool
+
+
+class RecoveryStatusResponse(BaseModel):
+    year_start_balance: float
+    current_balance: float
+    ytd_realized_pnl: float
+    deposits_total: float
+    year_breakeven_target: float
+    plan_committed_at: str
+
+    pnl_from_today_needed: float
+    pct_to_breakeven: float
+    milestones: list[RecoveryMilestoneResponse]
+    milestone_status: dict
+
+    r1_lotto_cap_usd: float
+    r1_main_cap_usd: float
+    r2_max_daily_entries: int
+    r2_entries_today: int
+    r2_remaining_today: int
+
+
+class RecoveryConfigUpdateRequest(BaseModel):
+    """Partial update of the recovery config. Any unset field is left
+    unchanged. Use `delta_deposit_usd` to LOG a new deposit (it adds to
+    deposits_total AND current_balance together)."""
+    current_balance: float | None = None
+    ytd_realized_pnl: float | None = None
+    year_start_balance: float | None = None
+    year_breakeven_target: float | None = None
+    delta_deposit_usd: float | None = None
+
+
+class RecoveryRuleViolationResponse(BaseModel):
+    rule: str
+    severity: str
+    message: str
+    details: dict
+
+
+class PositionRuleCheckResponse(BaseModel):
+    """Surface alongside a position-open response when one or more R1/R2/R3
+    rules were violated. The position WAS still recorded — these warnings
+    are journaled for the discipline scorecard."""
+    any_violations: bool
+    r1: dict
+    r2: dict
+    r3: dict
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

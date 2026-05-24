@@ -97,9 +97,9 @@ def test_load_config_includes_default_skills(tmp_path: Path):
     expected = {
         "weekly-trend-trader",
         "lotto-options",
+        "index-swing",
         "qqq-gld-focus",
         "trading-edge",
-        "apex-options-trader",
     }
     assert set(cfg.skills) == expected
 
@@ -108,9 +108,9 @@ def test_skill_tier_assignment():
     cfg = load_config(Path("/nonexistent.yaml"))
     assert cfg.skill("weekly-trend-trader").tier == 1
     assert cfg.skill("lotto-options").tier == 2
+    assert cfg.skill("index-swing").tier == 4
     assert cfg.skill("qqq-gld-focus").tier == 4
     assert cfg.skill("trading-edge").tier == 4
-    assert cfg.skill("apex-options-trader").tier == 4
 
 
 def test_default_watchlist_qqq_gld_for_tier_1_and_2():
@@ -129,7 +129,7 @@ def test_unknown_skill_raises():
 def test_skills_at_tier_filter():
     cfg = load_config(Path("/nonexistent.yaml"))
     tier_4 = {s.name for s in cfg.skills_at_tier(4)}
-    assert tier_4 == {"qqq-gld-focus", "trading-edge", "apex-options-trader"}
+    assert tier_4 == {"index-swing", "qqq-gld-focus", "trading-edge"}
     assert {s.name for s in cfg.skills_at_tier(1)} == {"weekly-trend-trader"}
 
 

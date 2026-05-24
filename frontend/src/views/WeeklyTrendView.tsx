@@ -2,10 +2,23 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
+import { TradeCard, type TradeCardBadge } from "../components/TradeCard";
 import { VerdictBadge } from "../components/Verdict";
 import { fromWeeklyConfluence } from "../lib/verdict";
 import { ActionVerdictBanner } from "../components/ActionVerdictBanner";
-import type { WeeklyScanResponse, WeeklySetup } from "../api/types";
+import type {
+  WeeklyScanResponse,
+  WeeklyScanUniverseName,
+  WeeklySetup,
+} from "../api/types";
+
+type ScanMode = "tickers" | "universe";
+
+const UNIVERSE_LABELS: Record<WeeklyScanUniverseName, string> = {
+  nasdaq_100: "NASDAQ 100",
+  sp500_top_50: "S&P 500 Top 50",
+  russell_2000_top_50: "Russell 2000 Top 50",
+};
 
 
 function fmtPrice(value: number | null): string {
@@ -40,7 +53,20 @@ function killSheetLink(s: WeeklySetup): string {
     intent: "TREND CAPTURE",
     trigger_tf: "Weekly",
     conviction: "high",
+    contract_type: s.direction === "long" ? "call" : "put",
   });
+  if (s.target_price != null) params.set("target", String(s.target_price));
+  if (s.stop_price != null) params.set("invalidation", String(s.stop_price));
+  if (s.suggested_strike != null) params.set("strike", String(s.suggested_strike));
+  if (s.why_now) params.set("trigger_desc", s.why_now);
+  const noteParts: string[] = [];
+  if (s.ma_stack_state) noteParts.push(`Weekly stack: ${s.ma_stack_state}`);
+  if (s.sqn_100_regime) noteParts.push(`SQN(100) ${s.sqn_100_regime}`);
+  if (s.stoch_signal) noteParts.push(`Weekly stoch: ${s.stoch_signal}`);
+  if (s.confluence) noteParts.push(`Confluence: ${s.confluence}`);
+  if (s.suggested_dte) noteParts.push(`DTE: ${s.suggested_dte}`);
+  if (s.suggested_delta) noteParts.push(`Delta: ${s.suggested_delta}`);
+  if (noteParts.length) params.set("notes", noteParts.join(" · "));
   return `/kill-sheet?${params.toString()}`;
 }
 
@@ -210,6 +236,38 @@ function ThinSetupRow({ setup, onSelect }: {
   );
 }
 
+function weeklyBadges(setup: WeeklySetup): TradeCardBadge[] {
+  const out: TradeCardBadge[] = [];
+  if (setup.sqn_100_regime) {
+    const tone = setup.sqn_100_regime.includes("bull") ? "bull"
+      : setup.sqn_100_regime.includes("bear") ? "bear" : "info";
+    out.push({ label: `SQN(100) ${setup.sqn_100_regime.replace(/_/g, " ")}`, tone });
+  }
+  if (setup.ma_stack_state) {
+    const tone = (setup.ma_stack_state === "full_bull" || setup.ma_stack_state === "bull_developing") ? "bull"
+      : (setup.ma_stack_state === "full_bear" || setup.ma_stack_state === "bear_developing") ? "bear"
+      : "muted";
+    out.push({ label: `${setup.ma_stack_state.replace(/_/g, " ")}`, tone });
+  }
+  if (setup.is_penny_stock) out.push({ label: "PENNY · SHARES", tone: "flag" });
+  if (setup.track_a && setup.track_a.state !== "none") {
+    const tone = setup.track_a.state === "cross_up" ? "bull"
+      : setup.track_a.state === "cross_down" ? "bear" : "info";
+    out.push({ label: `19/39 ${setup.track_a.state.replace(/_/g, " ")}`, tone });
+  }
+  return out;
+}
+
+function weeklyDetails(setup: WeeklySetup): { label: string; value: string }[] {
+  return [
+    { label: "Stack", value: setup.ma_stack_state ?? "—" },
+    { label: "Stoch K/D", value:
+      `${setup.stoch_k?.toFixed(1) ?? "—"} / ${setup.stoch_d?.toFixed(1) ?? "—"}` },
+    { label: "Stoch zone", value: setup.stoch_zone ?? "—" },
+    { label: "Rank score", value: `${setup.rank_score}` },
+  ];
+}
+
 function TopSetupsSection({ setups, onSelect }: {
   setups: WeeklySetup[];
   onSelect?: (ticker: string) => void;
@@ -236,8 +294,32 @@ function TopSetupsSection({ setups, onSelect }: {
         </span>
       </h3>
       <div className="space-y-3">
-        {setups.slice(0, 3).map((s, i) => (
-          <TopSetupCard key={s.ticker} setup={s} rank={i + 1} onSelect={onSelect} />
+        {setups.slice(0, 3).map((s) => (
+          <div key={s.ticker}>
+            <TradeCard
+              setup={s}
+              strategy_label={
+                s.confluence?.startsWith("track_a")
+                  ? "Weekly trend · Track A (19/39)"
+                  : "Weekly trend · Track B (ribbon)"
+              }
+              kill_sheet_href={s.direction !== "none" ? killSheetLink(s) : null}
+              direction={s.direction === "short" ? "short" : "long"}
+              badges={weeklyBadges(s)}
+              details={weeklyDetails(s)}
+            />
+            {onSelect && (
+              <div className="mt-1 text-right">
+                <button
+                  type="button"
+                  className="btn text-xs"
+                  onClick={() => onSelect(s.ticker)}
+                >
+                  Chart
+                </button>
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </section>
@@ -258,7 +340,15 @@ function AllScannedTable({ setups, onSelect }: {
   }
   return (
     <section className="mb-6">
-      <h3 className="text-base font-semibold text-text-primary mb-2">All scanned</h3>
+      <h3 className="text-base font-semibold text-text-primary mb-1">All scanned</h3>
+      <p className="text-xs text-text-secondary mb-2">
+        <strong>Score</strong> is a composite setup-quality rank, scale roughly{" "}
+        <span className="font-mono">−20 to 110</span>: confluence base (0–70:
+        high-conviction 70, continuation 50, compression 20, no-setup 10, chop 0)
+        + SQN(100) regime alignment (with-trend +30, counter-trend −20) + MA
+        clarity (full stack +10, developing +5). Higher = stronger setup;
+        70+ generally clears for kill sheet.
+      </p>
       <div className="panel">
         <table className="w-full text-sm">
           <thead className="text-[10px] uppercase tracking-wider text-text-muted border-b border-bg-border">
@@ -283,24 +373,46 @@ function AllScannedTable({ setups, onSelect }: {
 
 
 export function WeeklyTrendView() {
+  const [mode, setMode] = useState<ScanMode>("tickers");
   const [tickerInput, setTickerInput] = useState("AAPL NVDA META MSFT GOOGL TSLA");
   const [benchmark, setBenchmark] = useState("SPY");
+  const [universes, setUniverses] = useState<WeeklyScanUniverseName[]>([
+    "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
+  ]);
   const [data, setData] = useState<WeeklyScanResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chartTicker, setChartTicker] = useState<string | null>(null);
 
+  function toggleUniverse(name: WeeklyScanUniverseName) {
+    setUniverses((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  }
+
   async function runScan() {
-    const tickers = tickerInput
-      .split(/[,\s]+/)
-      .map((t) => t.trim().toUpperCase())
-      .filter(Boolean);
-    if (tickers.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await api.weeklyScan({ tickers, benchmark });
-      setData(result);
+      if (mode === "tickers") {
+        const tickers = tickerInput
+          .split(/[,\s]+/)
+          .map((t) => t.trim().toUpperCase())
+          .filter(Boolean);
+        if (tickers.length === 0) {
+          setError("Enter at least one ticker");
+          return;
+        }
+        const result = await api.weeklyScan({ tickers, benchmark });
+        setData(result);
+      } else {
+        if (universes.length === 0) {
+          setError("Select at least one universe");
+          return;
+        }
+        const result = await api.weeklyScan({ universe: universes, benchmark });
+        setData(result);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setData(null);
@@ -329,18 +441,58 @@ export function WeeklyTrendView() {
         }}
         className="panel p-4 mb-6 space-y-3"
       >
-        <div>
-          <label className="label" htmlFor="weekly-tickers">
-            Watchlist (comma or space separated)
-          </label>
-          <input
-            id="weekly-tickers"
-            className="input w-full font-mono"
-            placeholder="AAPL NVDA META MSFT"
-            value={tickerInput}
-            onChange={(e) => setTickerInput(e.target.value)}
-          />
+        <div className="flex gap-2 text-xs">
+          <button
+            type="button"
+            className={`btn text-xs ${mode === "tickers" ? "btn-primary" : ""}`}
+            onClick={() => setMode("tickers")}
+          >
+            Per-ticker
+          </button>
+          <button
+            type="button"
+            className={`btn text-xs ${mode === "universe" ? "btn-primary" : ""}`}
+            onClick={() => setMode("universe")}
+          >
+            Universe sweep
+          </button>
         </div>
+
+        {mode === "tickers" ? (
+          <div>
+            <label className="label" htmlFor="weekly-tickers">
+              Watchlist (comma or space separated)
+            </label>
+            <input
+              id="weekly-tickers"
+              className="input w-full font-mono"
+              placeholder="AAPL NVDA META MSFT"
+              value={tickerInput}
+              onChange={(e) => setTickerInput(e.target.value)}
+            />
+          </div>
+        ) : (
+          <div>
+            <div className="label mb-1">Universes</div>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {(Object.keys(UNIVERSE_LABELS) as WeeklyScanUniverseName[]).map((u) => (
+                <label key={u} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={universes.includes(u)}
+                    onChange={() => toggleUniverse(u)}
+                  />
+                  <span>{UNIVERSE_LABELS[u]}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-text-muted mt-1">
+              ~60–120s for all three (~200 names; Track A pulls 5y weekly bars per
+              ticker).
+            </p>
+          </div>
+        )}
+
         <div className="flex items-end gap-3">
           <div className="flex-1 max-w-xs">
             <label className="label" htmlFor="weekly-benchmark">

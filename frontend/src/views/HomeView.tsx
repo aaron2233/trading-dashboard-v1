@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { DailyWisdom } from "../components/DailyWisdom";
 import { PendingCapexCTA } from "../components/regime/PendingCapexCTA";
 import { RegimeHealthPanel } from "../components/RegimeHealthPanel";
 import { useDashboardState } from "../state/DashboardStateContext";
@@ -91,6 +92,8 @@ export function HomeView() {
       <p className="page-subtitle">
         ╞══ The dashboard that won&apos;t let you break your own rules ══╡
       </p>
+
+      <DailyWisdom />
 
       <UnreviewedWeeksCTA />
       <PendingCapexCTA />

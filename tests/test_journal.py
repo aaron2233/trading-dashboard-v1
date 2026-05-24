@@ -232,3 +232,61 @@ def test_cli_export_empty(tmp_path: Path,
     rc = cli_main(["export", str(tmp_path / "out.csv")])
     assert rc == 0
     assert "no positions to export" in capsys.readouterr().out
+
+
+# ─── Partial-leg P&L aggregation ─────────────────────────────────────────────
+
+
+def _partial_open(legs_pnl: list[float], contracts_remaining: int = 1) -> Position:
+    """Build an open position with `legs_pnl` partial closes applied."""
+    starting = contracts_remaining + len(legs_pnl)
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.0, contracts=starting,
+    )
+    for pnl in legs_pnl:
+        p.partial_close(contracts_closed=1, pnl_usd=pnl)
+    return p
+
+
+def test_stats_includes_partial_leg_pnl_from_open_positions():
+    """Realized P&L from partial closes on still-open positions must flow
+    into total_pnl_usd. Trade counts stay based on fully-closed positions
+    (a partial-open position is one in-flight decision, not multiple)."""
+    s = compute_stats([
+        _closed(100),                          # fully closed: +100
+        _partial_open([50, 30]),               # open: 2 legs realized = +80
+    ])
+    assert s.total_trades_closed == 1          # only the fully-closed one
+    assert s.open_trades == 1
+    assert s.total_pnl_usd == pytest.approx(180.0)  # 100 + 50 + 30
+
+
+def test_stats_does_not_double_count_closed_with_partials():
+    """A position closed via the partial path has pnl_usd == sum(legs).
+    Iterating partial_exits *and* adding pnl_usd would double-count."""
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.0, contracts=2,
+    )
+    p.partial_close(contracts_closed=1, pnl_usd=40)
+    p.partial_close(contracts_closed=1, pnl_usd=60)
+    assert p.status == "closed"
+    assert p.pnl_usd == 100  # sanity: aggregation is correct
+
+    s = compute_stats([p])
+    assert s.total_pnl_usd == pytest.approx(100.0)  # not 200
+    assert s.total_trades_closed == 1
+
+
+def test_stats_partial_legs_only_no_fully_closed():
+    """Partial legs alone (no fully-closed positions) still surface their
+    realized P&L."""
+    s = compute_stats([_partial_open([25, -15])])
+    assert s.total_trades_closed == 0
+    assert s.total_pnl_usd == pytest.approx(10.0)
+    # Win/loss counts only reflect fully-closed positions
+    assert s.wins == 0
+    assert s.losses == 0

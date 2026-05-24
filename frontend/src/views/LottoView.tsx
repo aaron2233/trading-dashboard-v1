@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import {
-  ActionVerdictBanner,
-  ACTION_VERDICT_SORT_ORDER,
-} from "../components/ActionVerdictBanner";
 import { StrikeSuggestionsPanel } from "../components/lotto/StrikeSuggestionsPanel";
+import { TradeCard, type TradeCardBadge } from "../components/TradeCard";
 import { VerdictHero } from "../components/Verdict";
 import type { Verdict } from "../lib/verdict";
 import type {
   CandidateSnapshot,
+  FreeRangeUniverse,
   LottoCooldownReason,
+  LottoScanResponse,
+  LottoSetup,
   LottoState,
   LottoTradeSummary,
 } from "../api/types";
+
+const UNIVERSE_LABELS: Record<FreeRangeUniverse, string> = {
+  nasdaq_100: "NASDAQ 100",
+  sp500_top_50: "S&P 500 Top 50",
+  russell_2000_top_50: "Russell 2000 Top 50",
+};
 
 /** Candidate is "lotto-actionable" when its tier tag includes Tier 2.
  * Score-floor is already enforced upstream by the free_range scanner. */
@@ -268,7 +274,7 @@ function deriveVerdict(
     return {
       kind: "wait",
       confidence: 4,
-      rationale: "QQQ + GLD show no Tier 2 confluence. Check back later or run the full Nasdaq 100 sweep.",
+      rationale: "QQQ + GLD show no Tier 2 confluence. Check back later or run a full free-range sweep.",
     };
   }
 
@@ -336,132 +342,203 @@ function deriveVerdict(
   };
 }
 
-function badgeClassForStack(stack: string | null): string {
-  if (stack === "full_bull" || stack === "bull_developing") return "badge-bull";
-  if (stack === "full_bear" || stack === "bear_developing") return "badge-bear";
-  if (stack === "compression") return "badge-flag";
-  return "badge-muted";
+function lottoBadges(s: LottoSetup): TradeCardBadge[] {
+  const out: TradeCardBadge[] = [];
+  if (s.sqn_100_regime) {
+    const tone = s.sqn_100_regime.includes("bull") ? "bull"
+      : s.sqn_100_regime.includes("bear") ? "bear" : "info";
+    out.push({ label: `SQN(100) ${s.sqn_100_regime.replace(/_/g, " ")}`, tone });
+  }
+  if (s.sqn_20_regime) {
+    const tone = s.sqn_20_regime.includes("bull") ? "bull"
+      : s.sqn_20_regime.includes("bear") ? "bear" : "info";
+    out.push({ label: `SQN(20) ${s.sqn_20_regime.replace(/_/g, " ")}`, tone });
+  }
+  if (s.daily_stack) {
+    const tone = (s.daily_stack === "full_bull" || s.daily_stack === "bull_developing") ? "bull"
+      : (s.daily_stack === "full_bear" || s.daily_stack === "bear_developing") ? "bear"
+      : "muted";
+    out.push({ label: `daily ${s.daily_stack.replace(/_/g, " ")}`, tone });
+  }
+  return out;
 }
 
-function badgeClassForDirection(direction: string): string {
-  return direction === "long" ? "badge-bull" : "badge-bear";
+function lottoDetails(s: LottoSetup): { label: string; value: string }[] {
+  return [
+    { label: "Daily Stoch K/D", value:
+      `${s.daily_stoch_k?.toFixed(1) ?? "—"} / ${s.daily_stoch_d?.toFixed(1) ?? "—"}` },
+    { label: "2H Stoch K/D", value:
+      `${s.h2_stoch_k?.toFixed(1) ?? "—"} / ${s.h2_stoch_d?.toFixed(1) ?? "—"}` },
+    { label: "2H zone", value: s.h2_zone ?? "—" },
+    { label: "2H signal", value: s.h2_signal ?? "—" },
+  ];
 }
 
-
-function lottoKillSheetLink(c: CandidateSnapshot): string {
-  const params = new URLSearchParams({
-    ticker: c.ticker,
-    direction: c.direction,
-    account: "lotto",
-    intent: "SCALP",
-    trigger_tf: "2H",
-    conviction: "high",
-  });
-  return `/kill-sheet?${params.toString()}`;
+// Higher = better setup for the given direction. Used to sort BUY setups
+// inside each universe group so the strongest regime + stack alignment
+// surfaces first instead of alphabetical-by-ticker.
+function lottoSetupQuality(s: LottoSetup): number {
+  const longBias = s.direction === "long" ? 1 : -1;
+  const regimeWeight: Record<string, number> = {
+    strong_bull: 5, bull: 4, neutral: 3, bear: 2, strong_bear: 1,
+  };
+  const stackWeight: Record<string, number> = {
+    full_bull: 5, bull_developing: 4, compression: 3,
+    bear_developing: 2, full_bear: 1,
+  };
+  const regime = s.sqn_100_regime ? (regimeWeight[s.sqn_100_regime] ?? 3) : 3;
+  const stack = s.daily_stack ? (stackWeight[s.daily_stack] ?? 3) : 3;
+  // Both regime and stack are signed by direction so long setups score
+  // higher when the regime/stack is bullish, short setups score higher
+  // when they're bearish. 2x regime weight because regime alignment is
+  // the larger expectancy lever in the existing backtest data.
+  const regimeContrib = (regime - 3) * longBias * 2;
+  const stackContrib = (stack - 3) * longBias;
+  return regimeContrib + stackContrib;
 }
 
-function ActionableCandidateCard({ candidate }: { candidate: CandidateSnapshot }) {
-  const verdict = candidate.action_verdict;
-  const isEnterNow = verdict?.state === "enter_now";
-  return (
-    <div className="panel p-3 border-signal-bull/30">
-      {verdict && <ActionVerdictBanner verdict={verdict} />}
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-semibold text-base">{candidate.ticker}</span>
-          <span className={`badge ${badgeClassForDirection(candidate.direction)} text-xs`}>
-            {candidate.direction.toUpperCase()}
-          </span>
-          <span className={`badge ${badgeClassForStack(candidate.ma_stack)} text-xs`}>
-            {candidate.ma_stack ?? "—"}
-          </span>
-          {candidate.tier === "1+2" && (
-            <span className="badge badge-info text-xs">also Tier 1</span>
-          )}
-        </div>
-        <Link
-          to={lottoKillSheetLink(candidate)}
-          className={`btn text-xs ${isEnterNow ? "btn-primary" : "btn-secondary"}`}
-        >
-          Pre-write lotto kill sheet →
-        </Link>
-      </div>
-      <p className="text-xs text-text-secondary mb-1">{candidate.why_now}</p>
-      {candidate.notes.length > 0 && (
-        <ul className="text-[11px] text-text-muted space-y-0.5">
-          {candidate.notes.slice(0, 2).map((n, i) => (
-            <li key={i}>· {n}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ActionableSetupsSection({ setups, scanLoading, onFullScan, fullScanLoading }: {
-  setups: CandidateSnapshot[] | null;
-  scanLoading: boolean;
-  onFullScan: () => void;
-  fullScanLoading: boolean;
+function LottoSetupScanSection({
+  scan, loading, onScan,
+}: {
+  scan: LottoScanResponse | null;
+  loading: boolean;
+  onScan: () => void;
 }) {
-  // Sort by action verdict so ENTER_NOW lands first; candidates without a
-  // computed verdict drop to the bottom (treat as disqualified for sort).
-  const actionable = (setups ?? [])
-    .filter(isLottoActionable)
-    .slice()
-    .sort((a, b) => {
-      const aOrd = a.action_verdict
-        ? ACTION_VERDICT_SORT_ORDER[a.action_verdict.state] ?? 99
-        : 99;
-      const bOrd = b.action_verdict
-        ? ACTION_VERDICT_SORT_ORDER[b.action_verdict.state] ?? 99
-        : 99;
-      return aOrd - bOrd;
+  // Surface BUYs only — Aaron explicitly does not want WAITs or NO_GOs
+  // in this section. The verdict banner above the page already handles
+  // the "nothing to do right now" state.
+  const surfaced = (scan?.setups ?? []).filter((s) => s.verdict === "buy");
+  // Group by source_universe; fall back to "other" for setups scanned via
+  // an explicit ticker list (no universe tag).
+  const grouped = new Map<string, LottoSetup[]>();
+  for (const s of surfaced) {
+    const key = s.source_universe ?? "other";
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(s);
+    grouped.set(key, bucket);
+  }
+  // Sort each bucket by quality score (descending). Stable secondary sort
+  // by ticker for deterministic ordering when scores tie.
+  for (const bucket of grouped.values()) {
+    bucket.sort((a, b) => {
+      const qDiff = lottoSetupQuality(b) - lottoSetupQuality(a);
+      if (qDiff !== 0) return qDiff;
+      return a.ticker.localeCompare(b.ticker);
     });
+  }
+  const universeOrder: (FreeRangeUniverse | "other")[] = [
+    "nasdaq_100", "sp500_top_50", "russell_2000_top_50", "other",
+  ];
+
+  const renderCard = (s: LottoSetup) => (
+    <TradeCard
+      key={`${s.source_universe ?? "x"}-${s.ticker}-${s.direction}`}
+      setup={s}
+      strategy_label="Lotto · 2H trigger"
+      direction={s.direction}
+      kill_sheet_href={
+        s.verdict !== "no_go"
+          ? `/kill-sheet?${(() => {
+              const p = new URLSearchParams({
+                ticker: s.ticker, direction: s.direction,
+                account: "lotto", intent: "SCALP", trigger_tf: "2H",
+                skill: "lotto-options", conviction: "speculative",
+                contract_type: s.direction === "long" ? "call" : "put",
+              });
+              if (s.target_price != null) p.set("target", String(s.target_price));
+              if (s.stop_price != null) p.set("invalidation", String(s.stop_price));
+              if (s.suggested_strike != null) p.set("strike", String(s.suggested_strike));
+              if (s.why_now) p.set("trigger_desc", s.why_now);
+              // Notes — useful framework context so it doesn't have to be retyped
+              const noteParts: string[] = [];
+              if (s.daily_stack) noteParts.push(`Daily stack: ${s.daily_stack}`);
+              if (s.sqn_100_regime) noteParts.push(`SQN(100) ${s.sqn_100_regime}`);
+              if (s.sqn_20_value != null) noteParts.push(`SQN(20) ${s.sqn_20_value.toFixed(2)}`);
+              if (s.h2_signal) noteParts.push(`2H ${s.h2_signal}`);
+              if (s.suggested_dte) noteParts.push(`DTE: ${s.suggested_dte}`);
+              if (s.suggested_delta) noteParts.push(`Delta: ${s.suggested_delta}`);
+              if (noteParts.length) p.set("notes", noteParts.join(" · "));
+              return p.toString();
+            })()}`
+          : null
+      }
+      badges={lottoBadges(s)}
+      details={lottoDetails(s)}
+    />
+  );
+
   return (
     <section className="mb-6">
       <div className="flex items-baseline justify-between mb-2">
-        <h3 className="text-sm font-semibold text-text-primary">
-          Actionable setups{" "}
-          <span className="text-text-secondary font-normal">
-            (QQQ + GLD baseline)
+        <h3 className="text-base font-semibold">
+          Lotto buys{" "}
+          <span className="text-text-secondary font-normal text-sm">
+            (NASDAQ 100 + S&P 500 Top 50 + Russell 2000 Top 50 · long & short ·
+            sorted by regime + stack quality)
           </span>
         </h3>
         <button
           type="button"
           className="btn text-xs"
-          onClick={onFullScan}
-          disabled={fullScanLoading}
+          onClick={onScan}
+          disabled={loading}
         >
-          {fullScanLoading ? "Sweeping Nasdaq 100…" : "Run full Nasdaq 100 scan"}
+          {loading
+            ? "Scanning ~200 tickers (1-2 min)…"
+            : scan === null
+            ? "Run lotto universe scan"
+            : "Re-scan universe"}
         </button>
       </div>
-      {scanLoading && setups === null ? (
+      {loading && scan === null ? (
         <div className="panel p-3 text-sm text-text-secondary">
-          Scanning QQQ + GLD…
+          Scanning the lotto universe (~200 tickers × daily + 2H reads).
+          Typical run: 60-90 seconds.
         </div>
-      ) : actionable.length === 0 ? (
+      ) : scan === null ? (
         <div className="panel p-3 text-sm text-text-secondary">
-          No Tier 2 confluence on the baseline. Try the full Nasdaq 100 sweep
-          or check back after the next 2H candle.
+          Click "Run lotto universe scan" to surface today's actionable lotto
+          BUYs across the universe.
+        </div>
+      ) : surfaced.length === 0 ? (
+        <div className="panel p-3 text-sm text-text-secondary">
+          No BUY setups across the universe right now — every name is either
+          in chop, off-regime, or waiting on a 2H trigger.
         </div>
       ) : (
-        <div className="space-y-2">
-          {actionable.map((c) => (
-            <ActionableCandidateCard key={`${c.phase}-${c.ticker}`} candidate={c} />
-          ))}
+        <div className="space-y-4">
+          {universeOrder.map((uni) => {
+            const list = grouped.get(uni);
+            if (!list || list.length === 0) return null;
+            const label = uni === "other"
+              ? "Custom"
+              : UNIVERSE_LABELS[uni as FreeRangeUniverse];
+            return (
+              <div key={uni} className="space-y-2">
+                <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                  {label}{" "}
+                  <span className="font-normal normal-case">
+                    ({list.length} setup{list.length === 1 ? "" : "s"})
+                  </span>
+                </h4>
+                {list.map(renderCard)}
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
   );
 }
 
+
 export function LottoView() {
   const [state, setState] = useState<LottoState | null>(null);
   const [setups, setSetups] = useState<CandidateSnapshot[] | null>(null);
+  const [setupScan, setSetupScan] = useState<LottoScanResponse | null>(null);
+  const [setupScanLoading, setSetupScanLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
-  const [fullScanLoading, setFullScanLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -493,24 +570,24 @@ export function LottoView() {
     }
   }, []);
 
-  const runFullScan = useCallback(async () => {
-    setFullScanLoading(true);
+  const runSetupScan = useCallback(async () => {
+    setSetupScanLoading(true);
     try {
-      const result = await api.freeRangeScan({ enable_free_range: true });
-      setSetups([
-        ...result.baseline,
-        ...result.user_submitted,
-        ...result.free_range,
-      ]);
+      const result = await api.lottoScan({});
+      setSetupScan(result);
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error("Full Nasdaq 100 scan failed:", err);
+      console.error("Lotto setup scan failed:", err);
     } finally {
-      setFullScanLoading(false);
+      setSetupScanLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    // NOTE: the lotto setup scan is no longer auto-triggered on mount —
+    // it now hits ~200 tickers (NASDAQ 100 + S&P 500 Top 50 + Russell
+    // 2000 Top 50) and takes 60-90s. The user runs it explicitly via
+    // the section's "Run lotto universe scan" button.
     void refresh();
     void runBaselineScan();
   }, [refresh, runBaselineScan]);
@@ -547,11 +624,10 @@ export function LottoView() {
         <VerdictHero verdict={verdict} context="Today's lotto call" />
       </div>
 
-      <ActionableSetupsSection
-        setups={setups}
-        scanLoading={scanLoading}
-        onFullScan={runFullScan}
-        fullScanLoading={fullScanLoading}
+      <LottoSetupScanSection
+        scan={setupScan}
+        loading={setupScanLoading}
+        onScan={runSetupScan}
       />
 
       <StrikeSuggestionsPanel />

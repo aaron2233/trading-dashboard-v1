@@ -153,3 +153,116 @@ def suggest_strikes(
         calls=calls,
         puts=puts,
     )
+
+
+# ─── Black-Scholes-derived strike suggester (delta-based) ───────────────────
+# Used by lotto/weekly/index-swing scanners to surface a concrete dollar
+# strike on each setup card, vs the older textual "0.10-0.25 (deep OTM)"
+# hints. Inputs come from the scanner's existing daily-bars pull (for HV)
+# and the setup's spot close.
+
+import math
+
+
+def _norm_ppf(p: float) -> float:
+    """Beasley-Springer-Moro inverse-normal CDF (matches lotto_param_sweep).
+    p ∈ (0,1). Returns z such that Φ(z) = p."""
+    a = [-3.969683028665376e+01,  2.209460984245205e+02,
+         -2.759285104469687e+02,  1.383577518672690e+02,
+         -3.066479806614716e+01,  2.506628277459239e+00]
+    b = [-5.447609879822406e+01,  1.615858368580409e+02,
+         -1.556989798598866e+02,  6.680131188771972e+01,
+         -1.328068155288572e+01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01,
+         -2.400758277161838e+00, -2.549732539343734e+00,
+          4.374664141464968e+00,  2.938163982698783e+00]
+    d = [ 7.784695709041462e-03,  3.224671290700398e-01,
+          2.445134137142996e+00,  3.754408661907416e+00]
+    p_low, p_high = 0.02425, 1 - 0.02425
+    if p < p_low:
+        q = math.sqrt(-2 * math.log(p))
+        return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / (
+            (((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+    if p <= p_high:
+        q = p - 0.5
+        r = q * q
+        return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5]) * q / (
+            ((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)
+    q = math.sqrt(-2 * math.log(1 - p))
+    return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / (
+        (((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+
+
+def compute_hv20_annualized(daily_closes) -> float | None:
+    """Compute 20-day historical volatility, annualized (√252).
+
+    `daily_closes` can be a list, np.array, or pandas Series of close prices.
+    Returns None if fewer than 21 prices available.
+    """
+    try:
+        # Accept pandas / numpy / list
+        if hasattr(daily_closes, "values"):
+            closes = list(daily_closes.values)[-21:]
+        else:
+            closes = list(daily_closes)[-21:]
+    except Exception:
+        return None
+    if len(closes) < 21:
+        return None
+    log_returns = []
+    for i in range(1, len(closes)):
+        prev, curr = closes[i - 1], closes[i]
+        if prev is None or curr is None or prev <= 0 or curr <= 0:
+            continue
+        log_returns.append(math.log(curr / prev))
+    if len(log_returns) < 10:
+        return None
+    n = len(log_returns)
+    mean = sum(log_returns) / n
+    var = sum((r - mean) ** 2 for r in log_returns) / (n - 1)
+    sigma_daily = math.sqrt(var)
+    return sigma_daily * math.sqrt(252)
+
+
+def suggest_strike_for_delta(
+    spot: float,
+    hv_annual: float,
+    dte_days: int,
+    kind: Direction,
+    target_delta: float,
+    *,
+    ticker: str = "",
+    risk_free_rate: float = 0.04,
+    iv_markup: float = 0.05,
+) -> float | None:
+    """Return the dollar strike that targets `target_delta` magnitude OTM
+    for a Black-Scholes call (or put), rounded to the ticker's strike grid.
+
+    For a call: solves K such that N(d1) = target_delta. (Lower delta = farther OTM.)
+    For a put:  solves K such that N(d1) = 1 - target_delta. (Lower delta magnitude = farther OTM.)
+
+    `hv_annual`: 20-day historical volatility, annualized. We add `iv_markup`
+    on top (IV typically runs above HV).
+
+    Returns None when inputs are degenerate (spot ≤ 0, dte ≤ 0, hv ≤ 0).
+    """
+    if spot <= 0 or hv_annual <= 0 or dte_days <= 0:
+        return None
+    if not (0 < target_delta < 1):
+        return None
+    sigma = max(0.10, min(2.0, hv_annual + iv_markup))
+    T = dte_days / 365.0
+    drift = (risk_free_rate + 0.5 * sigma * sigma) * T
+    if kind == "call":
+        z = _norm_ppf(target_delta)  # negative for delta < 0.5
+        # d1 = (ln(S/K) + drift) / (σ√T) = z
+        # ln(K/S) = -z·σ·√T + drift  →  K = S · exp(-z·σ·√T + drift)
+        K_raw = spot * math.exp(-z * sigma * math.sqrt(T) + drift)
+    else:
+        z = _norm_ppf(1 - target_delta)  # positive
+        K_raw = spot * math.exp(-z * sigma * math.sqrt(T) + drift)
+    increment = TICKER_INCREMENTS.get(ticker.upper(), 1.0)
+    # For sub-$25 names, use $0.50 grid where likely
+    if increment == 1.0 and spot < 25:
+        increment = 0.5
+    return _round_to_increment(K_raw, increment)

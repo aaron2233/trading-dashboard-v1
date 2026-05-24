@@ -291,6 +291,19 @@ html.light {
     @apply text-text-muted;
   }
 
+  /* Strip the up/down spinner arrows from ALL number inputs across the app —
+     they hijack copy/paste and scroll-wheel input. Numeric keyboard on mobile
+     still works; validation on submit handles bad input. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
   /* ── Labels ──────────────────────────────────────────────────────────── */
   .label {
     @apply text-text-muted text-[10px] uppercase font-semibold block mb-1;

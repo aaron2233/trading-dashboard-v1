@@ -73,11 +73,40 @@ def _trigger_fired(
     direction: Direction,
 ) -> bool:
     """The exact stoch signal that fires entry per the orchestrator. K
-    just crossed D in the matching direction at the matching extreme."""
+    just crossed D in the matching direction at the matching extreme.
+    Used by the WEEKLY classifier — weekly cross signals are rare by
+    design and this narrow whitelist is intentional. For lotto, see
+    `_lotto_trigger_fired`."""
     if direction == "long":
         return stoch_signal == "bull_cross_oversold"
     if direction == "short":
         return stoch_signal == "bear_cross_overbought"
+    return False
+
+
+# Lotto trigger whitelist — matches scan_verdict.lotto_verdict so the
+# setup scan and the per-candidate action verdict agree on what fires.
+# Broader than `_trigger_fired` because 2H bars give continuation +
+# divergence signals enough sample to be tradeable; weekly bars don't.
+_LOTTO_LONG_TRIGGERS = frozenset({
+    "bull_cross_oversold", "bull_continuation", "bullish_divergence",
+})
+_LOTTO_SHORT_TRIGGERS = frozenset({
+    "bear_cross_overbought", "bear_continuation", "bearish_divergence",
+})
+
+
+def _lotto_trigger_fired(
+    stoch_signal: str | None,
+    direction: Direction,
+) -> bool:
+    """Lotto 2H trigger: cross_oversold, continuation, or divergence in
+    the matching direction. Mirrors the long_signals / short_signals
+    sets in `scan_verdict.lotto_verdict` so both code paths agree."""
+    if direction == "long":
+        return stoch_signal in _LOTTO_LONG_TRIGGERS
+    if direction == "short":
+        return stoch_signal in _LOTTO_SHORT_TRIGGERS
     return False
 
 
@@ -204,7 +233,7 @@ def classify_lotto_action(
     if (
         stack_supports(daily_stack, direction)
         and stack_supports(two_h_stack, direction)
-        and _trigger_fired(two_h_stoch.get("signal"), direction)
+        and _lotto_trigger_fired(two_h_stoch.get("signal"), direction)
     ):
         spot = _close_for(reads, "2h") or _close_for(reads, "1d")
         return ActionVerdict(
@@ -221,8 +250,12 @@ def classify_lotto_action(
     advance: list[str] = []
     if not stack_supports(two_h_stack, direction):
         advance.append(f"2H stack must develop into {direction} (currently {two_h_stack})")
-    if not _trigger_fired(two_h_stoch.get("signal"), direction):
-        target = "bull_cross_oversold (<30)" if direction == "long" else "bear_cross_overbought (>70)"
+    if not _lotto_trigger_fired(two_h_stoch.get("signal"), direction):
+        target = (
+            "bull_cross_oversold / bull_continuation / bullish_divergence"
+            if direction == "long"
+            else "bear_cross_overbought / bear_continuation / bearish_divergence"
+        )
         advance.append(f"2H stoch must fire {target}; currently {two_h_stoch.get('signal') or '—'}")
 
     return ActionVerdict(

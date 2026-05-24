@@ -100,9 +100,25 @@ class PositionStore:
         raise KeyError(f"Position id {position.id!r} not found")
 
     def close(self, position_id: str, pnl_usd: float | None = None,
-              notes: str | None = None) -> Position:
+              notes: str | None = None, contracts: int | None = None) -> Position:
+        """Close a position, fully or partially.
+
+        If `contracts` is None: full close, P&L is recorded as-supplied
+        (legacy behavior). If `contracts` is provided: routes through
+        partial_close so that prior partial legs are aggregated correctly
+        when this is the final leg. Callers should check `position.status`
+        to know whether the position is fully closed (e.g. for triggering
+        auto-scoring).
+        """
         position = self.get(position_id)
-        position.close(pnl_usd=pnl_usd, notes=notes)
+        if contracts is not None:
+            position.partial_close(
+                contracts_closed=contracts,
+                pnl_usd=pnl_usd,
+                notes=notes,
+            )
+        else:
+            position.close(pnl_usd=pnl_usd, notes=notes)
         self.update(position)
         return position
 

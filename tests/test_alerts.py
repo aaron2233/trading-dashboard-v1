@@ -119,20 +119,57 @@ def test_invalidation_hit_long_actions():
     assert "invalidation_hit" in rules
 
 
-def test_invalidation_hit_short():
-    p = _options_position(direction="short", contract_type="put",
+def test_invalidation_hit_long_put_on_rise():
+    # Long put = bearish thesis; invalidation fires when underlying RISES
+    # through the invalidation level, not when it falls.
+    p = _options_position(direction="long", contract_type="put",
                           target_price=560.0, invalidation_price=590.0)
-    alerts = evaluate_alerts(p, _scan(close=591), today=date(2026, 4, 25))
+    alerts = evaluate_alerts(p, _scan(close=591, stack="full_bear"),
+                             today=date(2026, 4, 25))
     rules = {a.rule for a in alerts}
     assert "invalidation_hit" in rules
 
 
-def test_target_hit_short():
-    p = _options_position(direction="short", contract_type="put",
+def test_target_hit_long_put_on_drop():
+    # Long put = bearish thesis; target fires on a DROP to or below target.
+    p = _options_position(direction="long", contract_type="put",
                           target_price=560.0, invalidation_price=590.0)
-    alerts = evaluate_alerts(p, _scan(close=559), today=date(2026, 4, 25))
+    alerts = evaluate_alerts(p, _scan(close=559, stack="full_bear"),
+                             today=date(2026, 4, 25))
     rules = {a.rule for a in alerts}
     assert "target_hit" in rules
+
+
+def test_long_put_no_false_alerts_on_aligned_bear_stack():
+    # Regression: PYPL 2026-05-18 — long put with close between target and
+    # invalidation should fire ZERO price/technical alerts when the MA stack
+    # is bearish (aligned with the put thesis). Previously fired
+    # target_hit + invalidation_hit + ma_flip because the engine treated
+    # direction="long" as a bullish thesis on the underlying.
+    p = _options_position(
+        direction="long", contract_type="put",
+        target_price=560.0, invalidation_price=590.0,
+        expiry="2026-05-09",  # 14 DTE, no DTE alert at this tier
+    )
+    alerts = evaluate_alerts(
+        p, _scan(close=580, stack="full_bear", signal="bear_continuation"),
+        today=date(2026, 4, 25),
+    )
+    rules = {a.rule for a in alerts}
+    assert "target_hit" not in rules
+    assert "invalidation_hit" not in rules
+    assert "ma_flip" not in rules
+    assert "stoch_reversal" not in rules
+
+
+def test_long_put_invalidation_does_not_fire_below_invalidation():
+    # Below invalidation = price hasn't moved up against the put yet.
+    p = _options_position(direction="long", contract_type="put",
+                          target_price=560.0, invalidation_price=590.0)
+    alerts = evaluate_alerts(p, _scan(close=585, stack="full_bear"),
+                             today=date(2026, 4, 25))
+    rules = {a.rule for a in alerts}
+    assert "invalidation_hit" not in rules
 
 
 # ─── Technical alerts ────────────────────────────────────────────────────────
@@ -144,6 +181,27 @@ def test_ma_flip_against_long_actions():
     rules = {a.rule for a in alerts}
     assert "ma_flip" in rules
     assert any(a.severity == "action" for a in alerts if a.rule == "ma_flip")
+
+
+def test_ma_flip_against_long_put_on_bull_stack():
+    # Long put thesis = bearish; ma_flip fires when stack flips BULL.
+    p = _options_position(direction="long", contract_type="put",
+                          target_price=560.0, invalidation_price=590.0)
+    alerts = evaluate_alerts(p, _scan(stack="full_bull"),
+                             today=date(2026, 4, 25))
+    rules = {a.rule for a in alerts}
+    assert "ma_flip" in rules
+
+
+def test_stoch_reversal_against_long_put_on_bull_signal():
+    p = _options_position(direction="long", contract_type="put",
+                          target_price=560.0, invalidation_price=590.0)
+    alerts = evaluate_alerts(
+        p, _scan(stack="full_bear", signal="bull_cross_oversold"),
+        today=date(2026, 4, 25),
+    )
+    rules = {a.rule for a in alerts}
+    assert "stoch_reversal" in rules
 
 
 def test_ma_chop_warns():

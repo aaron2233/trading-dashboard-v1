@@ -1,13 +1,12 @@
-"""Free-range scan universe — Nasdaq 100 constituents + known ETF set.
+"""Free-range scan universes + known ETF set.
 
-The Nasdaq 100 list is a frozen snapshot, not a live API pull. Reasons:
-1. Composition only changes a few times per year — staleness is bounded.
+Universe lists are frozen snapshots, not live API pulls. Reasons:
+1. Index composition changes infrequently — staleness is bounded.
 2. yfinance has no constituent-list endpoint; live pulls would mean scraping.
 3. A reviewable in-repo list keeps the scan deterministic across sessions.
 
-When the index rebalances, update SNAPSHOT_DATE and the list. To regenerate
-manually, see https://www.nasdaq.com/market-activity/quotes/nasdaq-ndx-index
-or the iShares QQQ holdings page.
+When an index rebalances, update its SNAPSHOT_DATE and the list. Source URLs
+per constant below.
 
 ETF identification matters because the price-band filter ($15-50 single stocks)
 explicitly exempts ETFs per orchestrator rule (any price acceptable for ETFs).
@@ -15,8 +14,12 @@ KNOWN_ETFS is conservative — only adds tickers we'd actively consider trading.
 """
 from __future__ import annotations
 
+from typing import Literal
 
-# Snapshot date — refresh quarterly or on known rebalance.
+
+# ─── NASDAQ 100 ──────────────────────────────────────────────────────────────
+# Refresh source: https://www.nasdaq.com/market-activity/quotes/nasdaq-ndx-index
+# or the iShares QQQ holdings page.
 NASDAQ_100_SNAPSHOT_DATE = "2026-04-01"
 
 # Nasdaq 100 constituents, snapshot-dated above. Sourced from the index
@@ -34,6 +37,57 @@ NASDAQ_100: tuple[str, ...] = (
     "PEP", "PYPL", "QCOM", "REGN", "ROP", "ROST", "SBUX", "SMCI", "SNPS", "TEAM",
     "TMUS", "TSLA", "TTD", "TTWO", "TXN", "VRSK", "VRTX", "WBD", "WDAY", "XEL", "ZS",
 )
+
+
+# ─── S&P 500 Top 50 by market cap ────────────────────────────────────────────
+# Refresh source: https://disfold.com/stock-index/sp-500/companies/
+# (cross-check against slickcharts.com/sp500 — page is 403 for WebFetch but
+# accessible in a browser).
+SP500_TOP_50_SNAPSHOT_DATE = "2026-01-01"
+
+# Top 50 S&P 500 by market cap as of the snapshot date. yfinance convention:
+# Berkshire Hathaway Class B is "BRK-B" (dash, not dot). Heavy overlap with
+# NASDAQ_100 is expected — the lotto scanner already de-duplicates against the
+# baseline (QQQ + GLD) and user-submitted tickers, not across universes; the
+# user picks one universe per scan via the dropdown.
+SP500_TOP_50: tuple[str, ...] = (
+    "NVDA", "AAPL", "GOOG", "GOOGL", "MSFT", "AMZN", "AVGO", "META", "TSLA", "BRK-B",
+    "LLY", "WMT", "JPM", "V", "ORCL", "XOM", "MA", "JNJ", "BAC", "ABBV",
+    "NFLX", "COST", "AMD", "MU", "HD", "GE", "PG", "CVX", "WFC", "UNH",
+    "CSCO", "KO", "MS", "CAT", "GS", "IBM", "MRK", "AXP", "RTX", "PM",
+    "CRM", "LRCX", "TMUS", "TMO", "C", "MCD", "ABT", "AMAT", "ISRG", "LIN",
+)
+
+
+# ─── Russell 2000 Top 50 by IWM weight ───────────────────────────────────────
+# Refresh source: https://www.bestetf.net/etf/IWM/holdings/
+# (iShares IWM holdings page is 403 for WebFetch; bestetf.net mirrors it.)
+RUSSELL_2000_TOP_50_SNAPSHOT_DATE = "2026-05-09"
+
+# Top 50 IWM holdings by weight, filtered to real equity tickers. yfinance
+# convention applied:
+#   - CDE.NE → CDE (Coeur Mining, primary US listing)
+#   - MOG.A → MOG-A (Moog Class A, yfinance dash convention)
+#   - XTSLA (BlackRock cash sweep position, not a stock) is excluded —
+#     list contains 49 actual equities. Constant name keeps "_TOP_50"
+#     because it tracks the top-50-by-weight slice; the cash filter is
+#     incidental.
+RUSSELL_2000_TOP_50: tuple[str, ...] = (
+    "BE", "CRDO", "STRL", "FN", "CDE", "SITM", "NXT", "SATS", "IONQ", "TTMI",
+    "MOD", "RMBS", "AEIS", "SANM", "DY", "VIAV", "HL", "DOCN", "GH", "SMTC",
+    "FORM", "BBIO", "ARWR", "AAOI", "KTOS", "HUT", "SPXC", "APLD", "ENSG", "PL",
+    "UMBF", "GTLS", "AGX", "MDGL", "AXSM", "FCFS", "SNEX", "MOG-A", "AHR", "CTRE",
+    "CYTK", "OKLO", "POWL", "ESE", "PRAX", "ONB", "RIOT", "WULF", "FLR",
+)
+
+
+UniverseName = Literal["nasdaq_100", "sp500_top_50", "russell_2000_top_50"]
+
+UNIVERSES: dict[str, tuple[str, ...]] = {
+    "nasdaq_100": NASDAQ_100,
+    "sp500_top_50": SP500_TOP_50,
+    "russell_2000_top_50": RUSSELL_2000_TOP_50,
+}
 
 
 # Tickers we'd consider trading that bypass the $15-50 single-stock price band.
@@ -68,14 +122,29 @@ def is_etf(ticker: str) -> bool:
     return ticker.upper() in KNOWN_ETFS
 
 
-def free_range_universe(exclude: frozenset[str] | None = None) -> tuple[str, ...]:
+def free_range_universe(
+    exclude: frozenset[str] | None = None,
+    *,
+    universe: str = "nasdaq_100",
+) -> tuple[str, ...]:
     """Return the candidate universe for free-range scan.
 
-    Defaults to NASDAQ_100. `exclude` removes tickers already covered upstream
-    (typically QQQ + GLD baseline + user-submitted) so they're not re-evaluated.
-    Comparison is case-insensitive; result preserves NASDAQ_100 ordering.
+    `universe` selects which constituent list to draw from. Defaults to
+    "nasdaq_100" — the original behavior. Other valid values: "sp500_top_50",
+    "russell_2000_top_50". Unknown names raise ValueError so callers fail
+    loud rather than silently fall back.
+
+    `exclude` removes tickers already covered upstream (typically QQQ + GLD
+    baseline + user-submitted) so they're not re-evaluated. Comparison is
+    case-insensitive; result preserves the source-list ordering.
     """
+    try:
+        source = UNIVERSES[universe]
+    except KeyError as exc:
+        raise ValueError(
+            f"Unknown universe '{universe}'. Valid: {sorted(UNIVERSES)}"
+        ) from exc
     if not exclude:
-        return NASDAQ_100
+        return source
     excl_u = frozenset(t.upper() for t in exclude)
-    return tuple(t for t in NASDAQ_100 if t.upper() not in excl_u)
+    return tuple(t for t in source if t.upper() not in excl_u)

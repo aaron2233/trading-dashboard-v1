@@ -1,4 +1,4 @@
-"""Options structure helpers for the Apex template.
+"""Options structure helpers for the options template.
 
 Sources:
   - delta target by conviction: TRADING-DASHBOARD-HANDOFF.md:201

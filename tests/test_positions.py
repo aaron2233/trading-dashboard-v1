@@ -60,6 +60,48 @@ def test_open_shares_rejects_invalidation_on_wrong_side():
         )
 
 
+def test_thesis_direction_options_long_call_is_bullish():
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.50, contracts=1,
+    )
+    assert p.thesis_direction == "bullish"
+
+
+def test_thesis_direction_options_long_put_is_bearish():
+    # The PYPL 2026-05-18 bug: stored direction="long" + instrument="put"
+    # must surface as a bearish thesis on the underlying.
+    p = Position.open_options_position(
+        ticker="PYPL", direction="long", contract_type="put",
+        account_key="lotto", strike=43.0, expiry="2026-05-29",
+        premium=0.38, contracts=2,
+    )
+    assert p.thesis_direction == "bearish"
+
+
+def test_thesis_direction_options_short_put_is_bullish():
+    # Not used in Aaron's cash account but the property must still be correct
+    # for completeness — a short put is bullish on the underlying.
+    p = Position(direction="short", instrument="put")
+    assert p.thesis_direction == "bullish"
+
+
+def test_thesis_direction_options_short_call_is_bearish():
+    p = Position(direction="short", instrument="call")
+    assert p.thesis_direction == "bearish"
+
+
+def test_thesis_direction_shares_maps_directly():
+    long_shares = Position.open_shares_position(
+        ticker="AAPL", direction="long", account_key="main",
+        shares=100, entry_price=30.0, invalidation_price=28.0,
+    )
+    short_shares = Position(direction="short", instrument="shares")
+    assert long_shares.thesis_direction == "bullish"
+    assert short_shares.thesis_direction == "bearish"
+
+
 def test_close_sets_lifecycle_fields():
     p = Position.open_options_position(
         ticker="SPY", direction="long", contract_type="call",
@@ -392,3 +434,123 @@ def test_cli_show_outputs_json(tmp_path: Path,
     payload = json.loads(capsys.readouterr().out)
     assert payload["id"] == p.id
     assert payload["ticker"] == "SPY"
+
+
+# ─── Partial close ───────────────────────────────────────────────────────────
+
+
+def test_partial_close_decrements_contracts_and_scales_max_loss():
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.00, contracts=4,
+    )
+    assert p.max_loss_usd == 2000.0  # 5 * 100 * 4
+
+    p.partial_close(contracts_closed=1, pnl_usd=125.0, notes="trim 1")
+    assert p.status == "open"
+    assert p.contracts == 3
+    assert p.max_loss_usd == 1500.0  # scaled to remaining
+    assert len(p.partial_exits) == 1
+    assert p.partial_exits[0]["contracts_closed"] == 1
+    assert p.partial_exits[0]["pnl_usd"] == 125.0
+    assert p.partial_exits[0]["notes"] == "trim 1"
+
+
+def test_partial_close_to_zero_transitions_to_closed_and_aggregates_pnl():
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.00, contracts=3,
+    )
+    p.partial_close(contracts_closed=1, pnl_usd=100.0)
+    p.partial_close(contracts_closed=1, pnl_usd=50.0)
+    assert p.status == "open"
+    assert p.contracts == 1
+
+    p.partial_close(contracts_closed=1, pnl_usd=200.0, notes="final")
+    assert p.status == "closed"
+    assert p.contracts == 0
+    assert p.closed_date is not None
+    assert p.pnl_usd == 350.0  # 100 + 50 + 200
+    assert len(p.partial_exits) == 3
+
+
+def test_partial_close_rejects_more_than_remaining():
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.00, contracts=2,
+    )
+    with pytest.raises(ValueError, match="exceeds remaining"):
+        p.partial_close(contracts_closed=3, pnl_usd=0.0)
+
+
+def test_partial_close_rejects_non_positive():
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.00, contracts=2,
+    )
+    with pytest.raises(ValueError, match="must be positive"):
+        p.partial_close(contracts_closed=0, pnl_usd=0.0)
+
+
+def test_partial_close_rejected_on_shares():
+    p = Position.open_shares_position(
+        ticker="AAPL", direction="long", account_key="main",
+        shares=100, entry_price=30.0, invalidation_price=28.0,
+    )
+    with pytest.raises(ValueError, match="not supported for shares"):
+        p.partial_close(contracts_closed=10, pnl_usd=0.0)
+
+
+def test_partial_close_rejected_after_full_close():
+    p = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="call",
+        account_key="main", strike=580, expiry="2026-06-19",
+        premium=5.00, contracts=2,
+    )
+    p.close(pnl_usd=0.0)
+    with pytest.raises(ValueError, match="already closed"):
+        p.partial_close(contracts_closed=1, pnl_usd=0.0)
+
+
+def test_partial_close_persists_through_store(tmp_path: Path):
+    s = PositionStore(path=tmp_path / "p.json")
+    p = s.add(_new_position(contracts=3))
+    s.close(p.id, contracts=1, pnl_usd=80.0, notes="trim")
+
+    s2 = PositionStore(path=s.path)
+    loaded = s2.get(p.id)
+    assert loaded.status == "open"
+    assert loaded.contracts == 2
+    assert len(loaded.partial_exits) == 1
+    assert loaded.partial_exits[0]["pnl_usd"] == 80.0
+
+
+def test_store_close_with_contracts_equal_to_remaining_closes_fully(tmp_path: Path):
+    """contracts == remaining (no prior partials) should transition the
+    position to closed in one shot. The single leg is logged in
+    partial_exits as a journaling record; pnl_usd matches the supplied pnl.
+    """
+    s = PositionStore(path=tmp_path / "p.json")
+    p = s.add(_new_position(contracts=2))
+    closed = s.close(p.id, contracts=2, pnl_usd=140.0)
+    assert closed.status == "closed"
+    assert closed.contracts == 0
+    assert closed.pnl_usd == 140.0
+    assert len(closed.partial_exits) == 1
+    assert closed.partial_exits[0]["contracts_closed"] == 2
+
+
+def test_store_close_without_contracts_uses_legacy_path(tmp_path: Path):
+    """Existing callers that don't pass `contracts` keep the legacy
+    behavior: contracts is not decremented, no partial_exits entry."""
+    s = PositionStore(path=tmp_path / "p.json")
+    p = s.add(_new_position(contracts=2))
+    closed = s.close(p.id, pnl_usd=140.0)
+    assert closed.status == "closed"
+    assert closed.contracts == 2
+    assert closed.partial_exits == []
+    assert closed.pnl_usd == 140.0

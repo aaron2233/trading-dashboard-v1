@@ -247,6 +247,74 @@ def test_scanner_with_trend_outranks_counter_trend():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Universe sweep mode
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_scanner_universe_mode_tags_source_universe(monkeypatch):
+    """`universe` arg resolves to tickers via free_range_universe and each
+    setup is tagged with the universe it came from."""
+    rows = {
+        ("SPY", "1d"): make_row("SPY", regime="bull"),
+        ("AAA", "1wk"): make_row("AAA", close=30, stack="full_bull",
+                                  k=25, d=22, signal="bull_cross_oversold"),
+        ("BBB", "1wk"): make_row("BBB", close=40, stack="full_bull",
+                                  k=55, d=50, signal="bull_continuation"),
+    }
+
+    # Stub the universe resolver so this test is hermetic
+    import free_range.universe as fru
+    monkeypatch.setattr(fru, "free_range_universe",
+                        lambda *args, **kwargs:
+                        ("AAA",) if kwargs.get("universe") == "nasdaq_100"
+                        else ("BBB",))
+
+    result = scan_weekly_watchlist(
+        benchmark="SPY",
+        scan_fn=make_scan_fn(rows),
+        universe=["nasdaq_100", "sp500_top_50"],
+    )
+
+    by_ticker = {s.ticker: s for s in result.setups}
+    assert by_ticker["AAA"].source_universe == "nasdaq_100"
+    assert by_ticker["BBB"].source_universe == "sp500_top_50"
+
+
+def test_scanner_explicit_tickers_leaves_source_universe_none():
+    """Per-ticker scan path keeps source_universe=None."""
+    rows = {
+        ("SPY", "1d"): make_row("SPY", regime="bull"),
+        ("AAPL", "1wk"): make_row("AAPL", close=30, stack="full_bull",
+                                   k=25, d=22, signal="bull_cross_oversold"),
+    }
+    result = scan_weekly_watchlist(
+        ["AAPL"], benchmark="SPY", scan_fn=make_scan_fn(rows),
+    )
+    assert result.setups[0].source_universe is None
+
+
+def test_scanner_no_tickers_and_no_universe_raises():
+    rows = {("SPY", "1d"): make_row("SPY", regime="bull")}
+    with pytest.raises(ValueError, match="tickers.*or.*universe"):
+        scan_weekly_watchlist(benchmark="SPY", scan_fn=make_scan_fn(rows))
+
+
+def test_scanner_explicit_tickers_wins_over_universe():
+    """When both are passed, explicit tickers takes priority."""
+    rows = {
+        ("SPY", "1d"): make_row("SPY", regime="bull"),
+        ("AAPL", "1wk"): make_row("AAPL", close=30, stack="full_bull",
+                                   k=25, d=22, signal="bull_cross_oversold"),
+    }
+    result = scan_weekly_watchlist(
+        ["AAPL"], benchmark="SPY", scan_fn=make_scan_fn(rows),
+        universe=["nasdaq_100"],
+    )
+    assert [s.ticker for s in result.setups] == ["AAPL"]
+    assert result.setups[0].source_universe is None
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # 10 WMA trailing-stop alert
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -350,10 +418,51 @@ def test_api_weekly_scan_endpoint(monkeypatch):
 
 
 def test_api_weekly_scan_rejects_empty_tickers():
+    """Empty tickers AND no universe → 400."""
     app = create_app()
     client = TestClient(app)
     resp = client.post("/api/v1/weekly/scan", json={"tickers": []})
     assert resp.status_code == 400
+
+
+def test_api_weekly_scan_accepts_universe(monkeypatch):
+    """Universe-only request resolves tickers from the named index and
+    each result includes a source_universe tag."""
+    def fake_scan(ticker, period=None, timeframe="1d"):
+        if timeframe == "1d":  # benchmark
+            return {
+                "ticker": ticker, "close": 580.0, "bar_date": "2026-05-09",
+                "ma_ribbon": {"stack_state": "full_bull"},
+                "stochastic": {"k": 50, "d": 50, "zone": "mid", "signal": None},
+                "sqn": {"sqn_value": 1.0, "regime": "bull",
+                        "sqn_20_value": 0.5, "regime_20": "bull"},
+            }
+        return {
+            "ticker": ticker, "close": 30.0, "bar_date": "2026-05-09",
+            "ma_ribbon": {"stack_state": "full_bull",
+                          "ma_10": 29, "ma_20": 28, "ma_50": 25, "ma_200": 20},
+            "stochastic": {"k": 25, "d": 22, "zone": "oversold",
+                           "signal": "bull_cross_oversold"},
+            "sqn": {"sqn_value": 1.0, "regime": "bull",
+                    "sqn_20_value": 0.5, "regime_20": "bull"},
+        }
+    monkeypatch.setattr("scan.scan_ticker", fake_scan)
+    import free_range.universe as fru
+    monkeypatch.setattr(fru, "free_range_universe",
+                        lambda *args, **kwargs: ("AAA", "BBB"))
+
+    app = create_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/weekly/scan",
+        json={"universe": ["nasdaq_100"]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    tickers = {s["ticker"] for s in body["setups"]}
+    assert tickers == {"AAA", "BBB"}
+    for s in body["setups"]:
+        assert s["source_universe"] == "nasdaq_100"
 
 
 def test_api_weekly_scan_handles_scan_error(monkeypatch):

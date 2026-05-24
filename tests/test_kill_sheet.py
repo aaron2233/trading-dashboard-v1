@@ -155,6 +155,239 @@ def test_build_standard_uses_lotto_account():
     assert sheet.max_risk_usd == 75.0
 
 
+# ─── Lotto chase-warning gate ──────────────────────────────────────────────────
+# Per CLAUDE.md orchestrator rule 13 + 2026-05-07 backtest calibration:
+# lotto-account longs with SQN(20) > +2.5 are auto-flagged for chase-warning
+# and require an explicit `lotto_chase_documented` attestation to authorize.
+
+
+def _lotto_chase_row(sqn_20_value: float) -> dict:
+    """Scan row for a lotto-account-long candidate with given SQN(20)."""
+    row = _full_row()
+    row["sqn"] = {**row["sqn"], "sqn_20_value": sqn_20_value, "regime_20": "strong_bull"}
+    return row
+
+
+def test_lotto_long_with_sqn20_chase_warning_blocks_entry():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_lotto_chase_row(sqn_20_value=2.7),
+        direction="long",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+    )
+    assert sheet.discipline_attestation.lotto_chase_warning is True
+    assert sheet.discipline_attestation.lotto_chase_documented is False
+    assert sheet.discipline_attestation.entry_authorized is False
+
+
+def test_lotto_long_with_sqn20_chase_warning_unblocks_with_attestation():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_lotto_chase_row(sqn_20_value=2.7),
+        direction="long",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+        attestation_user_inputs={"lotto_chase_documented": True},
+    )
+    assert sheet.discipline_attestation.lotto_chase_warning is True
+    assert sheet.discipline_attestation.lotto_chase_documented is True
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_lotto_long_below_chase_threshold_not_flagged():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_lotto_chase_row(sqn_20_value=2.5),  # boundary: > 2.5 required
+        direction="long",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+    )
+    assert sheet.discipline_attestation.lotto_chase_warning is False
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_lotto_short_with_sqn20_high_not_chase_warning():
+    """Chase warning is long-only — bullish chase, not bearish."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    # Need a bearish setup for short to authorize; build a full_bear row.
+    row = _full_row()
+    row["ma_ribbon"]["stack_state"] = "full_bear"
+    row["stochastic"] = {"k": 75.0, "d": 73.0, "zone": "overbought", "signal": "bear_cross_overbought"}
+    row["sqn"] = {"sqn_value": -1.2, "regime": "bear", "sqn_20_value": 2.7, "regime_20": "strong_bull"}
+    sheet = build_standard(
+        scan_row=row,
+        direction="short",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+    )
+    assert sheet.discipline_attestation.lotto_chase_warning is False
+
+
+def test_main_account_long_with_sqn20_high_not_chase_warning():
+    """Chase warning is lotto-only — main / weekly accounts are not gated."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_lotto_chase_row(sqn_20_value=2.7),
+        direction="long",
+        account=cfg.account("main"),
+        account_key="main",
+    )
+    assert sheet.discipline_attestation.lotto_chase_warning is False
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_lotto_long_with_no_sqn20_data_not_flagged():
+    """When SQN(20) data is missing (legacy / partial scan), do not auto-block."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    row = _full_row()
+    # No sqn_20_value in the sqn dict — leave as base _full_row sqn block
+    sheet = build_standard(
+        scan_row=row,
+        direction="long",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+    )
+    assert sheet.discipline_attestation.lotto_chase_warning is False
+
+
+def test_lotto_chase_warning_handles_numpy_scalar_sqn20():
+    """Regression: live scan_row delivers SQN(20) as a numpy scalar; the chained
+    comparison `np.float > 2.5` returns numpy.bool, which Pydantic can't
+    serialize through the API layer (500). Builder must coerce to python bool.
+    """
+    import numpy as np
+    cfg = load_config(Path("/nonexistent.yaml"))
+    row = _lotto_chase_row(sqn_20_value=np.float64(2.7))
+    sheet = build_standard(
+        scan_row=row,
+        direction="long",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+    )
+    val = sheet.discipline_attestation.lotto_chase_warning
+    assert val is True
+    assert type(val) is bool, f"expected python bool, got {type(val)}"
+
+
+# ─── Weekly-trend asset allowlist gate ────────────────────────────────────────
+# Per 2026-05-07 backtest: IWM weekly-trend Sharpe -0.72 (33% win, all bull-
+# regime trades lost) → BLOCKED until data revises. SPY Sharpe 0.80 / MaxDD
+# -26% → MARGINAL warn (informational, does not gate). QQQ / GLD pass.
+
+
+def _row_for(ticker: str) -> dict:
+    row = _full_row(ticker=ticker)
+    return row
+
+
+def test_weekly_trend_iwm_blocked():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("IWM"),
+        direction="long",
+        account=cfg.account("main"),
+        skill="weekly-trend-trader",
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is True
+    assert sheet.discipline_attestation.weekly_trend_asset_marginal is False
+    assert sheet.discipline_attestation.entry_authorized is False
+
+
+def test_weekly_trend_iwm_unblocks_with_documented_override():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("IWM"),
+        direction="long",
+        account=cfg.account("main"),
+        skill="weekly-trend-trader",
+        attestation_user_inputs={"weekly_trend_asset_override_documented": True},
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is True
+    assert sheet.discipline_attestation.weekly_trend_asset_override_documented is True
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_weekly_trend_spy_marginal_does_not_gate():
+    """SPY is a soft warn — flag fires but entry_authorized stays True."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("SPY"),
+        direction="long",
+        account=cfg.account("main"),
+        skill="weekly-trend-trader",
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is False
+    assert sheet.discipline_attestation.weekly_trend_asset_marginal is True
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_weekly_trend_qqq_no_flag():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("QQQ"),
+        direction="long",
+        account=cfg.account("main"),
+        skill="weekly-trend-trader",
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is False
+    assert sheet.discipline_attestation.weekly_trend_asset_marginal is False
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_weekly_trend_gld_no_flag():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("GLD"),
+        direction="long",
+        account=cfg.account("main"),
+        skill="weekly-trend-trader",
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is False
+    assert sheet.discipline_attestation.weekly_trend_asset_marginal is False
+    assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_lotto_iwm_not_subject_to_weekly_trend_gate():
+    """Lotto on IWM was a backtest WINNER (Sharpe 1.74) — gate is skill-specific
+    and must not fire on lotto entries."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("IWM"),
+        direction="long",
+        account=cfg.account("lotto"),
+        account_key="lotto",
+        skill="lotto-options",
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is False
+    assert sheet.discipline_attestation.weekly_trend_asset_marginal is False
+
+
+def test_weekly_trend_iwm_blocked_via_skill_config_object():
+    """Skill parameter accepts SkillConfig too — gate must read .name."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    skill_cfg = cfg.skill("weekly-trend-trader")
+    sheet = build_standard(
+        scan_row=_row_for("IWM"),
+        direction="long",
+        account=cfg.account("main"),
+        skill=skill_cfg,
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is True
+
+
+def test_no_skill_no_weekly_trend_gate():
+    """When skill isn't tagged, weekly-trend gate stays inert."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row_for("IWM"),
+        direction="long",
+        account=cfg.account("main"),
+    )
+    assert sheet.discipline_attestation.weekly_trend_asset_blocked is False
+    assert sheet.discipline_attestation.weekly_trend_asset_marginal is False
+
+
 # ─── Rendering ─────────────────────────────────────────────────────────────────
 
 

@@ -6,8 +6,8 @@ import type {
   DisciplineScoreDTO,
   DisciplineStatsDTO,
   JournalBreakdown,
+  JournalExit,
   JournalStats,
-  Position,
 } from "../api/types";
 
 
@@ -258,7 +258,7 @@ export function JournalView() {
 
   // P&L data
   const [breakdown, setBreakdown] = useState<JournalBreakdown | null>(null);
-  const [recent, setRecent] = useState<Position[]>([]);
+  const [exits, setExits] = useState<JournalExit[]>([]);
   // Discipline data
   const [disciplineStats, setDisciplineStats] = useState<DisciplineStatsDTO | null>(null);
   const [disciplineScores, setDisciplineScores] = useState<DisciplineScoreDTO[]>([]);
@@ -270,14 +270,14 @@ export function JournalView() {
     setLoading(true);
     setError(null);
     try {
-      const [bd, rec, ds, dscores] = await Promise.all([
+      const [bd, ex, ds, dscores] = await Promise.all([
         api.journalBreakdown(),
-        api.journalRecent(20),
+        api.journalExits(40),
         api.disciplineStats("all"),
         api.disciplineScores(20),
       ]);
       setBreakdown(bd);
-      setRecent(rec);
+      setExits(ex);
       setDisciplineStats(ds);
       setDisciplineScores(dscores);
     } catch (err) {
@@ -367,38 +367,47 @@ export function JournalView() {
           )}
 
           <div className="panel mt-4">
-            <div className="panel-header">Recent closes</div>
-            {recent.length === 0 ? (
-              <div className="panel-body text-text-muted text-sm">No closed positions yet.</div>
+            <div className="panel-header">Recent exits</div>
+            {exits.length === 0 ? (
+              <div className="panel-body text-text-muted text-sm">No exits yet.</div>
             ) : (
               <div className="panel-body overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-text-secondary text-xs uppercase tracking-wider">
                     <tr>
-                      <th className="text-left p-1">Closed</th>
+                      <th className="text-left p-1">Date</th>
                       <th className="text-left p-1">Ticker</th>
                       <th className="text-left p-1">Acct</th>
                       <th className="text-left p-1">Inst</th>
+                      <th className="text-right p-1">Qty</th>
                       <th className="text-right p-1">P&amp;L</th>
-                      <th className="text-right p-1">Cost</th>
                       <th className="text-left p-1">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recent.map((p) => (
-                      <tr key={p.id} className="border-t border-bg-border">
+                    {exits.map((e, i) => (
+                      <tr key={`${e.position_id}-${i}`} className="border-t border-bg-border">
                         <td className="p-1 text-text-muted">
-                          {(p.closed_date ?? "").slice(0, 19).replace("T", " ")}
+                          {(e.date ?? "").slice(0, 19).replace("T", " ")}
                         </td>
-                        <td className="p-1 font-semibold">{p.ticker}</td>
-                        <td className="p-1">{p.account_key}</td>
-                        <td className="p-1">{p.instrument}</td>
+                        <td className="p-1 font-semibold">
+                          {e.ticker}
+                          {e.is_partial && (
+                            <span className="ml-2 text-[10px] uppercase tracking-wider text-text-muted border border-bg-border px-1 rounded">
+                              partial
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-1">{e.account_key}</td>
+                        <td className="p-1">{e.instrument}</td>
+                        <td className="p-1 text-right font-mono text-xs text-text-muted">
+                          {e.contracts_closed ?? "—"}
+                        </td>
                         <td className={`p-1 text-right font-semibold ${
-                          (p.pnl_usd ?? 0) > 0 ? "text-signal-bull" :
-                          (p.pnl_usd ?? 0) < 0 ? "text-signal-bear" : "text-text-secondary"
-                        }`}>{fmtUsd(p.pnl_usd, true)}</td>
-                        <td className="p-1 text-right text-text-muted">{fmtUsd(p.total_cost_usd)}</td>
-                        <td className="p-1 text-text-secondary text-xs">{p.notes ?? "—"}</td>
+                          (e.pnl_usd ?? 0) > 0 ? "text-signal-bull" :
+                          (e.pnl_usd ?? 0) < 0 ? "text-signal-bear" : "text-text-secondary"
+                        }`}>{fmtUsd(e.pnl_usd, true)}</td>
+                        <td className="p-1 text-text-secondary text-xs">{e.notes ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>

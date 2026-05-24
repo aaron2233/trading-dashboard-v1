@@ -396,6 +396,60 @@ def test_api_lotto_cooldown_blocks_lotto_kill_sheet(tmp_path, monkeypatch):
     assert body["rules_blocked"] is True
 
 
+def test_api_lotto_size_lock_warn_does_not_block_kill_sheet(tmp_path, monkeypatch):
+    """Regression (2026-05-18): a warn-severity violation (lotto_size_lock —
+    most recent lotto trade was a loss) must NOT set rules_blocked. The rule
+    is advisory; the user sees the warning but can still generate the kill
+    sheet and decide on sizing.
+    """
+    from positions.store import PositionStore
+
+    store_path = tmp_path / "positions.json"
+
+    def fake_store_factory():
+        return PositionStore(path=store_path)
+
+    # Single recent loss → triggers size_lock (warn), no cooldown (only 1 loss).
+    store = fake_store_factory()
+    loser = _lotto_position(
+        ticker="RGTI", pnl=-69.0, cost=155.0,
+        closed_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    store.add(loser)
+
+    def fake_scan(ticker, period=None, timeframe="1d"):
+        return {
+            "ticker": ticker, "timeframe": timeframe, "bar_date": "2026-05-18",
+            "close": 100.0,
+            "ma_ribbon": {"ma_10": 99, "ma_20": 98, "ma_50": 95, "ma_200": 90,
+                          "stack_state": "full_bull"},
+            "stochastic": {"k": 50, "d": 50, "zone": "neutral", "signal": None},
+            "sqn": {"sqn_value": 1.0, "regime": "bull",
+                    "sqn_20_value": 0.5, "regime_20": "bull", "diagnostic": "ok"},
+        }
+    monkeypatch.setattr("api.app.scan_ticker", fake_scan)
+    monkeypatch.setattr("api.app.compute_multi_tf",
+                        lambda t, timeframes=None: {})
+
+    app = create_app(store_factory=fake_store_factory)
+    client = TestClient(app)
+
+    resp = client.post("/api/v1/kill_sheet", json={
+        "ticker": "AAPL", "direction": "long",
+        "account": "lotto", "intent": "SCALP",
+        "trigger_tf": "2H", "conviction": "high",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    rule_ids = {v["rule"] for v in body["rule_violations"]}
+    # size_lock should still fire as an advisory
+    assert "lotto_size_lock" in rule_ids
+    size_lock = next(v for v in body["rule_violations"] if v["rule"] == "lotto_size_lock")
+    assert size_lock["severity"] == "warn"
+    # …but it must NOT gate the kill sheet
+    assert body["rules_blocked"] is False
+
+
 def test_api_lotto_cooldown_does_not_block_main_kill_sheet(tmp_path, monkeypatch):
     """Same lotto cooldown should NOT affect main-account kill sheets."""
     from positions.store import PositionStore

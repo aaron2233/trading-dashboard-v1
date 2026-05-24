@@ -7,6 +7,13 @@ Wires into the kill-sheet rules engine to BLOCK lotto kill sheets while
 cooldowns are active.
 """
 from lotto.rules import LottoCooldownViolation, check_lotto_cooldown
+from lotto.scanner import (
+    LOTTO_DEFAULT_WATCHLIST,
+    LOTTO_HIGH_VOL_WATCHLIST,
+    LottoScanResult,
+    LottoSetup,
+    scan_lotto_watchlist,
+)
 from lotto.strikes import (
     DEFAULT_OTM_PCTS,
     StrikeCandidate,
@@ -36,13 +43,18 @@ __all__ = [
     "LOSS_STREAK_COOLDOWN_HOURS",
     "LOSS_STREAK_TRIGGER",
     "LOTTO_ACCOUNT_KEY",
+    "LOTTO_DEFAULT_WATCHLIST",
+    "LOTTO_HIGH_VOL_WATCHLIST",
     "LottoCooldown",
     "LottoCooldownViolation",
+    "LottoScanResult",
+    "LottoSetup",
     "LottoState",
     "LottoTradeSummary",
     "StrikeCandidate",
     "StrikeSuggestionsResult",
     "check_lotto_cooldown",
     "compute_lotto_state",
+    "scan_lotto_watchlist",
     "suggest_strikes",
 ]

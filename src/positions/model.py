@@ -30,7 +30,7 @@ class Position:
     entry_date: str = field(default_factory=_now_iso)
     entry_underlying_price: float | None = None
     contracts: int | None = None
-    shares: int | None = None
+    shares: float | None = None
     strike: float | None = None
     expiry: str | None = None
     premium_paid_per_contract: float | None = None
@@ -77,6 +77,12 @@ class Position:
     # references the kill sheet that authorized it. Nullable for legacy
     # positions and for explicit bypasses (recorded with reason in notes).
     kill_sheet_id: str | None = None
+
+    # Partial exits — appended each time the user scales out of an options
+    # position. When all contracts are eventually closed, status flips to
+    # "closed" and pnl_usd holds the aggregate of every leg's pnl.
+    # Each entry: {date, contracts_closed, pnl_usd, notes}.
+    partial_exits: list[dict] = field(default_factory=list)
 
     @classmethod
     def open_options_position(
@@ -147,7 +153,7 @@ class Position:
         ticker: str,
         direction: str,
         account_key: str,
-        shares: int,
+        shares: float,
         entry_price: float,
         invalidation_price: float,
         target_price: float | None = None,
@@ -194,6 +200,93 @@ class Position:
             # Append a close note rather than overwriting entry notes
             self.notes = f"{self.notes}\nclose: {notes}" if self.notes else f"close: {notes}"
         return self
+
+    def partial_close(
+        self,
+        contracts_closed: int,
+        pnl_usd: float | None = None,
+        notes: str | None = None,
+    ) -> "Position":
+        """Scale out of an options position by `contracts_closed` contracts.
+
+        Decrements `contracts`, scales `max_loss_usd` proportionally (so
+        `open_premium_at_risk` reflects remaining exposure), and appends the
+        leg to `partial_exits`. When the final contract closes, the position
+        transitions to status="closed" and `pnl_usd` becomes the aggregate of
+        every partial leg.
+
+        Options-only. Shares partial close not supported.
+        """
+        if self.status == "closed":
+            raise ValueError(f"Position {self.id} is already closed")
+        if self.instrument == "shares":
+            raise ValueError("partial_close is not supported for shares positions")
+        if self.contracts is None or self.contracts <= 0:
+            raise ValueError(f"Position {self.id} has no contracts to close")
+        if contracts_closed <= 0:
+            raise ValueError("contracts_closed must be positive")
+        if contracts_closed > self.contracts:
+            raise ValueError(
+                f"contracts_closed ({contracts_closed}) exceeds remaining "
+                f"({self.contracts})"
+            )
+
+        starting_contracts = self.contracts
+        leg = {
+            "date": _now_iso(),
+            "contracts_closed": contracts_closed,
+            "pnl_usd": pnl_usd,
+            "notes": notes,
+        }
+        self.partial_exits.append(leg)
+
+        # Scale max_loss_usd proportionally; total_cost_usd is the immutable
+        # entry record and stays as-is.
+        remaining = starting_contracts - contracts_closed
+        if starting_contracts > 0:
+            self.max_loss_usd = self.max_loss_usd * (remaining / starting_contracts)
+        self.contracts = remaining
+
+        if remaining == 0:
+            # Final leg — transition to closed. Aggregate pnl_usd from every
+            # leg that supplied one; legs with pnl=None are skipped.
+            aggregate = sum(
+                float(x["pnl_usd"]) for x in self.partial_exits
+                if x.get("pnl_usd") is not None
+            )
+            self.status = "closed"
+            self.closed_date = _now_iso()
+            self.pnl_usd = aggregate
+            close_note = f"closed final {contracts_closed} contract(s)"
+            if notes:
+                close_note = f"{close_note} — {notes}"
+            self.notes = (
+                f"{self.notes}\nclose: {close_note}" if self.notes
+                else f"close: {close_note}"
+            )
+        else:
+            # Still open — append a partial-exit breadcrumb to notes.
+            leg_note = f"partial close: {contracts_closed} contract(s), {remaining} remaining"
+            if notes:
+                leg_note = f"{leg_note} — {notes}"
+            self.notes = f"{self.notes}\n{leg_note}" if self.notes else leg_note
+
+        return self
+
+    @property
+    def thesis_direction(self) -> str:
+        # `direction` is long/short *the contract*, not the thesis on the
+        # underlying. A long put profits when the underlying falls, so its
+        # thesis is bearish — the alert/discipline engines need that view.
+        # Shares: direction maps straight through.
+        instrument = (self.instrument or "").lower()
+        direction = (self.direction or "").lower()
+        if instrument in {"call", "put"}:
+            bullish = (direction == "long" and instrument == "call") or (
+                direction == "short" and instrument == "put"
+            )
+            return "bullish" if bullish else "bearish"
+        return "bullish" if direction == "long" else "bearish"
 
     def to_dict(self) -> dict:
         return asdict(self)

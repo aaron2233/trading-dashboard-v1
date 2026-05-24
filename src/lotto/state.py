@@ -46,7 +46,7 @@ CASH_FLOOR_USD: float = 200.0
 
 # Growth ladder breakpoints (account total, USD)
 GROWTH_LADDER: tuple[tuple[float, str], ...] = (
-    (5_000, "$5K+ — Standard Apex (lottos = 10% sleeve)"),
+    (5_000, "$5K+ — Standard tier (lottos = 10% sleeve)"),
     (3_000, "$3K — 50/50 lotto/standard"),
     (2_000, "$2K — 70% lotto / 30% standard"),
     (1_000, "$1K — Full lotto"),

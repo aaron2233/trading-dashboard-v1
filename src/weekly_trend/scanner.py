@@ -23,12 +23,21 @@ from typing import Any, Callable, Literal
 
 PENNY_STOCK_THRESHOLD: float = 5.0
 
+# Track A (19/39 weekly cross) blocked tickers per backtest 2026-05-09.
+# These had net-negative avg R on the 19/39 cross signal in 2014-2026 data.
+# Source: ~/.claude/skills/user/weekly-trend-trader/references/19-39-cross-backtest.md
+TRACK_A_BLOCKED_TICKERS: frozenset[str] = frozenset({
+    "QQQ", "GLD", "SPY", "AMZN", "NFLX", "AMD", "TSLA"
+})
+
 # Confluence states — each maps to the skill's named entry quality
 Confluence = Literal[
-    "high_conviction_long",     # full bull stack + Stoch %K cross above %D from <30
-    "high_conviction_short",    # full bear stack + Stoch %K cross below %D from >70
-    "continuation_long",        # full bull stack + Stoch reset 40-60 turning up
-    "continuation_short",       # full bear stack + Stoch reset 40-60 turning down
+    "high_conviction_long",     # Track B: full bull stack + Stoch %K cross above %D from <30
+    "high_conviction_short",    # Track B: full bear stack + Stoch %K cross below %D from >70
+    "continuation_long",        # Track B: full bull stack + Stoch reset 40-60 turning up
+    "continuation_short",       # Track B: full bear stack + Stoch reset 40-60 turning down
+    "track_a_cross_long",       # Track A: 19/39 weekly bullish cross (early entry)
+    "track_a_cross_short",      # Track A: 19/39 weekly bearish cross (early entry)
     "compression",              # MAs converging — pending breakout, wait
     "chop",                     # MAs tangled — no trade, ever
     "no_setup",                 # bias unclear, no actionable signal
@@ -36,6 +45,23 @@ Confluence = Literal[
 
 Direction = Literal["long", "short", "none"]
 Vehicle = Literal["shares", "options"]
+
+
+@dataclass
+class TrackASignal:
+    """19/39 weekly MA cross state for a ticker.
+
+    A `cross_up` fires the bar where 19WMA crosses above 39WMA on weekly close.
+    `above` / `below` is the steady-state read (no fresh cross this week).
+    `none` = insufficient data.
+    """
+    state: Literal["cross_up", "cross_down", "above", "below", "none"]
+    ma_19: float | None
+    ma_39: float | None
+    asset_blocked: bool   # ticker is in TRACK_A_BLOCKED_TICKERS
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -61,6 +87,26 @@ class WeeklySetup:
     # Weekly-trend action verdict — populated for setups with a directional
     # bias (long or short). None for chop/compression/no_setup confluence.
     action_verdict: dict[str, Any] | None = None
+    # Track A (19/39 weekly cross) signal. Populated when raw weekly bars are
+    # available. None when bars_fn is unavailable or returned <40 bars.
+    track_a: TrackASignal | None = None
+    # ─── Unified verdict + entry/stop fields (shared across all scans) ───
+    verdict: str = "wait"          # buy | wait | no_go
+    verdict_reason: str = ""
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    suggested_dte: str | None = None     # "120-180 DTE" / "365+ DTE LEAPS" etc.
+    suggested_delta: str | None = None   # "0.50-0.65" / "0.75-0.90" etc.
+    # Concrete dollar strike — BS-derived from spot + HV at the midpoint
+    # delta target for the current track (Track A LEAPS: 0.825; Track B
+    # 120-180 DTE: 0.575). None when scan didn't provide HV.
+    suggested_strike: float | None = None
+    # When the scan was driven by a universe sweep (nasdaq_100 / sp500_top_50
+    # / russell_2000_top_50), this records which universe surfaced the
+    # ticker. None for explicit ticker lists or the legacy per-ticker scan.
+    # Mirrors LottoSetup.source_universe so the UI can group by index.
+    source_universe: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -84,6 +130,55 @@ class WeeklyScanResult:
             "top_setups": [s.to_dict() for s in self.top_setups],
             "errors": dict(self.errors),
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Track A — 19/39 weekly MA cross detection
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def detect_track_a_signal(weekly_bars: Any, ticker: str) -> TrackASignal:
+    """Detect 19/39 weekly MA cross from a weekly DataFrame with `close`.
+
+    Returns a TrackASignal with state ∈ {cross_up, cross_down, above, below, none}.
+    Pure-pandas; no I/O. Caller passes weekly bars (e.g., from yfinance with
+    interval="1wk") and ticker for asset-blocked classification.
+    """
+    asset_blocked = ticker.upper() in TRACK_A_BLOCKED_TICKERS
+
+    try:
+        import pandas as pd  # noqa: F401 — type guard
+        if weekly_bars is None or len(weekly_bars) < 40:
+            return TrackASignal(state="none", ma_19=None, ma_39=None,
+                                asset_blocked=asset_blocked)
+        closes = weekly_bars["close"]
+        ma_19_series = closes.rolling(19).mean()
+        ma_39_series = closes.rolling(39).mean()
+        if ma_19_series.iloc[-1] is None or ma_39_series.iloc[-1] is None:
+            return TrackASignal(state="none", ma_19=None, ma_39=None,
+                                asset_blocked=asset_blocked)
+        ma_19_now = float(ma_19_series.iloc[-1])
+        ma_39_now = float(ma_39_series.iloc[-1])
+        ma_19_prev = float(ma_19_series.iloc[-2])
+        ma_39_prev = float(ma_39_series.iloc[-2])
+
+        if ma_19_prev <= ma_39_prev and ma_19_now > ma_39_now:
+            state: Any = "cross_up"
+        elif ma_19_prev >= ma_39_prev and ma_19_now < ma_39_now:
+            state = "cross_down"
+        elif ma_19_now > ma_39_now:
+            state = "above"
+        elif ma_19_now < ma_39_now:
+            state = "below"
+        else:
+            state = "none"
+        return TrackASignal(
+            state=state, ma_19=ma_19_now, ma_39=ma_39_now,
+            asset_blocked=asset_blocked,
+        )
+    except Exception:
+        return TrackASignal(state="none", ma_19=None, ma_39=None,
+                            asset_blocked=asset_blocked)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -195,6 +290,8 @@ def classify_confluence(
 _CONFLUENCE_BASE_SCORE: dict[Confluence, int] = {
     "high_conviction_long":  70,
     "high_conviction_short": 70,
+    "track_a_cross_long":    60,  # early-entry; ranks below high-conviction Track B
+    "track_a_cross_short":   60,
     "continuation_long":     50,
     "continuation_short":    50,
     "compression":           20,
@@ -244,13 +341,24 @@ def _rank_score(setup: WeeklySetup) -> int:
 
 
 def _why_now(confluence: Confluence, stack: str | None,
-             stoch_signal: str | None, regime: str | None) -> str:
+             stoch_signal: str | None, regime: str | None,
+             track_a: TrackASignal | None = None) -> str:
     if confluence == "chop":
         return "Chop — sit out"
     if confluence == "compression":
         return "MAs compressing — pending breakout, set alerts and wait"
     if confluence == "no_setup":
         return f"{stack or '?'} stack, no Stoch trigger yet"
+    if confluence in ("track_a_cross_long", "track_a_cross_short"):
+        direction_word = "BULL" if confluence == "track_a_cross_long" else "BEAR"
+        parts = [f"TRACK A {direction_word} CROSS (19/39 weekly)"]
+        if track_a and track_a.ma_19 is not None and track_a.ma_39 is not None:
+            parts.append(f"19WMA ${track_a.ma_19:.2f} · 39WMA ${track_a.ma_39:.2f}")
+        if track_a and track_a.asset_blocked:
+            parts.append("⚠ asset blocked for Track A — use Track B instead")
+        if regime:
+            parts.append(f"SQN(100) {regime}")
+        return " · ".join(parts)
     parts = [confluence.replace("_", " ").upper()]
     if stoch_signal:
         parts.append(stoch_signal.replace("_", " "))
@@ -266,16 +374,31 @@ def _why_now(confluence: Confluence, stack: str | None,
 
 
 def scan_weekly_watchlist(
-    tickers: list[str],
+    tickers: list[str] | None = None,
     *,
     benchmark: str = "SPY",
     scan_fn: Callable[[str, str], dict[str, Any]] | None = None,
+    bars_fn: Callable[[str], Any] | None = None,
     top_n: int = 3,
+    universe: list[str] | None = None,
 ) -> WeeklyScanResult:
     """Run weekly-TF scan across a watchlist + benchmark regime read.
 
+    Two modes:
+      - Explicit `tickers` (per-ticker scan): scans exactly those names.
+        Each setup's `source_universe` is None.
+      - `universe` (bulk universe scan): resolves tickers via
+        `free_range.universe.free_range_universe(name)` for each universe
+        name (e.g., "nasdaq_100", "sp500_top_50", "russell_2000_top_50").
+        Each setup is tagged with the index it came from so the UI can
+        group results. First universe a ticker appears in "owns" it.
+      - When both are provided, `tickers` wins (explicit beats universe).
+      - When neither is provided, raises ValueError.
+
     `scan_fn` is `scan_ticker(ticker, timeframe)` from src/scan.py — injected
     for tests so we don't hit yfinance. Production callers leave it None.
+    `bars_fn` is an optional weekly-bars loader for Track A 19/39 detection.
+    When None and not in test mode, defaults to load_bars with interval="1wk".
     Returns per-ticker setups + top-N ranked.
     """
     if scan_fn is None:
@@ -284,7 +407,48 @@ def scan_weekly_watchlist(
         def scan_fn(ticker: str, timeframe: str) -> dict[str, Any]:
             return scan_ticker(ticker, timeframe=timeframe)
 
+    if bars_fn is None:
+        try:
+            from data.yfinance_loader import load_bars
+
+            def bars_fn(ticker: str) -> Any:
+                # 5y of weekly bars covers 39-bar warmup with margin
+                return load_bars(ticker, period="5y", interval="1wk")
+        except Exception:
+            # Tests / restricted environments may not have yfinance; Track A
+            # detection becomes a no-op instead of crashing the scan.
+            bars_fn = None
+
     errors: dict[str, str] = {}
+
+    # Resolve scan target. Explicit `tickers` wins; then `universe`; refuse
+    # to scan with neither (callers must opt into one or the other so we
+    # never silently scan an empty list and return nothing).
+    ticker_universe: dict[str, str | None] = {}
+    if tickers:
+        tickers_to_scan = [t.strip().upper() for t in tickers if t and t.strip()]
+        for t in tickers_to_scan:
+            ticker_universe[t] = None
+    elif universe:
+        from free_range.universe import free_range_universe
+        seen_u: set[str] = set()
+        tickers_to_scan = []
+        for uni_name in universe:
+            try:
+                for t in free_range_universe(universe=uni_name):
+                    t_upper = t.upper()
+                    if t_upper in seen_u:
+                        continue
+                    seen_u.add(t_upper)
+                    tickers_to_scan.append(t_upper)
+                    # First universe a ticker appears in "owns" it for grouping.
+                    ticker_universe[t_upper] = uni_name
+            except Exception as exc:
+                errors[f"_universe_{uni_name}"] = f"universe resolve failed: {exc}"
+    else:
+        raise ValueError(
+            "scan_weekly_watchlist requires either `tickers` or `universe`"
+        )
 
     # Benchmark regime — comes from the SQN(100) on the benchmark on its own
     # daily read (per skill, regime is broad-market, not weekly chart of the
@@ -298,7 +462,7 @@ def scan_weekly_watchlist(
 
     setups: list[WeeklySetup] = []
     seen: set[str] = set()
-    for raw in tickers:
+    for raw in tickers_to_scan:
         ticker = raw.strip().upper()
         if not ticker or ticker in seen:
             continue
@@ -321,8 +485,129 @@ def scan_weekly_watchlist(
         confluence, direction, blockers = classify_confluence(
             stack, k, d, signal, benchmark_regime,
         )
+
+        # Track A: 19/39 weekly cross detection. Only attempted if a weekly
+        # bars_fn is available; failures are silent (Track A is additive).
+        track_a: TrackASignal | None = None
+        if bars_fn is not None:
+            try:
+                weekly_bars = bars_fn(ticker)
+                track_a = detect_track_a_signal(weekly_bars, ticker)
+            except Exception:
+                track_a = None
+
+        # If Track A fires a FRESH cross AND classify_confluence didn't already
+        # produce a high-conviction signal, prefer the Track A early-entry
+        # confluence so the user sees it surface in the scan output. Existing
+        # high_conviction_* / continuation_* take precedence (those are richer
+        # Track B signals). chop / compression remain blockers regardless.
+        if track_a is not None and confluence in ("no_setup", "compression"):
+            if track_a.state == "cross_up":
+                confluence = "track_a_cross_long"
+                direction = "long"
+                if track_a.asset_blocked:
+                    blockers = blockers + [
+                        f"{ticker} is on the Track A blocked list — switch to Track B "
+                        f"(10/20/50/200 ribbon) or skip"
+                    ]
+            elif track_a.state == "cross_down":
+                confluence = "track_a_cross_short"
+                direction = "short"
+                if track_a.asset_blocked:
+                    blockers = blockers + [
+                        f"{ticker} is on the Track A blocked list — switch to Track B "
+                        f"(10/20/50/200 ribbon) or skip"
+                    ]
+
         is_penny = close is not None and close < PENNY_STOCK_THRESHOLD
         vehicle: Vehicle = "shares" if is_penny else "options"
+
+        # Compute unified verdict + entry/stop/target.
+        # Pass Stoch signal so continuation_* requires a fresh momentum
+        # trigger (not just stack-aligned state). Pass Track A separation
+        # so razor-thin crosses get downgraded to WAIT. Pass weekly-bar
+        # color so red-candle reversals don't get classed as BUY.
+        from scan_verdict import weekly_verdict
+        track_a_sep_pct: float | None = None
+        track_a_stretch: float | None = None
+        if (
+            track_a is not None
+            and track_a.ma_19 is not None
+            and track_a.ma_39 is not None
+            and close is not None
+            and close > 0
+        ):
+            track_a_sep_pct = abs(track_a.ma_19 - track_a.ma_39) / close * 100.0
+            # Stretch: how far the close is from the 19WMA stop anchor.
+            # Signed (+ = close above 19WMA, − = below).
+            if track_a.ma_19 > 0:
+                track_a_stretch = (close - track_a.ma_19) / track_a.ma_19 * 100.0
+        open_px = row.get("open")
+        bar_is_bullish: bool | None = None
+        if open_px is not None and close is not None:
+            try:
+                bar_is_bullish = float(close) > float(open_px)
+            except (TypeError, ValueError):
+                bar_is_bullish = None
+        verdict_obj = weekly_verdict(
+            confluence, direction, benchmark_regime, blockers,
+            stoch_signal=signal,
+            track_a_separation_pct=track_a_sep_pct,
+            bar_is_bullish=bar_is_bullish,
+            track_a_stretch_pct=track_a_stretch,
+        )
+
+        # Entry / stop / target derivation
+        ma_50 = float(ma.get("ma_50") or 0.0) or None
+        ma_20 = float(ma.get("ma_20") or 0.0) or None
+        entry_p: float | None = close if direction in ("long", "short") else None
+        stop_p: float | None = None
+        target_p: float | None = None
+        suggested_dte: str | None = None
+        suggested_delta: str | None = None
+
+        suggested_strike: float | None = None
+        if direction in ("long", "short"):
+            # Track A entry uses 19WMA stop; Track B uses 50WMA stop.
+            if confluence in ("track_a_cross_long", "track_a_cross_short") and track_a:
+                stop_p = track_a.ma_19
+                suggested_dte = "365+ DTE LEAPS"
+                suggested_delta = "0.75-0.90 (deep ITM)"
+                target_delta_val = 0.825  # mid of 0.75-0.90
+                dte_days = 400
+            else:
+                stop_p = ma_50  # Track B 50WMA stop
+                suggested_dte = "120-180 DTE"
+                suggested_delta = "0.50-0.65 (ATM/slight ITM)"
+                target_delta_val = 0.575  # mid of 0.50-0.65
+                dte_days = 150  # mid of 120-180
+            # Target: next major MA overhead (longs) or below (shorts) — use 200WMA
+            # as a coarse default. Real target placement is per-trade discretion.
+            ma_200 = float(ma.get("ma_200") or 0.0) or None
+            if direction == "long" and ma_200 and entry_p and ma_200 > entry_p:
+                target_p = ma_200
+            elif direction == "short" and ma_200 and entry_p and ma_200 < entry_p:
+                target_p = ma_200
+
+            # Concrete strike suggestion. weekly scans use weekly bars for
+            # row data, so row.get("hv20") may be None (HV is only computed
+            # for daily bars in scan.py). Pull daily HV separately for this.
+            hv = row.get("hv20")
+            if hv is None:
+                try:
+                    daily_row = scan_fn(ticker, "1d")
+                    hv = daily_row.get("hv20")
+                except Exception:
+                    hv = None
+            if close is not None and hv:
+                from lotto.strikes import suggest_strike_for_delta
+                suggested_strike = suggest_strike_for_delta(
+                    spot=float(close), hv_annual=float(hv),
+                    dte_days=dte_days,
+                    kind="call" if direction == "long" else "put",
+                    target_delta=target_delta_val,
+                    ticker=ticker,
+                )
 
         setup = WeeklySetup(
             ticker=ticker,
@@ -336,8 +621,18 @@ def scan_weekly_watchlist(
             confluence=confluence,
             direction=direction,
             rank_score=0,  # filled below
-            why_now=_why_now(confluence, stack, signal, benchmark_regime),
+            why_now=_why_now(confluence, stack, signal, benchmark_regime, track_a),
             blockers=blockers,
+            track_a=track_a,
+            verdict=verdict_obj.verdict,
+            verdict_reason=verdict_obj.reason,
+            entry_price=entry_p if verdict_obj.verdict in ("buy", "wait") else None,
+            stop_price=stop_p if verdict_obj.verdict in ("buy", "wait") else None,
+            target_price=target_p,
+            suggested_dte=suggested_dte,
+            suggested_delta=suggested_delta,
+            suggested_strike=suggested_strike,
+            source_universe=ticker_universe.get(ticker),
         )
         setup.rank_score = _rank_score(setup)
 
