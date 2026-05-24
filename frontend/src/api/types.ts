@@ -136,14 +136,6 @@ export interface Position {
   kill_sheet_id: string | null;
   // Partial exits — each leg is one scale-out. Empty until first partial.
   partial_exits: PartialExit[];
-  // Recovery-plan R1/R2/R3 violations attached at journal time. Empty for
-  // compliant entries. Surfaced as loud warnings; never blocks the entry.
-  recovery_violations?: Array<{
-    rule: string;
-    severity: string;
-    message: string;
-    details: Record<string, unknown>;
-  }>;
 }
 
 export interface PartialExit {
@@ -719,48 +711,3 @@ export interface ParsedOptionsResponse {
 }
 
 
-// ─── Recovery plan (2026-05-13) ───────────────────────────────────────
-
-export interface RecoveryMilestone {
-  name: "floor" | "half" | "breakeven" | "stretch" | "aspirational";
-  label: string;
-  threshold: number;
-  hit: boolean;
-}
-
-export interface RecoveryStatus {
-  year_start_balance: number;
-  current_balance: number;
-  ytd_realized_pnl: number;
-  deposits_total: number;
-  year_breakeven_target: number;
-  plan_committed_at: string;
-  pnl_from_today_needed: number;
-  pct_to_breakeven: number;
-  milestones: RecoveryMilestone[];
-  milestone_status: {
-    last_hit: RecoveryMilestone | null;
-    next: RecoveryMilestone | null;
-    all_hit: boolean;
-  };
-  r1_lotto_cap_usd: number;
-  r1_main_cap_usd: number;
-  r2_max_daily_entries: number;
-  r2_entries_today: number;
-  r2_remaining_today: number;
-}
-
-export interface RecoveryConfigUpdate {
-  current_balance?: number;
-  ytd_realized_pnl?: number;
-  year_start_balance?: number;
-  year_breakeven_target?: number;
-  delta_deposit_usd?: number;
-}
-
-export interface RecoveryViolation {
-  rule: "R1" | "R2" | "R3";
-  severity: "warn";
-  message: string;
-  details: Record<string, unknown>;
-}

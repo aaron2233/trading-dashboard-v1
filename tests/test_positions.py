@@ -81,8 +81,8 @@ def test_thesis_direction_options_long_put_is_bearish():
 
 
 def test_thesis_direction_options_short_put_is_bullish():
-    # Not used in Aaron's cash account but the property must still be correct
-    # for completeness — a short put is bullish on the underlying.
+    # Not used in a cash-only configuration but the property must still be
+    # correct for completeness — a short put is bullish on the underlying.
     p = Position(direction="short", instrument="put")
     assert p.thesis_direction == "bullish"
 
@@ -188,7 +188,7 @@ def test_store_close_marks_position_closed(tmp_path: Path):
 def test_store_recovers_from_corrupt_file(tmp_path: Path, caplog):
     """A truncated/corrupt positions.json must not crash the app — it logs
     an error and starts empty so the user can recover from a backup.
-    Aaron's invariant: the dashboard always boots, even after disk damage.
+    Durability invariant: the dashboard always boots, even after disk damage.
     """
     path = tmp_path / "positions.json"
     path.write_text('[{"id": "abc", "ticker": "AA')  # truncated mid-write

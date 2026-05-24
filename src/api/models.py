@@ -214,10 +214,6 @@ class PositionResponse(BaseModel):
     premium_target: float | None = None
     kill_sheet_id: str | None = None
     partial_exits: list[dict] = Field(default_factory=list)
-    # Recovery-plan R1/R2/R3 violations evaluated at journal time. Surfaced
-    # for the UI to display loud warnings without blocking the entry — the
-    # discipline scorecard handles retrospective rule-adherence scoring.
-    recovery_violations: list[dict] = Field(default_factory=list)
 
 
 class AlertResponse(BaseModel):
@@ -793,64 +789,6 @@ class SparklineResponse(BaseModel):
     timeframe: str
     dates: list[str] = Field(default_factory=list)
     closes: list[float] = Field(default_factory=list)
-
-
-# ─── Recovery plan (2026-05-13 — R1/R2/R3 + milestones) ───────────────────────
-
-
-class RecoveryMilestoneResponse(BaseModel):
-    name: str
-    label: str
-    threshold: float
-    hit: bool
-
-
-class RecoveryStatusResponse(BaseModel):
-    year_start_balance: float
-    current_balance: float
-    ytd_realized_pnl: float
-    deposits_total: float
-    year_breakeven_target: float
-    plan_committed_at: str
-
-    pnl_from_today_needed: float
-    pct_to_breakeven: float
-    milestones: list[RecoveryMilestoneResponse]
-    milestone_status: dict
-
-    r1_lotto_cap_usd: float
-    r1_main_cap_usd: float
-    r2_max_daily_entries: int
-    r2_entries_today: int
-    r2_remaining_today: int
-
-
-class RecoveryConfigUpdateRequest(BaseModel):
-    """Partial update of the recovery config. Any unset field is left
-    unchanged. Use `delta_deposit_usd` to LOG a new deposit (it adds to
-    deposits_total AND current_balance together)."""
-    current_balance: float | None = None
-    ytd_realized_pnl: float | None = None
-    year_start_balance: float | None = None
-    year_breakeven_target: float | None = None
-    delta_deposit_usd: float | None = None
-
-
-class RecoveryRuleViolationResponse(BaseModel):
-    rule: str
-    severity: str
-    message: str
-    details: dict
-
-
-class PositionRuleCheckResponse(BaseModel):
-    """Surface alongside a position-open response when one or more R1/R2/R3
-    rules were violated. The position WAS still recorded — these warnings
-    are journaled for the discipline scorecard."""
-    any_violations: bool
-    r1: dict
-    r2: dict
-    r3: dict
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

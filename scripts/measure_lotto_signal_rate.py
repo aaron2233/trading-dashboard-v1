@@ -2,7 +2,7 @@
 
 The daily-bar lotto proxy in `backtest_strategies.py` understates the live
 signal rate because daily Stoch crosses from <30 are rare in trending
-markets — on 2H bars those crosses fire several times per week. Aaron's
+markets — on 2H bars those crosses fire several times per week. The
 orchestrator targets 2-4 lotto trades/week on QQQ + GLD; the question
 is whether the *signal* rate from the production `lotto_verdict()` clears
 that target on real 2H data, and if not, which gate is the binding
@@ -134,7 +134,7 @@ def _classify(
 ) -> str:
     """Replicate lotto_verdict() with one gate optionally relaxed.
 
-    Long-side only — that's where Aaron's 2-4/wk target lives. Short-side
+    Long-side only — that's where the 2-4/wk target lives. Short-side
     is structurally rare on QQQ + GLD because SQN(100) Bear is rare.
     """
     direction = args["direction"]
@@ -314,7 +314,7 @@ def render(results: list[TickerResult]) -> str:
     out.append("=" * 100)
     out.append("")
     out.append(
-        "Aaron's orchestrator target: 2-4 lotto trades/week (across the lotto book)."
+        "Orchestrator target: 2-4 lotto trades/week (across the lotto book)."
     )
     out.append(
         "This script measures signals/week from production `lotto_verdict()` "

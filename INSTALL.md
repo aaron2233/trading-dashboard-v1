@@ -187,9 +187,7 @@ If something here annoys you in a way that feels like a bug rather than a design
 ## 11. Where to look next
 
 - `README.md` — high-level project description, full feature inventory, CLI reference
-- `HANDOFF.md` — deep technical handoff, code tour, V1→V2 architectural seams
-- `CONTEXT.md` — story backlog, links to source-of-truth specs
 - `src/config/loader.py` — full account schema (every field you can override)
 - `tests/` — 740 examples of how the API and modules behave
 
-Questions, weirdness, or things the README doesn't cover — ask Aaron directly. If a doc gap is real, it's worth patching.
+Questions, weirdness, or things the README doesn't cover — open an issue on the repo. If a doc gap is real, it's worth patching.

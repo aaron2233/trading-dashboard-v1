@@ -36,9 +36,6 @@ from api.models import (
     FreeRangeScanResponse,
     HealthResponse,
     JournalExitResponse,
-    PositionRuleCheckResponse,
-    RecoveryConfigUpdateRequest,
-    RecoveryStatusResponse,
     JournalReportResponse,
     JournalStatsResponse,
     KillSheetRequest,
@@ -447,31 +444,12 @@ def create_app(
     def dashboard_state():
         """Aggregate stage + balance + unreviewed-weeks for the UX banner.
 
-        Balance source: the user-maintained `recovery_plan.json::current_balance`
-        when present (single source of truth shared with the Recovery view).
-        Falls back to config base + realized P&L when the recovery plan can't
-        be loaded.
+        Balance source: config base + realized P&L from closed positions.
         """
         config = config_loader()
         store = store_factory()
         closed_positions = [p for p in store.list_all() if p.status == "closed"]
-        # Pull authoritative balance from the recovery plan — only when the
-        # user has explicitly initialized it (file exists on disk). Don't
-        # auto-create a default config from here; that would shadow the
-        # account-config baseline silently.
-        balance_override: float | None = None
-        try:
-            from recovery_plan import DEFAULT_CONFIG_PATH as _RECOVERY_PATH
-            if _RECOVERY_PATH.exists():
-                from recovery_plan import load_config as _load_recovery_config
-                rcfg = _load_recovery_config()
-                if rcfg.current_balance and rcfg.current_balance > 0:
-                    balance_override = float(rcfg.current_balance)
-        except Exception:
-            pass
-        state = compute_dashboard_state(
-            config, closed_positions, balance_override_usd=balance_override,
-        )
+        state = compute_dashboard_state(config, closed_positions)
         return DashboardStateResponse(
             stage=state.stage,
             stage_reminder=state.stage_reminder,
@@ -1168,37 +1146,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        # Evaluate R1/R2/R3 BEFORE storing — R2 looks at "today's prior
-        # entries" so we want to count what existed at the moment this
-        # journal entry was made.
-        from recovery_plan import (
-            check_r1_dollar_cap, check_r2_daily_entries, check_r3_standing_stop,
-        )
-        prior = store.list_all()
-        r1 = check_r1_dollar_cap(position.account_key, position.max_loss_usd)
-        r2 = check_r2_daily_entries(prior)
-        r3 = check_r3_standing_stop(
-            position.premium_paid_per_contract, position.premium_stop,
-        )
-
         store.add(position)
-
-        # Surface violations on the response so the UI can warn loudly.
-        # Per dashboard design (api/app.py "journal entries should never be
-        # blocked"), we record the position regardless.
-        resp = _position_to_response(position)
-        violations: list[dict] = []
-        for r in (r1, r2, r3):
-            if not r.compliant and r.violation is not None:
-                violations.append({
-                    "rule": r.violation.rule,
-                    "severity": r.violation.severity,
-                    "message": r.violation.message,
-                    "details": dict(r.violation.details),
-                })
-        if violations:
-            resp.recovery_violations = violations
-        return resp
+        return _position_to_response(position)
 
     @app.get("/api/v1/positions/alerts", response_model=list[AlertResponse])
     def position_alerts():
@@ -1245,28 +1194,6 @@ def create_app(
                 # the user can run `python -m discipline score <id>` later.
                 import sys as _sys
                 print(f"⚠ Auto-score failed for {position_id}", file=_sys.stderr)
-
-        # Auto-update recovery balance with this close event's realized P&L.
-        # `req.pnl` is the realized $ for this specific close action (full
-        # or partial leg). Skip if absent or zero. Failures here are
-        # non-fatal — the close itself succeeded.
-        if req.pnl is not None and req.pnl != 0:
-            try:
-                from recovery_plan import DEFAULT_CONFIG_PATH as _RECOVERY_PATH
-                if _RECOVERY_PATH.exists():
-                    from recovery_plan import load_config as _load_recovery_config
-                    from recovery_plan import save_config as _save_recovery_config
-                    rcfg = _load_recovery_config()
-                    rcfg.current_balance = round(rcfg.current_balance + float(req.pnl), 2)
-                    rcfg.ytd_realized_pnl = round(rcfg.ytd_realized_pnl + float(req.pnl), 2)
-                    _save_recovery_config(rcfg)
-            except Exception:
-                import sys as _sys
-                print(
-                    f"⚠ Recovery balance auto-update failed for {position_id} "
-                    f"(close pnl={req.pnl})",
-                    file=_sys.stderr,
-                )
 
         return _position_to_response(position)
 
@@ -1343,78 +1270,6 @@ def create_app(
                 ))
         events.sort(key=lambda e: e.date, reverse=True)
         return events[:limit]
-
-    # ─── Recovery plan (2026-05-13: R1/R2/R3 + milestones) ───────────────────
-
-    @app.get("/api/v1/recovery/status", response_model=RecoveryStatusResponse)
-    def recovery_status():
-        from recovery_plan import build_status, load_config
-        store = store_factory()
-        cfg = load_config()
-        status = build_status(cfg, store.list_all())
-        return RecoveryStatusResponse(**status.to_dict())
-
-    @app.put("/api/v1/recovery/config", response_model=RecoveryStatusResponse)
-    def update_recovery_config(req: RecoveryConfigUpdateRequest):
-        """Partial update. `delta_deposit_usd` adds to deposits_total AND
-        current_balance simultaneously (logging a cash add)."""
-        from recovery_plan import build_status, load_config, save_config
-        cfg = load_config()
-        if req.delta_deposit_usd is not None:
-            cfg.deposits_total = round(cfg.deposits_total + req.delta_deposit_usd, 2)
-            cfg.current_balance = round(cfg.current_balance + req.delta_deposit_usd, 2)
-        if req.current_balance is not None:
-            cfg.current_balance = round(req.current_balance, 2)
-        if req.ytd_realized_pnl is not None:
-            cfg.ytd_realized_pnl = round(req.ytd_realized_pnl, 2)
-        if req.year_start_balance is not None:
-            cfg.year_start_balance = round(req.year_start_balance, 2)
-        if req.year_breakeven_target is not None:
-            cfg.year_breakeven_target = round(req.year_breakeven_target, 2)
-        save_config(cfg)
-        status = build_status(cfg, store_factory().list_all())
-        return RecoveryStatusResponse(**status.to_dict())
-
-    @app.get(
-        "/api/v1/recovery/check-position/{position_id}",
-        response_model=PositionRuleCheckResponse,
-    )
-    def recovery_check_position(position_id: str):
-        """Retrospective per-position R1/R2/R3 check (useful for the scorecard
-        view to flag specific journal entries that violated rules)."""
-        from recovery_plan import (
-            check_r1_dollar_cap, check_r2_daily_entries, check_r3_standing_stop,
-        )
-        store = store_factory()
-        try:
-            position = store.get(position_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-        r1 = check_r1_dollar_cap(position.account_key, position.max_loss_usd)
-        # R2: count entries on the position's own entry date (not "today")
-        # — what the user would have seen at entry time.
-        from datetime import datetime
-        try:
-            entry_dt = datetime.fromisoformat(position.entry_date)
-            same_day = [
-                p for p in store.list_all()
-                if p.id != position.id
-                and p.entry_date
-                and datetime.fromisoformat(p.entry_date).date() == entry_dt.date()
-                and datetime.fromisoformat(p.entry_date) <= entry_dt
-            ]
-        except Exception:
-            same_day = []
-        r2 = check_r2_daily_entries(same_day, now=entry_dt if 'entry_dt' in dir() else None)
-        r3 = check_r3_standing_stop(
-            position.premium_paid_per_contract, position.premium_stop,
-        )
-        return PositionRuleCheckResponse(
-            any_violations=not (r1.compliant and r2.compliant and r3.compliant),
-            r1=r1.to_dict(),
-            r2=r2.to_dict(),
-            r3=r3.to_dict(),
-        )
 
     # ─── Discipline ───────────────────────────────────────────────────────────
 

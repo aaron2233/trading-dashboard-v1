@@ -12,8 +12,6 @@ import type {
   LottoState,
   OpenPositionRequest,
   ParsedOptionsResponse,
-  RecoveryConfigUpdate,
-  RecoveryStatus,
   WeeklyScanRequest,
   WeeklyScanResponse,
   IndexSwingScanRequest,
@@ -201,15 +199,6 @@ export const api = {
     request<ParsedOptionsResponse>("/api/v1/options/extract/text", {
       method: "POST",
       body: JSON.stringify({ text, ticker }),
-    }),
-
-  recoveryStatus: () =>
-    request<RecoveryStatus>("/api/v1/recovery/status"),
-
-  recoveryConfigUpdate: (req: RecoveryConfigUpdate) =>
-    request<RecoveryStatus>("/api/v1/recovery/config", {
-      method: "PUT",
-      body: JSON.stringify(req),
     }),
 
   extractOptionsScreenshot: (

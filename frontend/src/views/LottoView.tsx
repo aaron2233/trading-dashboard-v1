@@ -404,9 +404,9 @@ function LottoSetupScanSection({
   loading: boolean;
   onScan: () => void;
 }) {
-  // Surface BUYs only — Aaron explicitly does not want WAITs or NO_GOs
-  // in this section. The verdict banner above the page already handles
-  // the "nothing to do right now" state.
+  // Surface BUYs only — by design, WAITs and NO_GOs are filtered out of
+  // this section. The verdict banner above the page already handles the
+  // "nothing to do right now" state.
   const surfaced = (scan?.setups ?? []).filter((s) => s.verdict === "buy");
   // Group by source_universe; fall back to "other" for setups scanned via
   // an explicit ticker list (no universe tag).

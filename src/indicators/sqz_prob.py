@@ -1,11 +1,13 @@
 """SQZ PROB v3 — Python port of the TradingView Pine v6 indicator.
 
-Source: /Users/aaronrennell/Downloads/sqz_prob_v3_2.pine (Aaron's TradingView script).
+Source: a private TradingView Pine v6 script (sqz_prob_v3_2.pine) maintained
+by the author. Not bundled with this repo — port it from your own copy if
+you want to use this module.
 
 Computes 6 component scores (squeeze, volume, momentum, price position, stoch
 divergence, short interest) → bull/bear composites (0-100). SQN regime boost
 and VIX filter applied on top. Mirrors the Pine implementation closely so the
-backtest is faithful to what Aaron sees on TradingView.
+backtest matches the TradingView output.
 
 Skipped vs. Pine source:
   - Manual short-interest inputs (Pine accepts user-typed numbers). The
@@ -56,7 +58,8 @@ W_PRICE = 15.0
 W_DIVERGENCE = 10.0
 W_SI = 15.0
 
-# Tickers Pine treats as wrapper-ETFs (Aaron flags GLD/SLV/USO/TLT/HYG/LQD/UNG manually).
+# Tickers Pine treats as wrapper-ETFs (commodity / fixed-income ETFs where
+# the per-share short-interest signal is meaningless — flagged manually).
 WRAPPER_ETFS: frozenset[str] = frozenset({
     "GLD", "SLV", "USO", "TLT", "HYG", "LQD", "UNG",
 })

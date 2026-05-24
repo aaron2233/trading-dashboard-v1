@@ -1,9 +1,8 @@
 """Tests for src/storage/atomic.py — atomic writes and resilient loads.
 
-These tests guard the durability invariant Aaron specifically called out:
-"once I save trades and I come back and reload the app, those trades are
-still there." The atomic-write primitive is the foundation that makes that
-true even on crashes / OOM / power loss.
+These tests guard the durability invariant: "once trades are saved and the
+app is reloaded, those trades are still there." The atomic-write primitive
+is the foundation that makes that true even on crashes / OOM / power loss.
 """
 from __future__ import annotations
 

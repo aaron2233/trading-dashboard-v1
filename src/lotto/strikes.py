@@ -16,14 +16,14 @@ from typing import Any, Literal
 
 
 # Default OTM offsets shown in the panel. ATM (0%) plus standard lottery
-# distances. Aaron's lotto sizing scales down at deeper OTM — these are
-# the strikes most worth surfacing.
+# distances. Lotto sizing scales down at deeper OTM — these are the
+# strikes most worth surfacing.
 DEFAULT_OTM_PCTS: tuple[float, ...] = (0.0, 1.0, 3.0, 5.0, 7.0, 10.0)
 
 
 # Per-ticker increment overrides. Used when an underlying trades on a
 # non-$1 grid. Default is $1 — true for QQQ/SPY/GLD and most equities
-# Aaron's account profile cares about. Add more entries here as needed.
+# typical lotto setups care about. Add more entries here as needed.
 TICKER_INCREMENTS: dict[str, float] = {
     # ETFs — all $1 grid in liquid expirations
     "SPY": 1.0, "QQQ": 1.0, "GLD": 1.0, "IWM": 1.0, "DIA": 1.0,

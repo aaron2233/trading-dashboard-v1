@@ -12,7 +12,6 @@ import { WeeklyTrendView } from "./views/WeeklyTrendView";
 import { IndexSwingView } from "./views/IndexSwingView";
 import { PositionsView } from "./views/PositionsView";
 import { JournalView } from "./views/JournalView";
-import { RecoveryView } from "./views/RecoveryView";
 import { RegimeHealthView } from "./views/RegimeHealthView";
 import { WeeklyReviewView } from "./views/WeeklyReviewView";
 
@@ -46,7 +45,6 @@ const TOP_LEVEL_LINKS: { to: string; label: string }[] = [
   { to: "/positions", label: "Positions" },
   { to: "/journal", label: "Journal" },
   { to: "/weekly-review", label: "Weekly Review" },
-  { to: "/recovery", label: "Recovery" },
 ];
 
 function navItemClass({ isActive }: { isActive: boolean }): string {
@@ -232,7 +230,6 @@ export function App() {
           <Route path="/weekly-review" element={<WeeklyReviewView />} />
           <Route path="/positions" element={<PositionsView />} />
           <Route path="/journal" element={<JournalView />} />
-          <Route path="/recovery" element={<RecoveryView />} />
         </Routes>
       </main>
       <StatusBar />

@@ -3,9 +3,9 @@
 Replays `free_range.filters.score_direction()` over historical daily bars
 for QQQ + GLD (default) under both scoring versions and reports the
 side-by-side trade metrics. The goal: validate whether de-weighting MA
-(Aaron's concern: ribbon snaps in late, so price-action via Stoch +
-regime should drive entries) changes win rate, expectancy, or drawdown
-on the dashboard's anchor watchlist.
+(concern: ribbon snaps in late, so price-action via Stoch + regime
+should drive entries) changes win rate, expectancy, or drawdown on
+the dashboard's anchor watchlist.
 
 Modeled on `scripts/backtest_strategies.py`; reuses the same simulator,
 indicator stack, and report shape so v1/v2 numbers are directly

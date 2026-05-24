@@ -3,7 +3,7 @@
 Reads `~/.trading-dashboard/config.yaml` regime_health.capex section,
 flags tickers whose next_prints date has passed in the last N days
 with directions still 'unknown' — i.e., the company has reported but
-Aaron hasn't classified the capex direction yet.
+the user hasn't classified the capex direction yet.
 
 Output: structured JSON to stdout (machine-readable for cron pipelines)
 or human-readable text. No LLM, no web fetches, no auto-classification.

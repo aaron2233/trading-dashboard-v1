@@ -308,9 +308,9 @@ function round2(n: number): number {
  * Computing one from the other requires delta, which we don't capture.
  *
  * So this is purely advisory — it shows the premium values at common cut
- * and take-profit thresholds. Aaron eyeballs them while watching the
- * trade and translates to underlying levels with a chart or his own delta
- * read. No magic, no fake math.
+ * and take-profit thresholds. The user eyeballs them while watching the
+ * trade and translates to underlying levels with a chart or their own
+ * delta read. No magic, no fake math.
  */
 function PremiumLevelsHint({ premium }: { premium: number }) {
   const fmt = (v: number) => `$${v.toFixed(2)}`;

@@ -1,6 +1,6 @@
 """Bollinger Band + Keltner Channel strategy backtest.
 
-Signal generation per Aaron's spec (2026-05-12):
+Signal generation per the BB/KC squeeze spec:
   - Bollinger Band: SMA(20), ±2σ
   - Keltner Channel: SMA(20), ±1.5 × ATR(20)
 
