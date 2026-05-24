@@ -29,8 +29,6 @@ git clone https://github.com/aaron2233/trading-dashboard-v1.git
 cd trading-dashboard-v1
 ```
 
-You'll need to accept the GitHub collaborator invite first (check your email or https://github.com/aaron2233/trading-dashboard-v1/invitations).
-
 ---
 
 ## 3. Install dependencies
