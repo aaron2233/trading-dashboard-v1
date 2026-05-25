@@ -191,7 +191,7 @@ def test_api_strikes_endpoint_returns_calls_and_puts(monkeypatch):
             "ma_ribbon": {}, "stochastic": {}, "sqn": {},
         }
 
-    monkeypatch.setattr("api.app.scan_ticker", fake_scan_ticker)
+    monkeypatch.setattr("api.routes.lotto.scan_ticker", fake_scan_ticker)
     with TestClient(create_app()) as client:
         r = client.get("/api/v1/lotto/strikes/QQQ")
 
@@ -217,7 +217,7 @@ def test_api_strikes_endpoint_direction_filter(monkeypatch):
             "ma_ribbon": {}, "stochastic": {}, "sqn": {},
         }
 
-    monkeypatch.setattr("api.app.scan_ticker", fake_scan_ticker)
+    monkeypatch.setattr("api.routes.lotto.scan_ticker", fake_scan_ticker)
     with TestClient(create_app()) as client:
         r_call = client.get("/api/v1/lotto/strikes/SPY?direction=call")
         r_put = client.get("/api/v1/lotto/strikes/SPY?direction=put")
@@ -237,7 +237,7 @@ def test_api_strikes_endpoint_502_on_scan_failure(monkeypatch):
     def boom(*_a, **_kw):
         raise RuntimeError("yfinance dead")
 
-    monkeypatch.setattr("api.app.scan_ticker", boom)
+    monkeypatch.setattr("api.routes.lotto.scan_ticker", boom)
     with TestClient(create_app()) as client:
         r = client.get("/api/v1/lotto/strikes/SPY")
 

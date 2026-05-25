@@ -65,7 +65,7 @@ def test_health(client):
 # ─── Scan ─────────────────────────────────────────────────────────────────────
 
 
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.indicators.scan_ticker", return_value=_FAKE_DAILY)
 def test_scan_endpoint(mock_scan, client):
     c, _ = client
     r = c.get("/api/v1/scan/SPY")
@@ -76,7 +76,7 @@ def test_scan_endpoint(mock_scan, client):
     assert mock_scan.called
 
 
-@patch("api.app.scan_ticker", side_effect=ValueError("no bars"))
+@patch("api.routes.indicators.scan_ticker", side_effect=ValueError("no bars"))
 def test_scan_endpoint_bubbles_502_on_failure(mock_scan, client):
     c, _ = client
     r = c.get("/api/v1/scan/BADSYM")
@@ -84,7 +84,7 @@ def test_scan_endpoint_bubbles_502_on_failure(mock_scan, client):
     assert "no bars" in r.json()["detail"]
 
 
-@patch("api.app.compute_multi_tf")
+@patch("api.routes.indicators.compute_multi_tf")
 def test_scan_multi_endpoint(mock_multi, client):
     mock_multi.return_value = {
         "1d": _FAKE_DAILY,
@@ -103,9 +103,9 @@ def test_scan_multi_endpoint(mock_multi, client):
 # ─── Kill sheet ───────────────────────────────────────────────────────────────
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_basic_post(mock_scan, mock_multi, client):
     c, _ = client
     r = c.post("/api/v1/kill_sheet", json={
@@ -124,9 +124,9 @@ def test_kill_sheet_basic_post(mock_scan, mock_multi, client):
     assert body["devil"] is None  # skip_devil=True
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_runs_devil_when_above_threshold(mock_scan, mock_multi, client):
     c, _ = client
     r = c.post("/api/v1/kill_sheet", json={
@@ -141,9 +141,9 @@ def test_kill_sheet_runs_devil_when_above_threshold(mock_scan, mock_multi, clien
     assert len(body["devil"]["results"]) == 8
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_unknown_account_returns_400(mock_scan, mock_multi, client):
     c, _ = client
     r = c.post("/api/v1/kill_sheet", json={
@@ -152,9 +152,9 @@ def test_kill_sheet_unknown_account_returns_400(mock_scan, mock_multi, client):
     assert r.status_code == 400
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_renders_apex_options_block(mock_scan, mock_multi, client):
     c, _ = client
     r = c.post("/api/v1/kill_sheet", json={
@@ -365,7 +365,7 @@ def test_journal_exits_no_double_count_on_partial_path_full_close(client):
 # ─── Alerts ───────────────────────────────────────────────────────────────────
 
 
-@patch("api.app.evaluate_all_open")
+@patch("api.routes.positions.evaluate_all_open")
 def test_alerts_endpoint_returns_flat_list(mock_eval, client):
     from positions.alerts import PositionAlert
 
@@ -472,9 +472,9 @@ def test_journal_recent_orders_by_close_date(client):
 # ─── Focus kill sheet (request flag) ──────────────────────────────────────────
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_focus_rejects_non_focus_ticker(mock_scan, mock_multi, client):
     c, _ = client
     r = c.post("/api/v1/kill_sheet", json={
@@ -485,9 +485,9 @@ def test_kill_sheet_focus_rejects_non_focus_ticker(mock_scan, mock_multi, client
     assert "focus" in r.json()["detail"].lower()
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_focus_blocks_high_conviction_over_cap(
     mock_scan, mock_multi, client,
 ):
@@ -505,9 +505,9 @@ def test_kill_sheet_focus_blocks_high_conviction_over_cap(
     assert body["rules_blocked"] is True
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_focus_speculative_passes(mock_scan, mock_multi, client):
     c, _ = client
     r = c.post("/api/v1/kill_sheet", json={
@@ -548,7 +548,7 @@ def test_focus_sunday_scan_endpoint(client):
     def fake_scan(ticker, period=None, timeframe="1d"):
         return rows_by_ticker[ticker]
 
-    with patch("api.app.scan_ticker", side_effect=fake_scan):
+    with patch("api.routes.focus.scan_ticker", side_effect=fake_scan):
         r = c.get("/api/v1/focus/sunday-scan?persist=false")
     assert r.status_code == 200
     body = r.json()
@@ -573,7 +573,7 @@ def test_focus_sunday_scan_partial_failure(client):
             raise RuntimeError("yfinance refused")
         return rows[ticker]
 
-    with patch("api.app.scan_ticker", side_effect=fake_scan):
+    with patch("api.routes.focus.scan_ticker", side_effect=fake_scan):
         r = c.get("/api/v1/focus/sunday-scan?persist=false")
     assert r.status_code == 200
     body = r.json()
@@ -596,7 +596,7 @@ def test_focus_sunday_scan_persists_when_persist_true(client, tmp_path, monkeypa
     def fake_scan(ticker, period=None, timeframe="1d"):
         return rows[ticker]
 
-    with patch("api.app.scan_ticker", side_effect=fake_scan):
+    with patch("api.routes.focus.scan_ticker", side_effect=fake_scan):
         r = c.get("/api/v1/focus/sunday-scan?persist=true")
     assert r.status_code == 200
     files = list(sunday_dir.glob("*.json"))
@@ -620,7 +620,7 @@ def test_focus_sunday_scan_skips_persist_when_persist_false(client, tmp_path, mo
     def fake_scan(ticker, period=None, timeframe="1d"):
         return rows[ticker]
 
-    with patch("api.app.scan_ticker", side_effect=fake_scan):
+    with patch("api.routes.focus.scan_ticker", side_effect=fake_scan):
         r = c.get("/api/v1/focus/sunday-scan?persist=false")
     assert r.status_code == 200
     assert not sunday_dir.exists() or list(sunday_dir.glob("*.json")) == []
@@ -798,9 +798,9 @@ def test_focus_sunday_scan_tolerates_persist_failure(client, monkeypatch, capsys
     def boom(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("api.app.persist_sunday_scan", boom)
+    monkeypatch.setattr("api.routes.focus.persist_sunday_scan", boom)
 
-    with patch("api.app.scan_ticker", side_effect=fake_scan):
+    with patch("api.routes.focus.scan_ticker", side_effect=fake_scan):
         r = c.get("/api/v1/focus/sunday-scan?persist=true")
     assert r.status_code == 200  # endpoint still returns the scan
     assert "Failed to persist" in capsys.readouterr().err
@@ -809,9 +809,9 @@ def test_focus_sunday_scan_tolerates_persist_failure(client, monkeypatch, capsys
 # ─── Discipline-loop closure (Tier 3 Story 35-39) ────────────────────────────
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY_BEAR)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY_BEAR)
 def test_kill_sheet_rejected_when_regime_opposes(mock_scan, mock_multi, client):
     """Long-in-Bear without divergence thesis → REJECTED."""
     c, _ = client
@@ -827,9 +827,9 @@ def test_kill_sheet_rejected_when_regime_opposes(mock_scan, mock_multi, client):
     assert body["kill_sheet"]["rejection_reason"] is not None
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY_BEAR)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY_BEAR)
 def test_kill_sheet_authorized_with_divergence_thesis(mock_scan, mock_multi, client):
     """Same setup with divergence_thesis → AUTHORIZED."""
     c, _ = client
@@ -848,9 +848,9 @@ def test_kill_sheet_authorized_with_divergence_thesis(mock_scan, mock_multi, cli
     assert att["divergence_thesis_documented"] is True
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
 def test_kill_sheet_attestation_inputs_propagate(mock_scan, mock_multi, client):
     """attestation_user_inputs reach the builder and clear the relevant flag."""
     c, _ = client
@@ -959,9 +959,9 @@ _FAKE_QQQ_DAILY = {
 }
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_QQQ_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_QQQ_DAILY)
 def test_tier_portfolio_blocks_second_qqq_without_focus_flag(mock_scan, mock_multi, client):
     """Orchestrator rule 11 fires whenever ticker is QQQ/GLD — no --focus needed."""
     c, store_factory = client
@@ -986,9 +986,9 @@ def test_tier_portfolio_blocks_second_qqq_without_focus_flag(mock_scan, mock_mul
     assert body["rules_blocked"] is True
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_QQQ_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_QQQ_DAILY)
 def test_tier_portfolio_does_not_fire_for_aapl(mock_scan, mock_multi, client):
     """Rule 11 is QQQ/GLD only — AAPL kill sheet gets no tier_portfolio violation."""
     aapl_row = {**_FAKE_DAILY, "ticker": "AAPL"}
@@ -1003,9 +1003,9 @@ def test_tier_portfolio_does_not_fire_for_aapl(mock_scan, mock_multi, client):
     assert not any(rule.startswith("tier_portfolio_") for rule in rules)
 
 
-@patch("api.app.compute_multi_tf",
+@patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.app.scan_ticker", return_value=_FAKE_QQQ_DAILY)
+@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_QQQ_DAILY)
 def test_tier_portfolio_blocks_same_direction_qqq_gld_pair(mock_scan, mock_multi, client):
     c, store_factory = client
     store = store_factory()

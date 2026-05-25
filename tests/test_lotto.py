@@ -376,8 +376,8 @@ def test_api_lotto_cooldown_blocks_lotto_kill_sheet(tmp_path, monkeypatch):
             "sqn": {"sqn_value": 1.0, "regime": "bull",
                     "sqn_20_value": 0.5, "regime_20": "bull", "diagnostic": "ok"},
         }
-    monkeypatch.setattr("api.app.scan_ticker", fake_scan)
-    monkeypatch.setattr("api.app.compute_multi_tf",
+    monkeypatch.setattr("api.routes.kill_sheet.scan_ticker", fake_scan)
+    monkeypatch.setattr("api.routes.kill_sheet.compute_multi_tf",
                         lambda t, timeframes=None: {})
 
     app = create_app(store_factory=fake_store_factory)
@@ -427,8 +427,8 @@ def test_api_lotto_size_lock_warn_does_not_block_kill_sheet(tmp_path, monkeypatc
             "sqn": {"sqn_value": 1.0, "regime": "bull",
                     "sqn_20_value": 0.5, "regime_20": "bull", "diagnostic": "ok"},
         }
-    monkeypatch.setattr("api.app.scan_ticker", fake_scan)
-    monkeypatch.setattr("api.app.compute_multi_tf",
+    monkeypatch.setattr("api.routes.kill_sheet.scan_ticker", fake_scan)
+    monkeypatch.setattr("api.routes.kill_sheet.compute_multi_tf",
                         lambda t, timeframes=None: {})
 
     app = create_app(store_factory=fake_store_factory)
@@ -477,8 +477,8 @@ def test_api_lotto_cooldown_does_not_block_main_kill_sheet(tmp_path, monkeypatch
             "sqn": {"sqn_value": 1.0, "regime": "bull",
                     "sqn_20_value": 0.5, "regime_20": "bull", "diagnostic": "ok"},
         }
-    monkeypatch.setattr("api.app.scan_ticker", fake_scan)
-    monkeypatch.setattr("api.app.compute_multi_tf",
+    monkeypatch.setattr("api.routes.kill_sheet.scan_ticker", fake_scan)
+    monkeypatch.setattr("api.routes.kill_sheet.compute_multi_tf",
                         lambda t, timeframes=None: {})
 
     app = create_app(store_factory=fake_store_factory)

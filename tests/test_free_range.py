@@ -441,7 +441,7 @@ def test_api_free_range_scan_passes_enable_free_range_through(monkeypatch):
         from free_range.snapshot import FreeRangeScan
         return FreeRangeScan(scan_time_utc="2026-05-13T00:00:00+00:00")
 
-    monkeypatch.setattr("api.app.run_free_range_scan", fake_run_free_range_scan)
+    monkeypatch.setattr("api.routes.tier_scans.run_free_range_scan", fake_run_free_range_scan)
 
     from fastapi.testclient import TestClient
     from api.app import create_app
@@ -498,7 +498,7 @@ def test_api_free_range_scan_endpoint(monkeypatch):
             **{k: v for k, v in kwargs.items() if k in ("free_range_cap",)},
         )
 
-    monkeypatch.setattr("api.app.run_free_range_scan", fake_run_free_range_scan)
+    monkeypatch.setattr("api.routes.tier_scans.run_free_range_scan", fake_run_free_range_scan)
 
     app = create_app()
     client = TestClient(app)
@@ -519,7 +519,7 @@ def test_api_free_range_scan_endpoint(monkeypatch):
 def test_api_free_range_scan_handles_scanner_failure(monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("yfinance dead")
-    monkeypatch.setattr("api.app.run_free_range_scan", boom)
+    monkeypatch.setattr("api.routes.tier_scans.run_free_range_scan", boom)
 
     app = create_app()
     client = TestClient(app)
