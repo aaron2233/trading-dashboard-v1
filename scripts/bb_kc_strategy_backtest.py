@@ -52,7 +52,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 from data.yfinance_loader import load_bars  # noqa: E402
-from indicators.sqz_prob import _atr, _sma, _stdev  # noqa: E402
+from _sqz_prob_lib import _atr, _sma, _stdev  # noqa: E402
 from lotto_signal_history import cluster, CLUSTER_GAP_DAYS  # noqa: E402
 from lotto_options_backtest import (  # noqa: E402
     simulate_trade,
