@@ -177,8 +177,7 @@ def run_free_range_scan(
     Options liquidity is NOT auto-gated — yfinance options data is stale
     relative to brokerage feeds and using it would smuggle bad data into a
     discipline-engine claim. Per-candidate manual options entry happens at
-    the kill-sheet layer (paste-from-brokerage or screenshot upload via
-    src/options_input + src/vision/options_extractor).
+    the kill-sheet layer (paste-from-brokerage via src/options_input).
 
     `scan_fn` defaults to scan_ticker from src/scan.py — left lazy here to
     avoid a circular import on module load.

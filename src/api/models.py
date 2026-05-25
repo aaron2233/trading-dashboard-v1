@@ -500,7 +500,7 @@ class FreeRangeScanResponse(BaseModel):
     errors: dict[str, str] = Field(default_factory=dict)
 
 
-# ─── Options input (paste / screenshot) ──────────────────────────────────────
+# ─── Options input (paste) ────────────────────────────────────────────────────
 
 
 class OptionsTextRequest(BaseModel):
@@ -510,11 +510,7 @@ class OptionsTextRequest(BaseModel):
 
 
 class ParsedOptionsResponse(BaseModel):
-    """Mirrors options_input.ParsedOptions plus an `extraction_source` tag.
-
-    `extraction_source` is "paste" for text input, "screenshot" for image
-    upload. The frontend uses this to display per-field provenance badges.
-    """
+    """Mirrors options_input.ParsedOptions plus an `extraction_source` tag."""
     strike: float | None = None
     premium: float | None = None
     expiry: str | None = None
@@ -527,7 +523,7 @@ class ParsedOptionsResponse(BaseModel):
     ask: float | None = None
     source_fields: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    extraction_source: Literal["paste", "screenshot"]
+    extraction_source: Literal["paste"]
 
 
 # ─── Dashboard state ─────────────────────────────────────────────────────────

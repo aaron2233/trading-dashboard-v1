@@ -200,27 +200,4 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text, ticker }),
     }),
-
-  extractOptionsScreenshot: (
-    image: File,
-    options: { ticker?: string; targetStrike?: number; targetExpiry?: string; contractType?: string } = {},
-  ) => {
-    const form = new FormData();
-    form.append("image", image);
-    if (options.ticker) form.append("ticker", options.ticker);
-    if (options.targetStrike !== undefined)
-      form.append("target_strike", String(options.targetStrike));
-    if (options.targetExpiry) form.append("target_expiry", options.targetExpiry);
-    if (options.contractType) form.append("contract_type", options.contractType);
-    return fetch(`${API_BASE}/api/v1/options/extract/screenshot`, {
-      method: "POST",
-      body: form,
-    }).then(async (res) => {
-      if (!res.ok) {
-        const detail = await res.text();
-        throw new Error(`${res.status} ${res.statusText}: ${detail}`);
-      }
-      return res.json() as Promise<ParsedOptionsResponse>;
-    });
-  },
 };

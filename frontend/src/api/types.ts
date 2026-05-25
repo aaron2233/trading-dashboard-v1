@@ -690,9 +690,9 @@ export interface DashboardState {
   unreviewed_weeks: UnreviewedWeek[];
 }
 
-// ─── Options input (paste / screenshot) ───────────────────────────────
+// ─── Options input (paste) ────────────────────────────────────────────
 
-export type OptionsExtractionSource = "paste" | "screenshot";
+export type OptionsExtractionSource = "paste";
 
 export interface ParsedOptionsResponse {
   strike: number | null;

@@ -124,15 +124,6 @@ def build_parser() -> argparse.ArgumentParser:
     options.add_argument("--iv-rank", type=float, help="IV Rank percentile (0-100)")
     options.add_argument("--oi", type=int, help="Open interest")
     options.add_argument("--spread", type=float, help="Bid-ask spread (in dollars)")
-    options.add_argument(
-        "--screenshot",
-        help=(
-            "Path to a broker screenshot (PNG/JPG). Sends the image to Claude "
-            "vision via the Anthropic API to auto-extract strike/premium/IV/OI/"
-            "spread/expiry. Requires ANTHROPIC_API_KEY env var. Explicit --strike "
-            "/--premium/etc on the CLI override anything extracted from the image."
-        ),
-    )
 
     manual = p.add_argument_group(
         "Manual fill (optional)",
@@ -220,46 +211,6 @@ def _maybe_interactive_fill(args, input_fn=input) -> None:
     if args.spread is None:
         args.spread = _prompt("Bid-ask spread (USD)", optional=True,
                               validator=float, input_fn=input_fn)
-
-
-def _maybe_apply_screenshot(args) -> None:
-    """If --screenshot was passed, fill in any unset options fields from vision."""
-    if not getattr(args, "screenshot", None):
-        return
-
-    from vision import ExtractError, extract_options_chain
-    try:
-        extracted = extract_options_chain(
-            image_path=args.screenshot,
-            ticker=args.ticker,
-            target_strike=args.strike,
-            target_expiry=args.expiry,
-            contract_type=args.contract_type,
-        )
-    except ExtractError as exc:
-        print(f"⚠ Screenshot extraction failed: {exc}", file=sys.stderr)
-        return
-
-    # CLI flags win — only fill if not already set on args.
-    def _apply(field: str, key: str, cast=None):
-        if getattr(args, field, None) is None and extracted.get(key) is not None:
-            value = extracted[key]
-            if cast is not None:
-                try:
-                    value = cast(value)
-                except (TypeError, ValueError):
-                    return
-            setattr(args, field, value)
-
-    _apply("strike", "strike", float)
-    _apply("premium", "premium", float)
-    _apply("expiry", "expiry")
-    _apply("contract_type", "contract_type")
-    _apply("iv_rank", "iv_rank", float)
-    _apply("oi", "open_interest", int)
-    _apply("spread", "bid_ask_spread", float)
-
-    print("✓ Screenshot data merged with CLI flags.", file=sys.stderr)
 
 
 def _build_options_from_args(args) -> OptionsStructure | None:
@@ -352,7 +303,6 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
 
-    _maybe_apply_screenshot(args)
     _maybe_interactive_fill(args)
 
     options = _build_options_from_args(args)

@@ -237,7 +237,7 @@ def test_parsed_options_default_has_no_data():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# API integration — paste + screenshot endpoints
+# API integration — paste endpoint
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -274,73 +274,3 @@ def test_api_options_extract_text_empty_returns_warnings():
     assert "empty input" in body["warnings"]
 
 
-def test_api_options_extract_screenshot_rejects_empty(monkeypatch):
-    from fastapi.testclient import TestClient
-    from api.app import create_app
-
-    app = create_app()
-    client = TestClient(app)
-    resp = client.post(
-        "/api/v1/options/extract/screenshot",
-        files={"image": ("blank.png", b"", "image/png")},
-    )
-    assert resp.status_code == 400
-    assert "Empty image" in resp.json()["detail"]
-
-
-def test_api_options_extract_screenshot_returns_extracted_fields(monkeypatch):
-    """Mock the vision extractor to verify wiring without hitting Anthropic."""
-    from fastapi.testclient import TestClient
-    from api.app import create_app
-
-    def fake_extract(**kwargs):
-        # Verify image_bytes was passed through (non-empty)
-        assert kwargs["image_bytes"] == b"fake-png-bytes"
-        assert kwargs["media_type"] == "image/png"
-        return {
-            "strike": 480.0,
-            "premium": 4.55,
-            "iv_rank": 35.0,
-            "open_interest": 12_500,
-            "bid_ask_spread": 0.10,
-            "expiry": "2026-06-19",
-            "contract_type": "call",
-        }
-
-    monkeypatch.setattr("api.app.extract_options_chain", fake_extract)
-
-    app = create_app()
-    client = TestClient(app)
-    resp = client.post(
-        "/api/v1/options/extract/screenshot",
-        files={"image": ("chain.png", b"fake-png-bytes", "image/png")},
-        data={"ticker": "SPY"},
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["strike"] == 480.0
-    assert body["premium"] == 4.55
-    assert body["expiry"] == "2026-06-19"
-    assert body["contract_type"] == "call"
-    assert body["extraction_source"] == "screenshot"
-    assert "strike" in body["source_fields"]
-
-
-def test_api_options_extract_screenshot_handles_extractor_error(monkeypatch):
-    from fastapi.testclient import TestClient
-    from api.app import create_app
-    from vision.options_extractor import ExtractError
-
-    def boom(**kwargs):
-        raise ExtractError("API key missing")
-
-    monkeypatch.setattr("api.app.extract_options_chain", boom)
-
-    app = create_app()
-    client = TestClient(app)
-    resp = client.post(
-        "/api/v1/options/extract/screenshot",
-        files={"image": ("chain.png", b"bytes", "image/png")},
-    )
-    assert resp.status_code == 502
-    assert "API key missing" in resp.json()["detail"]

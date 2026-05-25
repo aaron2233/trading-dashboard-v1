@@ -603,8 +603,6 @@ export function KillSheetView() {
   const [showOptions, setShowOptions] = useState(false);
   const [showDiscipline, setShowDiscipline] = useState(false);
 
-  // Options-input state (paste only — screenshot extraction removed to
-  // avoid the Anthropic API spend; manual entry covers the same fields).
   const [pasteText, setPasteText] = useState("");
   const [extractLoading, setExtractLoading] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);

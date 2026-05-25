@@ -204,7 +204,7 @@ export function StrikeSuggestionsPanel() {
             </div>
             <p className="text-[10px] text-text-muted mt-2 leading-relaxed">
               Strikes only — premium / IV / delta come from your broker chain
-              via paste or screenshot at kill-sheet time. ⚠ $1 grid is the
+              via paste at kill-sheet time. ⚠ $1 grid is the
               default; verify against the actual chain for tickers that use
               wider increments.
             </p>

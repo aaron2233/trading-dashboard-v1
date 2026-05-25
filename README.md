@@ -8,9 +8,9 @@ A localhost-first web app + Python CLI that runs an indicator stack (MA Ribbon, 
 
 The bundled reference implementation is single-user, cash account, long calls/puts only. The framework around it (data layer, indicator plugin system, kill-sheet builder, positions store, journal, regime dashboard, trade-devil gate) is strategy-agnostic. Read CUSTOMIZATION.md to see what's keep-as-is vs replace-with-your-own.
 
-**What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering regime header, scan, free-range scan, weekly trend, lotto, crypto (Crypto.com), focus (QQQ/GLD), kill sheet builder with options-input paste/screenshot, trade-devil, 15-rule discipline scorecard, 3-tranche pyramid state machine, positions, journal (P&L + discipline tabs), weekly review. CLI mirrors every action. 740 pytest tests.
+**What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering regime header, scan, free-range scan, weekly trend, lotto, crypto (Crypto.com), focus (QQQ/GLD), kill sheet builder with options-input paste, trade-devil, 15-rule discipline scorecard, 3-tranche pyramid state machine, positions, journal (P&L + discipline tabs), weekly review. CLI mirrors every action. 740 pytest tests.
 
-**Data sources:** stocks/ETFs via yfinance (no key); crypto via Crypto.com public REST (no key); options via manual paste or screenshot upload (Anthropic vision, `ANTHROPIC_API_KEY` required — see "Screenshot privacy" below).
+**Data sources:** stocks/ETFs via yfinance (no key); crypto via Crypto.com public REST (no key); options via manual paste from your broker. No API keys required.
 
 ## Install
 
@@ -62,13 +62,6 @@ python -m kill_sheet GLD --direction long --account lotto --intent SCALP \
 # Interactive mode — prompts for any --target/--invalidation/--notes/options not set
 python -m kill_sheet SPY --direction long --interactive
 
-# Screenshot extraction (requires ANTHROPIC_API_KEY) — sends image to Claude vision
-# to auto-fill strike/premium/IV/OI/spread from a broker options chain shot
-ANTHROPIC_API_KEY=sk-... \
-  python -m kill_sheet SPY --direction long \
-    --screenshot ~/Desktop/spy-options-chain.png \
-    --target 590 --invalidation 575
-
 # Draft accuracy fixture CSVs for the v0.1.0 ship gate (numerics auto-filled
 # from yfinance, categoricals left blank for TradingView verification)
 python -m fixtures_draft SPY                       # both indicators to stdout
@@ -102,10 +95,6 @@ python -m scan --help
 python -m kill_sheet --help
 python -m positions --help
 ```
-
-### Screenshot privacy
-
-`--screenshot` uploads the image to the Anthropic API for vision extraction. Nothing else does. If you don't pass `--screenshot`, no data leaves your machine. Get an API key at https://console.anthropic.com and set it as `ANTHROPIC_API_KEY`.
 
 **Persistence:**
 - Scans → `~/.trading-dashboard/scans/YYYY-MM-DD.json`

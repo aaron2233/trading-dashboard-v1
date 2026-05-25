@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.models import (
@@ -81,7 +81,6 @@ from lotto import (
     scan_lotto_watchlist,
 )
 from options_input import parse_options_text
-from vision.options_extractor import ExtractError, extract_options_chain
 from weekly_trend import scan_weekly_watchlist
 from index_swing import scan_index_swing_watchlist
 from kill_sheet.builder import build_standard
@@ -739,7 +738,7 @@ def create_app(
             errors=result.errors,
         )
 
-    # ─── Options input (paste / screenshot) ───────────────────────────────────
+    # ─── Options input (paste) ────────────────────────────────────────────────
 
     @app.post(
         "/api/v1/options/extract/text",
@@ -756,57 +755,6 @@ def create_app(
         return ParsedOptionsResponse(
             **parsed.to_dict(),
             extraction_source="paste",
-        )
-
-    @app.post(
-        "/api/v1/options/extract/screenshot",
-        response_model=ParsedOptionsResponse,
-    )
-    async def options_extract_screenshot(
-        image: UploadFile = File(...),
-        ticker: str = Form(""),
-        target_strike: float | None = Form(None),
-        target_expiry: str | None = Form(None),
-        contract_type: str | None = Form(None),
-    ):
-        """Extract options data from a brokerage screenshot via Anthropic vision.
-
-        Requires ANTHROPIC_API_KEY to be set in the server environment. The
-        target_* hints help the vision model pick the right row when the
-        screenshot shows multiple strikes.
-        """
-        image_bytes = await image.read()
-        if not image_bytes:
-            raise HTTPException(status_code=400, detail="Empty image upload")
-
-        media_type = image.content_type or "image/png"
-        try:
-            payload = extract_options_chain(
-                image_bytes=image_bytes,
-                media_type=media_type,
-                ticker=ticker,
-                target_strike=target_strike,
-                target_expiry=target_expiry,
-                contract_type=contract_type,
-            )
-        except ExtractError as exc:
-            raise HTTPException(status_code=502, detail=f"Extraction failed: {exc}")
-
-        # Vision payload uses `open_interest`/`bid_ask_spread` — already aligned
-        # with ParsedOptionsResponse field names. Surface only the fields that
-        # came back non-null in source_fields, mirroring the paste path.
-        source_fields = [k for k, v in payload.items() if v is not None]
-        return ParsedOptionsResponse(
-            strike=payload.get("strike"),
-            premium=payload.get("premium"),
-            expiry=payload.get("expiry"),
-            contract_type=payload.get("contract_type"),
-            iv_rank=payload.get("iv_rank"),
-            open_interest=payload.get("open_interest"),
-            bid_ask_spread=payload.get("bid_ask_spread"),
-            source_fields=source_fields,
-            warnings=[],
-            extraction_source="screenshot",
         )
 
     # ─── Kill sheet ───────────────────────────────────────────────────────────

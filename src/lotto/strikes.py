@@ -7,7 +7,7 @@ the LottoView panel to seed the kill-sheet strike field with one click.
 Anti-fabrication: this module returns strike *prices only*. It does NOT
 quote premium, delta, IV, or open interest — those vary per broker chain
 and per moment, and live data flows through the dashboard via the
-options-input pivot (paste / screenshot, src/options_input/parser.py).
+options-input pivot (paste, src/options_input/parser.py).
 """
 from __future__ import annotations
 

@@ -34,7 +34,7 @@ class CandidateSnapshot:
 
     Snapshots cover price action and indicator alignment ONLY. Options
     liquidity, IV rank, premium, and strike are entered at the kill-sheet
-    layer from the user's brokerage (manual paste or screenshot extract) —
+    layer from the user's brokerage (manual paste) —
     yfinance options data is stale relative to brokerage feeds and would
     smuggle bad data into a discipline-engine claim if auto-gated here.
     """

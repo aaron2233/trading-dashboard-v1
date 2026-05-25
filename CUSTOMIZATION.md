@@ -11,7 +11,7 @@ Below: what's strategy-agnostic substrate you can keep, what's opinionated and m
 | **Data** | yfinance + Crypto.com REST loaders, plugin-loadable providers, atomic JSON storage | The default Polygon adapter is unwired |
 | **Indicators** | `IndicatorProtocol` contract + plugin loader (`~/.trading-dashboard/plugins/*.py`) | MA Ribbon / Stochastic / SQN are the bundled defaults — keep, add to, or replace |
 | **Regime dashboard** | MA stack + Stoch + SQN(100)/(20) view — generic market state | — |
-| **Kill sheet builder** | Form rendering, sizing math, options-input paste/screenshot extraction, atomic write | The exact sections + bias/conviction taxonomy reflect the author's workflow |
+| **Kill sheet builder** | Form rendering, sizing math, options-input paste, atomic write | The exact sections + bias/conviction taxonomy reflect the author's workflow |
 | **Trade devil gate** | 8-category KILL/FLAG/PASS framework — generic pre-entry gate | The specific category checks encode the author's anti-patterns |
 | **Positions / journal** | Atomic store, partial-exit tracking, P&L stats, alert engine | Generic |
 | **Discipline scorecard** | Per-position scoring, weekly review aggregation | 15-rule list is hardcoded to a cash-account, long-options-only profile |
@@ -127,7 +127,7 @@ Walked example: a skill file with `name: my-momo`, description trigger "momo sca
 
 - **Not a multi-tenant SaaS.** Single-user, localhost. No auth, no shared instance.
 - **Not a backtesting platform.** Scripts in `scripts/` show how to backtest custom strategies, but there's no UI for it.
-- **Not broker-integrated.** Manual entry via the kill-sheet builder; optional screenshot-extraction via Anthropic vision. No broker API connections.
+- **Not broker-integrated.** Manual entry via the kill-sheet builder. No broker API connections.
 - **Not strategy-agnostic out of the box.** The bundled strategies are opinionated and reflect one trader's profile. You replace them; the framework around them stays.
 - **Not a no-code tool.** Tiers 1-2 are config-only. Tier 3+ requires Python and React.
 

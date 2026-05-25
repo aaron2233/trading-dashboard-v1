@@ -18,7 +18,7 @@ Estimated setup time: 5–10 minutes if your prereqs are in place, 20–30 minut
 
 If `python3 --version` shows 3.10 or older, install 3.12 alongside the system Python — don't replace it. On macOS, `brew install python@3.12` puts a `python3.12` on your PATH that you can use explicitly.
 
-You do **not** need: Docker, a database, an API key (unless you want screenshot-to-kill-sheet extraction — see step 6).
+You do **not** need: Docker, a database, or any API keys.
 
 ---
 
@@ -45,7 +45,7 @@ npm install
 cd ..
 ```
 
-The `pip install` pulls pandas, yfinance, FastAPI, uvicorn, anthropic SDK, pydantic, pyyaml, python-multipart, plus pytest + httpx for the test suite. About 80 MB of dependencies; takes 1–3 minutes on a normal connection.
+The `pip install` pulls pandas, yfinance, FastAPI, uvicorn, pydantic, pyyaml, plus pytest + httpx for the test suite. About 60 MB of dependencies; takes 1–3 minutes on a normal connection.
 
 `npm install` pulls React 19, Vite 6, Tailwind, lightweight-charts, and types. About 200 MB of `node_modules`; takes 1–2 minutes.
 
@@ -110,25 +110,7 @@ Click **Scan**, type a ticker, hit scan. If you get an indicator panel back, you
 
 ---
 
-## 6. ANTHROPIC_API_KEY (optional, only for screenshot extraction)
-
-The Kill Sheet view has an "Options input" panel where you can paste broker text or upload a screenshot of an options chain. The screenshot path requires an Anthropic API key (sends the image to Claude vision for extraction).
-
-If you don't want to use that feature, skip this step entirely. The paste-text path works without any key, and you can always type strike/premium/expiry into the form by hand.
-
-If you do want it:
-
-```bash
-# Get a key at https://console.anthropic.com
-# Then start the API server with the key in env:
-ANTHROPIC_API_KEY=sk-ant-... python -m api --port 8000
-```
-
-Or `export ANTHROPIC_API_KEY=...` in your shell profile and forget about it. No other feature reads any env vars.
-
----
-
-## 7. Run the test suite (optional sanity check)
+## 6. Run the test suite (optional sanity check)
 
 ```bash
 pytest
@@ -138,7 +120,7 @@ You should see ~740 tests passing in 30–60 seconds. If any fail, that's worth 
 
 ---
 
-## 8. Where state lives
+## 7. Where state lives
 
 Everything the dashboard writes goes to `~/.trading-dashboard/`:
 
@@ -151,11 +133,11 @@ Everything the dashboard writes goes to `~/.trading-dashboard/`:
 - `config.yaml` — your account overrides
 - `plugins/*.py` — your indicator plugins (optional)
 
-Backing up `~/.trading-dashboard/` backs up your trading history. Deleting it resets you to clean state. None of it is committed to the repo — your data never leaves your machine unless you explicitly upload an options-chain screenshot.
+Backing up `~/.trading-dashboard/` backs up your trading history. Deleting it resets you to clean state. None of it is committed to the repo — your data never leaves your machine.
 
 ---
 
-## 9. Common gotchas
+## 8. Common gotchas
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -169,7 +151,7 @@ Backing up `~/.trading-dashboard/` backs up your trading history. Deleting it re
 
 ---
 
-## 10. What's NOT in scope
+## 9. What's NOT in scope
 
 Things this dashboard intentionally does not do:
 
@@ -178,13 +160,13 @@ Things this dashboard intentionally does not do:
 - No paid market-data feeds — yfinance + Crypto.com public REST only
 - No multi-user — there's no auth, no user accounts, no shared deployment
 - No mobile app — desktop browser only
-- No live options data — options input is manual paste or screenshot extraction (yfinance options data is too stale to trust for kill sheets)
+- No live options data — options input is manual paste from your broker (yfinance options data is too stale to trust for kill sheets)
 
 If something here annoys you in a way that feels like a bug rather than a design choice, that's worth flagging back.
 
 ---
 
-## 11. Where to look next
+## 10. Where to look next
 
 - `README.md` — high-level project description, full feature inventory, CLI reference
 - `src/config/loader.py` — full account schema (every field you can override)

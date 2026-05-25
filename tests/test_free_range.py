@@ -12,8 +12,7 @@ Covers:
 NOTE: Options-liquidity gating is intentionally NOT here. yfinance options
 data is stale relative to brokerage feeds; auto-gating on it would smuggle
 bad data into a discipline-engine claim. Options input lives at the
-kill-sheet layer (paste from brokerage / screenshot extract) — see
-src/options_input/ and src/vision/options_extractor.py.
+kill-sheet layer (paste from brokerage) — see src/options_input/.
 """
 from __future__ import annotations
 
