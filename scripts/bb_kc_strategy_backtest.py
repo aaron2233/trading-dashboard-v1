@@ -52,7 +52,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 from data.yfinance_loader import load_bars  # noqa: E402
-from _sqz_prob_lib import _atr, _sma, _stdev  # noqa: E402
 from lotto_signal_history import cluster, CLUSTER_GAP_DAYS  # noqa: E402
 from lotto_options_backtest import (  # noqa: E402
     simulate_trade,
@@ -61,6 +60,25 @@ from lotto_options_backtest import (  # noqa: E402
     IV_MARKUP, MIN_SIGMA, MAX_SIGMA,
 )
 import numpy as np  # noqa: E402  (already imported above; restate for clarity)
+
+
+def _sma(s: pd.Series, n: int) -> pd.Series:
+    return s.rolling(n, min_periods=n).mean()
+
+
+def _stdev(s: pd.Series, n: int) -> pd.Series:
+    return s.rolling(n, min_periods=n).std(ddof=1)
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int) -> pd.Series:
+    """Wilder ATR."""
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0 / n, adjust=False, min_periods=n).mean()
 
 
 BB_LEN = 20
