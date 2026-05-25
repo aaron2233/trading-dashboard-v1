@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
-import { VerdictHero } from "../components/Verdict";
-import { fromKillSheetDevil } from "../lib/verdict";
+import { DisciplineOverridesPanel } from "../components/kill_sheet/DisciplineOverridesPanel";
+import { KillSheetResponsePanel } from "../components/kill_sheet/KillSheetResponsePanel";
+import { OptionsPasteInputPanel } from "../components/kill_sheet/OptionsPasteInputPanel";
 import type {
   KillSheetRequest,
   KillSheetResponse,
@@ -16,12 +17,6 @@ const ACCOUNTS = ["main", "lotto", "weekly"];
 const INTENTS = ["SCALP", "SWING", "TREND CAPTURE", "POSITION"] as const;
 const CONVICTIONS = ["high", "medium", "speculative", "default"] as const;
 const DIRECTIONS = ["long", "short"] as const;
-
-function aggregateClass(agg: string): string {
-  if (agg.startsWith("KILL")) return "text-signal-bear";
-  if (agg.startsWith("CONDITIONAL")) return "text-signal-flag";
-  return "text-signal-bull";
-}
 
 /**
  * Phase B authorization gate UI. Renders an inline confirm panel below the
@@ -601,12 +596,6 @@ export function KillSheetView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [showDiscipline, setShowDiscipline] = useState(false);
-
-  const [pasteText, setPasteText] = useState("");
-  const [extractLoading, setExtractLoading] = useState(false);
-  const [extractError, setExtractError] = useState<string | null>(null);
-  const [extractWarnings, setExtractWarnings] = useState<string[]>([]);
   const [fieldSources, setFieldSources] = useState<FieldSourceMap>({});
 
   function clearFieldSource(key: keyof KillSheetRequest) {
@@ -618,22 +607,11 @@ export function KillSheetView() {
     });
   }
 
-  async function handlePasteExtract() {
-    if (!pasteText.trim()) return;
-    setExtractLoading(true);
-    setExtractError(null);
-    try {
-      const parsed = await api.extractOptionsText(pasteText, form.ticker || undefined);
-      const { next, sources } = applyParsedToForm(form, parsed);
-      setForm(next);
-      setFieldSources((prev) => ({ ...prev, ...sources }));
-      setExtractWarnings(parsed.warnings);
-      setShowOptions(true);
-    } catch (err) {
-      setExtractError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setExtractLoading(false);
-    }
+  function handleParseResult(parsed: ParsedOptionsResponse) {
+    const { next, sources } = applyParsedToForm(form, parsed);
+    setForm(next);
+    setFieldSources((prev) => ({ ...prev, ...sources }));
+    setShowOptions(true);
   }
 
   function setAttestation(key: string, value: boolean) {
@@ -799,53 +777,7 @@ export function KillSheetView() {
           </div>
         </div>
 
-        <div className="panel-header">Options input — paste from brokerage</div>
-        <div className="panel-body space-y-3">
-          <p className="text-xs text-text-secondary">
-            Brokerage data is fresher than any web feed. Paste options chain
-            text from your platform — extracted fields prefill the form below
-            with a "from paste" tag. Manual edits clear the tag.
-          </p>
-          <div>
-            <label className="label">Paste options snapshot</label>
-            <textarea
-              className="input w-full font-mono text-xs"
-              rows={5}
-              placeholder={"Strike: 480\nPremium: 4.55\nIV Rank: 35\nOI: 12,500\nExpiry: 2026-06-19\nType: call"}
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-            />
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                className="btn btn-secondary text-xs"
-                disabled={extractLoading || !pasteText.trim()}
-                onClick={handlePasteExtract}
-              >
-                {extractLoading ? "Extracting…" : "Extract from paste"}
-              </button>
-              {pasteText && (
-                <button
-                  type="button"
-                  className="btn text-xs"
-                  onClick={() => setPasteText("")}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-          {extractError && (
-            <div className="text-sm text-signal-bear">{extractError}</div>
-          )}
-          {extractWarnings.length > 0 && (
-            <ul className="text-xs text-signal-flag space-y-0.5">
-              {extractWarnings.map((w, i) => (
-                <li key={i}>⚠ {w}</li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <OptionsPasteInputPanel ticker={form.ticker} onParseResult={handleParseResult} />
 
         <div className="panel-header flex items-center justify-between">
           <span>Options (optional)</span>
@@ -919,108 +851,7 @@ export function KillSheetView() {
           </div>
         )}
 
-        <div className="panel-header flex items-center justify-between">
-          <span>Discipline overrides (optional)</span>
-          <button type="button" className="btn text-xs" onClick={() => setShowDiscipline(!showDiscipline)}>
-            {showDiscipline ? "Hide" : "Show"}
-          </button>
-        </div>
-        {showDiscipline && (
-          <div className="panel-body grid grid-cols-1 gap-3 border-t border-bg-border">
-            <p className="text-xs text-text-muted">
-              Section 8 attestation. Use only when an anti-pattern is auto-flagged
-              and you have a documented thesis to override. Friction is the point —
-              the kill sheet won't authorize entry until each fired flag has its
-              corresponding attestation.
-            </p>
-
-            <div>
-              <label className="label">Divergence thesis</label>
-              <textarea
-                className="input w-full"
-                rows={2}
-                value={form.divergence_thesis ?? ""}
-                onChange={(e) => update("divergence_thesis", e.target.value || null)}
-                placeholder="Required to override SQN(100) regime gate (e.g. 'VIX spike post-Powell, bottom forming')"
-              />
-            </div>
-
-            <div>
-              <label className="label">Counter-Weekly thesis</label>
-              <textarea
-                className="input w-full"
-                rows={2}
-                value={form.counter_weekly_thesis ?? ""}
-                onChange={(e) => update("counter_weekly_thesis", e.target.value || null)}
-                placeholder="Required when Weekly opposes (otherwise rule 11 fails on score)"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="label">Attestation booleans</label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={!!form.attestation_user_inputs?.explicit_post_earnings_crush_thesis}
-                  onChange={(e) => setAttestation("explicit_post_earnings_crush_thesis", e.target.checked)}
-                />
-                <span>
-                  <span className="text-text-primary">Post-earnings IV crush thesis</span>
-                  <span className="text-text-muted"> — required if IV Rank &gt; 70%</span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={!!form.attestation_user_inputs?.explicit_0dte_framing}
-                  onChange={(e) => setAttestation("explicit_0dte_framing", e.target.checked)}
-                />
-                <span>
-                  <span className="text-text-primary">Explicit 0DTE framing</span>
-                  <span className="text-text-muted"> — required if DTE &lt; 7</span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={!!form.attestation_user_inputs?.new_signal_for_average_down}
-                  onChange={(e) => setAttestation("new_signal_for_average_down", e.target.checked)}
-                />
-                <span>
-                  <span className="text-text-primary">New signal for averaging down</span>
-                  <span className="text-text-muted"> — required if open position same ticker+direction</span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={!!form.attestation_user_inputs?.weekly_trend_track_a}
-                  onChange={(e) => setAttestation("weekly_trend_track_a", e.target.checked)}
-                />
-                <span>
-                  <span className="text-text-primary">Track A entry (19/39 weekly cross)</span>
-                  <span className="text-text-muted"> — flag for weekly-trend-trader Track A; activates the per-asset Track A blocked-tickers gate</span>
-                </span>
-              </label>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={!!form.attestation_user_inputs?.weekly_trend_track_a_override_documented}
-                  onChange={(e) => setAttestation("weekly_trend_track_a_override_documented", e.target.checked)}
-                />
-                <span>
-                  <span className="text-text-primary">Track A asset override documented</span>
-                  <span className="text-text-muted"> — required if Track A entry on QQQ/GLD/SPY/AMZN/NFLX/AMD/TSLA (per-asset blocked list)</span>
-                </span>
-              </label>
-            </div>
-          </div>
-        )}
+        <DisciplineOverridesPanel form={form} update={update} setAttestation={setAttestation} />
 
         <div className="panel-body border-t border-bg-border flex items-center justify-end gap-2">
           <button type="submit" className="btn btn-primary" disabled={loading}>
@@ -1050,159 +881,17 @@ export function KillSheetView() {
       )}
 
       {response && (
-        <>
-          <div className="mb-4">
-            <VerdictHero
-              verdict={fromKillSheetDevil(
-                response.devil,
-                form.direction ?? "long",
-                response.rules_blocked,
-              )}
-              context={`${form.ticker || "Trade"} · ${form.direction ?? "long"}`}
+        <KillSheetResponsePanel
+          response={response}
+          form={form}
+          openPositionGate={
+            <OpenPositionGate
+              response={response}
+              searchParams={searchParams}
+              form={form}
             />
-          </div>
-
-          <OpenPositionGate
-            response={response}
-            searchParams={searchParams}
-            form={form}
-          />
-          {(() => {
-            const ks = response.kill_sheet as Record<string, unknown>;
-            const status = ks?.status as string | undefined;
-            const reason = ks?.rejection_reason as string | undefined;
-            if (status === "REJECTED") {
-              return (
-                <div className="panel stripe-bear p-4 mb-4 border-2 border-dashed border-signal-bear">
-                  <div className="font-semibold text-signal-bear mb-2">
-                    ⛔ KILL SHEET REJECTED — {reason}
-                  </div>
-                  <div className="text-sm text-text-secondary">
-                    Document a divergence thesis and re-submit to override the
-                    regime gate. Structure / sizing / exit blocks are suppressed
-                    until the thesis is recorded.
-                  </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
-
-          {(() => {
-            const ks = response.kill_sheet as Record<string, unknown>;
-            const att = ks?.discipline_attestation as Record<string, unknown> | undefined;
-            if (!att) return null;
-            const flags: { label: string; ok: boolean }[] = [
-              { label: "IV Rank > 70%", ok: !att.iv_rank_over_70 },
-              { label: "DTE < 7", ok: !att.dte_under_7 },
-              { label: "Daily MA chop", ok: !att.daily_chop },
-              { label: "Fighting SQN regime", ok: !att.fighting_sqn_regime },
-              { label: "Averaging down", ok: !att.averaging_down },
-              { label: "Spreads/margin", ok: !att.spreads_or_margin },
-            ];
-            const authorized = att.entry_authorized as boolean;
-            return (
-              <div className="panel mb-4">
-                <div className="panel-header flex items-center justify-between">
-                  <span>Discipline Attestation (§8)</span>
-                  <span className={`badge ${authorized ? "badge-bull" : "badge-bear"}`}>
-                    {authorized ? "ENTRY AUTHORIZED" : "ENTRY NOT AUTHORIZED"}
-                  </span>
-                </div>
-                <div className="panel-body grid grid-cols-2 gap-2 text-sm">
-                  {flags.map((f, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className={f.ok ? "text-signal-bull" : "text-signal-bear"}>
-                        {f.ok ? "✓" : "✗"}
-                      </span>
-                      <span className="text-text-secondary">{f.label}</span>
-                    </div>
-                  ))}
-                </div>
-                {!authorized && (
-                  <div className="panel-body text-xs text-text-muted border-t border-bg-border">
-                    To authorize entry: pass attestation_user_inputs with the
-                    appropriate booleans on the next kill-sheet request, or
-                    document a divergence thesis if the regime is fighting.
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-          {(() => {
-            const blocks = response.rule_violations.filter((v) => v.severity === "block");
-            const warns = response.rule_violations.filter((v) => v.severity === "warn");
-            return (
-              <>
-                {response.rules_blocked && blocks.length > 0 && (
-                  <div className="panel p-4 mb-4 border-signal-bear">
-                    <div className="font-semibold text-signal-bear mb-2">
-                      Account-rules block — kill sheet rendered for audit but trade is gated.
-                    </div>
-                    <ul className="text-sm space-y-1">
-                      {blocks.map((v, i) => (
-                        <li key={i} className="text-text-secondary">
-                          <span className="text-signal-bear">[{v.rule}]</span> {v.message}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {warns.length > 0 && (
-                  <div className="panel p-4 mb-4 border-signal-flag">
-                    <div className="font-semibold text-signal-flag mb-2">
-                      Account-rules advisory — review before sizing, trade is not gated.
-                    </div>
-                    <ul className="text-sm space-y-1">
-                      {warns.map((v, i) => (
-                        <li key={i} className="text-text-secondary">
-                          <span className="text-signal-flag">[{v.rule}]</span> {v.message}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-
-          {response.devil && (
-            <div className="panel mb-4">
-              <div className="panel-header flex items-center justify-between">
-                <span>Trade Devil</span>
-                <span className={`font-semibold ${aggregateClass(response.devil.aggregate)}`}>
-                  {response.devil.aggregate}
-                  <span className="text-text-muted ml-2 text-xs">
-                    {response.devil.kills}K · {response.devil.flags}F · {response.devil.passes}P
-                  </span>
-                </span>
-              </div>
-              <div className="panel-body space-y-2">
-                {response.devil.results.map((r) => (
-                  <div key={r.category} className="flex gap-3 text-sm">
-                    <span className={`badge ${
-                      r.verdict === "KILL" ? "badge-bear"
-                      : r.verdict === "FLAG" ? "badge-flag"
-                      : "badge-bull"
-                    }`}>
-                      {r.verdict}
-                    </span>
-                    <span className="font-semibold w-48 flex-shrink-0">{r.category}</span>
-                    <span className="text-text-secondary">{r.reason}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="panel">
-            <div className="panel-header">Kill Sheet</div>
-            <pre className="panel-body text-xs leading-relaxed overflow-x-auto whitespace-pre">
-              {response.rendered_text}
-            </pre>
-          </div>
-        </>
+          }
+        />
       )}
     </div>
   );
