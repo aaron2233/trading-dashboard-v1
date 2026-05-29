@@ -1,18 +1,30 @@
-"""Standalone cloud lotto scan → Markdown email-draft body on stdout.
+"""Standalone cloud lotto scan → SparkNotes Markdown email-draft body on stdout.
 
 Designed to run in a scheduled cloud environment with NO local
 ~/.trading-dashboard files. Config falls back to the baked-in defaults in
 config/loader.py (load_config() merges an absent config.yaml onto defaults),
-so the LOTTO account ($1K, $150/trade cap) is available without a config file.
+so the LOTTO account ($1K, $150/trade cap, -70% cut) is available with no
+config file.
 
 All scan / kill-sheet / formatting logic lives here ("fat script, thin
 agent"). The scheduled routine just runs this and pipes stdout into a Gmail
 draft. Nothing is written to disk.
 
+STDOUT CONTRACT (the routine keys off these):
+  - Normal, ≥1 actionable trade → full Markdown starting "# Lotto Scan".
+        → routine DRAFTS it.
+  - "market closed or no fresh 2H bar ... skipping"  (single line)
+        → routine creates NO draft.
+  - "no actionable setups this window"               (single line)
+        → routine creates NO draft.
+  - "DATA FETCH FAILED ..."                          (single line)
+        → routine DRAFTS a short failure notice (so a yfinance blackout is
+          never silently mistaken for "no trades").
+
 Reuses, verbatim:
   - lotto.scan_lotto_watchlist          (src/lotto/scanner.py:157)
-  - scan.populate_trigger_bar           (src/scan.py:168)  → 2H trigger bar
   - kill_sheet.builder.build_standard   (src/kill_sheet/builder.py:190)
+  - scan.scan_ticker / populate_trigger_bar (src/scan.py)
   - lotto.suggest_strikes               (src/lotto/strikes.py:88)
   - config.load_config                  (src/config/loader.py:182)
 
@@ -23,7 +35,7 @@ from __future__ import annotations
 
 import sys
 import warnings
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -41,19 +53,17 @@ from scan import populate_trigger_bar, scan_ticker  # noqa: E402
 
 PT = ZoneInfo("America/Los_Angeles")
 ET = ZoneInfo("America/New_York")
-# yfinance returns naive timestamps in US/Eastern (exchange time).
-EXCHANGE_TZ = ET
+EXCHANGE_TZ = ET  # yfinance returns naive timestamps in US/Eastern (exchange time)
 
-FREE_RANGE_UNIVERSE = ["nasdaq_100", "sp500_top_50", "russell_2000_top_50"]
-# Representative liquid ticker used only to read the latest 2H bar timestamp
-# for the fresh-bar / trading-session guard.
-GUARD_TICKER = "QQQ"
+SCAN_UNIVERSE = ["nasdaq_100"]
+GUARD_TICKER = "QQQ"  # liquid proxy used only to read the latest 2H bar timestamp
+LOTTO_TARGET_PCT = 200  # lotto standard: +200% premium target (skill spec)
 
 
 # ─── Fresh-bar / trading-session guard ──────────────────────────────────────
 def latest_2h_bar_time() -> datetime | None:
-    """Return the latest 2H bar's timestamp (tz-aware, exchange tz) for the
-    guard ticker, or None if bars can't be fetched."""
+    """Latest 2H bar timestamp (tz-aware, exchange tz) for the guard ticker,
+    or None if bars can't be fetched."""
     try:
         from scan import load_bars
         bars = load_bars(GUARD_TICKER, interval="2h")
@@ -70,122 +80,69 @@ def latest_2h_bar_time() -> datetime | None:
 
 def is_fresh_session(bar_time: datetime | None, now_et: datetime) -> bool:
     """A 2H bar is "fresh" if it belongs to the current US trading session:
-    same calendar date as `now_et`, on a weekday. Pre-open (before 9:30 ET)
-    or weekend/holiday → not fresh (no bar will carry today's date).
-
-    Holiday-proof: we never hardcode a calendar — on a holiday yfinance's
-    latest bar carries the prior session's date, so the date comparison fails.
-    """
+    same calendar date as `now_et`, on a weekday, after the 09:30 ET open.
+    Holiday-proof: on a holiday yfinance's latest bar carries the prior
+    session's date, so the date comparison fails — no hardcoded calendar."""
     if bar_time is None:
         return False
-    bar_et = bar_time.astimezone(EXCHANGE_TZ)
-    if now_et.weekday() >= 5:  # Sat/Sun
+    if now_et.weekday() >= 5:           # Sat/Sun
         return False
-    # Before today's open there is no fresh bar yet.
-    if now_et.time() < time(9, 30):
+    if now_et.time() < time(9, 30):     # before today's open → no fresh bar yet
         return False
-    return bar_et.date() == now_et.date()
+    return bar_time.astimezone(EXCHANGE_TZ).date() == now_et.date()
 
 
-# ─── Regime summary ─────────────────────────────────────────────────────────
-def regime_line(setup) -> str:
-    sqn100 = f"{setup.sqn_100_value:+.2f}" if setup.sqn_100_value is not None else "n/a"
-    sqn20 = f"{setup.sqn_20_value:+.2f}" if setup.sqn_20_value is not None else "n/a"
-    return (
-        f"SQN(100): **{setup.sqn_100_regime or 'n/a'}** ({sqn100}) · "
-        f"SQN(20): **{setup.sqn_20_regime or 'n/a'}** ({sqn20})"
-    )
-
-
-def regime_summary(result) -> str:
-    """One-line backdrop from QQQ + GLD baseline rows (long side, dedup)."""
-    seen: dict[str, str] = {}
-    for s in result.setups:
-        if s.ticker in ("QQQ", "GLD") and s.ticker not in seen:
-            seen[s.ticker] = regime_line(s)
-    if not seen:
-        return "_Regime backdrop unavailable._"
-    return "\n".join(f"- **{t}** — {line}" for t, line in seen.items())
-
-
-# ─── Per-setup kill-sheet block ─────────────────────────────────────────────
-def render_setup_block(setup, account) -> str:
-    direction = setup.direction  # "long" | "short"
-    kind = "call" if direction == "long" else "put"
-
-    # Build a daily scan_row + inject the 2H trigger bar, then a kill sheet.
-    try:
-        scan_row = scan_ticker(setup.ticker, timeframe="1d")
-        scan_row = populate_trigger_bar(scan_row, setup.ticker, "2H")
-        ks = build_standard(
-            scan_row,
-            direction=direction,
-            account=account,
-            account_key="lotto",
-            intent="SCALP",
-            trigger_tf="2H",
-            risk_conviction="default",
-            skill="lotto-options",
-            scan_phase=("baseline" if setup.source_universe is None else "free_range"),
-        )
-    except Exception as exc:
-        return f"### {setup.ticker} — {direction.upper()}\n\n⚠️ Kill-sheet build failed: {exc}\n"
-
-    # Strike levels (prices only — premium/IV/delta intentionally absent).
-    strikes_md = "_strike suggestion unavailable_"
+# ─── SparkNotes block per actionable trade ──────────────────────────────────
+def recommended_strike(setup, kind: str) -> str:
+    """The 0.20Δ BS-derived strike the scan already computed; falls back to
+    the ATM/OTM strike ladder (pure math, no network) when HV was unavailable."""
+    if setup.suggested_strike is not None:
+        return f"${setup.suggested_strike:g}  (~0.20Δ, {setup.suggested_dte})"
     if setup.close:
-        sug = suggest_strikes(
-            setup.close, direction=kind, ticker=setup.ticker, bar_date=setup.bar_date
-        )
+        sug = suggest_strikes(setup.close, direction=kind, ticker=setup.ticker,
+                              bar_date=setup.bar_date)
         cand = sug.calls if kind == "call" else sug.puts
-        strikes_md = " · ".join(f"{c.moneyness} ${c.strike:g}" for c in cand)
+        ladder = " · ".join(f"{c.moneyness} ${c.strike:g}" for c in cand)
+        return f"verify ~0.20Δ on chain — ladder: {ladder}"
+    return "n/a"
 
-    color = (ks.trigger_bar_color or "n/a").capitalize()
-    in_dir = (
-        "in-direction" if ks.trigger_bar_in_direction
-        else ("AGAINST direction" if ks.trigger_bar_in_direction is False else "n/a")
-    )
 
-    sqn100 = f"{ks.sqn_value:+.2f}" if ks.sqn_value is not None else "n/a"
-    sqn20 = f"{ks.sqn_20_value:+.2f}" if ks.sqn_20_value is not None else "n/a"
+def render_sparknotes(setup, account) -> str | None:
+    """Compact, actionable block. Returns None if the discipline gate REJECTS
+    the trade (counter-regime without a divergence thesis) — those are not
+    actionable, so they're dropped from the draft."""
+    kind = "call" if setup.direction == "long" else "put"
+    try:
+        scan_row = populate_trigger_bar(scan_ticker(setup.ticker, timeframe="1d"),
+                                        setup.ticker, "2H")
+        ks = build_standard(scan_row, direction=setup.direction, account=account,
+                            account_key="lotto", intent="SCALP", trigger_tf="2H",
+                            risk_conviction="default", skill="lotto-options")
+    except Exception:
+        ks = None  # fall through to scan-only fields rather than drop the trade
 
-    # Sizing under the fixed $150 lotto cap (R1). build_standard already caps
-    # max_risk_usd at the account's max_per_trade_usd (=$150) when present.
-    cap_note = " (capped by $150 R1 cap)" if ks.risk_capped_by_max_trade else ""
-    cut_pct = account.raw.get("cut_rule_pct")
-    cut_label = f"{abs(cut_pct) * 100:.0f}%" if cut_pct is not None else "60-70%"
+    if ks is not None and ks.status == "REJECTED":
+        return None  # discipline gate rejects → not actionable
 
-    universe = setup.source_universe or "QQQ+GLD baseline"
+    cut_pct = account.raw.get("cut_rule_pct")          # e.g. -0.70
+    cut_label = f"{abs(cut_pct) * 100:.0f}%" if cut_pct is not None else "70%"
+    opt_floor = f"≈{1 + cut_pct:.2f}× entry premium" if cut_pct is not None else "≈0.30× entry"
 
-    lines = [
-        f"### {setup.ticker} — {direction.upper()} ({kind}s)  ·  _{universe}_",
-        "",
-        f"- **Verdict:** {setup.verdict.upper()} — {setup.verdict_reason}",
-        f"- **Entry-authorized (discipline gate):** "
-        f"{'YES' if ks.discipline_attestation and ks.discipline_attestation.entry_authorized else 'NO'}"
-        f"  ·  **Kill-sheet status:** {ks.status}",
-        f"- **Regime:** SQN(100) {ks.regime} ({sqn100}) · SQN(20) {ks.regime_20 or 'n/a'} ({sqn20})",
-        f"- **MA stack (daily):** {ks.ma_stack}  ·  "
-        f"10/20/50/200 = ${ks.ma_10:g} / ${ks.ma_20:g} / ${ks.ma_50:g} / ${ks.ma_200:g}",
-        f"- **Stochastic (daily 14,7,7):** %K/%D {ks.stoch_k:.1f}/{ks.stoch_d:.1f}"
-        f"  ·  {ks.stoch_signal} ({ks.stoch_zone})",
-        f"- **2H trigger bar:** {color} ({in_dir})",
-        f"- **Spot:** ${setup.close:g}" if setup.close else "- **Spot:** n/a",
-        f"- **Suggested strikes ({kind}s):** {strikes_md}",
-        f"- **DTE band:** {ks.dte_band_label}",
-        f"- **Sizing (R1 fixed cap):** max risk ${ks.max_risk_usd:,.0f}{cap_note} "
-        f"on ${ks.account_balance_usd:,.0f} lotto account",
-        f"- **Cut rule:** hard stop at -{cut_label} of premium",
+    tgt = f"${setup.target_price:g}" if setup.target_price is not None else "n/a"
+    stop = f"${setup.stop_price:g}" if setup.stop_price is not None else "n/a"
+    spot = f"${setup.close:g}" if setup.close else "n/a"
+
+    return "\n".join([
+        f"### {setup.ticker} — {kind.upper()}  ·  spot {spot}",
+        f"- **Recommended strike:** {recommended_strike(setup, kind)}",
+        f"- **Stock target:** {tgt}  ·  **stock invalidation (stop):** {stop}",
+        f"- **Options target:** +{LOTTO_TARGET_PCT}% (≈{1 + LOTTO_TARGET_PCT/100:g}× entry premium)",
+        f"- **Options invalidation:** −{cut_label} of entry premium ({opt_floor}) — hard cut",
         f"- **Why now:** {setup.why_now}",
         "",
-        "**Live option quote — ⚠️ VERIFY on broker chain (not fabricated):**",
+        "_Premium / IV / delta: ⚠️ verify on broker chain before entry._",
         "",
-        "| Premium | IV / IVR | Delta | Open Int | Bid-Ask Spread |",
-        "|---|---|---|---|---|",
-        "| ⚠️ VERIFY | ⚠️ VERIFY | ⚠️ VERIFY | ⚠️ VERIFY | ⚠️ VERIFY |",
-        "",
-    ]
-    return "\n".join(lines)
+    ])
 
 
 # ─── Main ───────────────────────────────────────────────────────────────────
@@ -194,64 +151,49 @@ def main() -> int:
     now_et = now_pt.astimezone(ET)
     ts_label = now_pt.strftime("%Y-%m-%d %H:%M %Z")
 
-    # 1. Run the scan (baseline + free-range). The scanner applies the v2
-    #    gates (G2/G3) + price band internally; actionable = verdict "buy".
-    baseline = scan_lotto_watchlist()  # QQQ + GLD
-    free_range = scan_lotto_watchlist(universe=FREE_RANGE_UNIVERSE)
-
-    # 2. Fresh-bar / trading-session guard.
+    # 1. Fresh-bar / trading-session guard (cheap single-ticker fetch first).
     bar_time = latest_2h_bar_time()
     if not is_fresh_session(bar_time, now_et):
         bar_str = bar_time.astimezone(PT).strftime("%Y-%m-%d %H:%M %Z") if bar_time else "no bar"
-        print(
-            f"LOTTO SCAN — {ts_label}: market closed or no fresh 2H bar "
-            f"(latest 2H bar: {bar_str}), skipping."
-        )
+        print(f"LOTTO SCAN — {ts_label}: market closed or no fresh 2H bar "
+              f"(latest 2H bar: {bar_str}), skipping.")
         return 0
-
     window_label = bar_time.astimezone(PT).strftime("%H:%M %Z")
 
-    # Merge actionable setups (dedup on ticker+direction; baseline wins).
-    actionable: list = []
-    seen: set[tuple[str, str]] = set()
-    for s in list(baseline.actionable_setups) + list(free_range.actionable_setups):
-        key = (s.ticker, s.direction)
-        if key in seen:
-            continue
-        seen.add(key)
-        actionable.append(s)
+    # 2. Scan the NASDAQ 100. Scanner applies v2 gates (G2/G3) + price band
+    #    internally; actionable = verdict "buy".
+    result = scan_lotto_watchlist(universe=SCAN_UNIVERSE)
 
-    config = load_config()  # baked-in defaults when no config.yaml exists
-    account = config.account("lotto")
-
-    # 3. Header + disclaimer.
-    out: list[str] = []
-    out.append(f"# Lotto Scan — {ts_label}")
-    out.append(f"_2H window close: {window_label} · trigger TF 2H · 0-14 DTE · long calls/puts only_")
-    out.append("")
-    out.append(
-        "> ⚠️ This scan runs in the cloud and CANNOT see your open positions / "
-        "concurrent-override caps / R1 remaining balance — verify against your "
-        "book before entering."
-    )
-    out.append("")
-    out.append("## Regime backdrop (QQQ + GLD)")
-    out.append("")
-    out.append(regime_summary(baseline))
-    out.append("")
-
-    if not actionable:
-        out.append("## Setups")
-        out.append("")
-        out.append("**No qualifying lotto setups this window.**")
-        print("\n".join(out))
+    # 3. Distinguish a data blackout from a genuine no-setups result, so a
+    #    yfinance rate-limit is never silently mistaken for "no trades".
+    scanned_tickers = {s.ticker for s in result.setups}
+    if not scanned_tickers or len(result.errors) > len(scanned_tickers):
+        print(f"LOTTO SCAN — {ts_label}: DATA FETCH FAILED "
+              f"({len(result.errors)} tickers errored, {len(scanned_tickers)} ok) "
+              f"— likely datacenter rate-limit; no scan produced.")
         return 0
 
-    out.append(f"## {len(actionable)} qualifying setup(s)")
-    out.append("")
-    for s in actionable:
-        out.append(render_setup_block(s, account))
+    config = load_config()              # baked-in defaults when no config.yaml
+    account = config.account("lotto")
 
+    # 4. Build SparkNotes for each actionable trade; drop discipline-rejected.
+    blocks = [b for s in result.actionable_setups
+              if (b := render_sparknotes(s, account)) is not None]
+
+    if not blocks:
+        print(f"LOTTO SCAN — {ts_label}: no actionable setups this window.")
+        return 0
+
+    out = [
+        f"# Lotto Scan — {ts_label}",
+        f"_2H window close: {window_label} · NASDAQ 100 · 2H trigger · 0-14 DTE · "
+        f"long calls/puts only · {len(blocks)} actionable_",
+        "",
+        "> ⚠️ Cloud scan — blind to your open positions / concurrent caps / R1 "
+        "balance. Verify against your book before entering.",
+        "",
+    ]
+    out.extend(blocks)
     print("\n".join(out))
     return 0
 
