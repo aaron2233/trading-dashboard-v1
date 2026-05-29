@@ -55,7 +55,18 @@ PT = ZoneInfo("America/Los_Angeles")
 ET = ZoneInfo("America/New_York")
 EXCHANGE_TZ = ET  # yfinance returns naive timestamps in US/Eastern (exchange time)
 
-SCAN_UNIVERSE = ["nasdaq_100"]
+# NASDAQ-100 top 50 by market cap (yfinance fast_info snapshot 2026-05-28;
+# ANSS excluded — no cap returned, mid-acquisition). Trimmed from the full
+# 100 to halve the per-run yfinance load and cut datacenter rate-limit /
+# timeout risk on the cloud routine. Re-rank with scripts/ rank logic if the
+# membership drifts materially.
+NASDAQ_50 = [
+    "AAPL", "ADBE", "ADI", "ADP", "AMAT", "AMD", "AMGN", "AMZN", "ARM", "ASML",
+    "AVGO", "AZN", "BKNG", "CDNS", "CEG", "CMCSA", "COST", "CRWD", "CSCO", "CSX",
+    "FTNT", "GILD", "GOOG", "GOOGL", "HON", "INTC", "INTU", "ISRG", "KLAC", "LIN",
+    "LRCX", "MAR", "MELI", "META", "MNST", "MRVL", "MSFT", "MU", "NFLX", "NVDA",
+    "PANW", "PDD", "PEP", "QCOM", "SBUX", "SNPS", "TMUS", "TSLA", "TXN", "VRTX",
+]
 GUARD_TICKER = "QQQ"  # liquid proxy used only to read the latest 2H bar timestamp
 LOTTO_TARGET_PCT = 200  # lotto standard: +200% premium target (skill spec)
 
@@ -160,9 +171,9 @@ def main() -> int:
         return 0
     window_label = bar_time.astimezone(PT).strftime("%H:%M %Z")
 
-    # 2. Scan the NASDAQ 100. Scanner applies v2 gates (G2/G3) + price band
-    #    internally; actionable = verdict "buy".
-    result = scan_lotto_watchlist(universe=SCAN_UNIVERSE)
+    # 2. Scan the NASDAQ-100 top 50. Scanner applies v2 gates (G2/G3) + price
+    #    band internally; actionable = verdict "buy".
+    result = scan_lotto_watchlist(tickers=NASDAQ_50)
 
     # 3. Distinguish a data blackout from a genuine no-setups result, so a
     #    yfinance rate-limit is never silently mistaken for "no trades".
@@ -186,7 +197,7 @@ def main() -> int:
 
     out = [
         f"# Lotto Scan — {ts_label}",
-        f"_2H window close: {window_label} · NASDAQ 100 · 2H trigger · 0-14 DTE · "
+        f"_2H window close: {window_label} · NASDAQ top 50 · 2H trigger · 0-14 DTE · "
         f"long calls/puts only · {len(blocks)} actionable_",
         "",
         "> ⚠️ Cloud scan — blind to your open positions / concurrent caps / R1 "
