@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { api } from "../api/client";
-import { TradeCard } from "../components/TradeCard";
+import { TradeCard, type TradeCardBadge } from "../components/TradeCard";
 import type {
   IndexSwingScanResponse,
   IndexSwingSetup,
-  TradeCardBadge,
 } from "../api/types";
 
 function killSheetLink(s: IndexSwingSetup): string {

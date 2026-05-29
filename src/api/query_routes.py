@@ -18,7 +18,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from focus.sunday_scan import list_recent_sunday_scans
 from storage.cache import Cache, get_cache
 
 
@@ -113,9 +112,6 @@ def make_query_router(cache_factory=get_cache) -> APIRouter:
                 payload = load_json_safe(path)
                 if payload is not None:
                     weekly.append(payload)
-        scans = list_recent_sunday_scans(limit=200)
-        # list_recent_sunday_scans returns SundayScanSummary, but we need
-        # the full payload for cache. Re-load instead.
         from focus.sunday_scan import SUNDAY_SCANS_DIR
         from storage.atomic import load_json_safe
         scan_payloads: list[dict] = []

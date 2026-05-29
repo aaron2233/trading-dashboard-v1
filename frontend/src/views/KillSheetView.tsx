@@ -645,8 +645,7 @@ export function KillSheetView() {
   }
 
   function sourceBadge(key: keyof KillSheetRequest) {
-    const src = fieldSources[key];
-    if (!src) return null;
+    if (!fieldSources[key]) return null;
     return (
       <span className="badge badge-info text-[10px] ml-2">from paste</span>
     );

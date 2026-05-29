@@ -5,7 +5,6 @@ import { TradingViewChart } from "../components/TradingViewChart";
 import { TradeCard, type TradeCardBadge } from "../components/TradeCard";
 import { VerdictBadge } from "../components/Verdict";
 import { fromWeeklyConfluence } from "../lib/verdict";
-import { ActionVerdictBanner } from "../components/ActionVerdictBanner";
 import type {
   WeeklyScanResponse,
   WeeklyScanUniverseName,
@@ -20,23 +19,6 @@ const UNIVERSE_LABELS: Record<WeeklyScanUniverseName, string> = {
   russell_2000_top_50: "Russell 2000 Top 50",
 };
 
-
-function fmtPrice(value: number | null): string {
-  if (value === null || value === undefined) return "—";
-  return `$${value.toFixed(2)}`;
-}
-
-function fmt(value: number | null | undefined, digits = 1): string {
-  if (value === null || value === undefined) return "—";
-  return value.toFixed(digits);
-}
-
-function badgeClassForStack(stack: string | null): string {
-  if (stack === "full_bull" || stack === "bull_developing") return "badge-bull";
-  if (stack === "full_bear" || stack === "bear_developing") return "badge-bear";
-  if (stack === "compression") return "badge-flag";
-  return "badge-muted";
-}
 
 function badgeClassForRegime(regime: string | null): string {
   if (regime === "strong_bull" || regime === "bull") return "badge-bull";
@@ -110,84 +92,6 @@ function ChecklistPanel() {
         </p>
       </div>
     </details>
-  );
-}
-
-function TopSetupCard({ setup, rank, onSelect }: {
-  setup: WeeklySetup;
-  rank: number;
-  onSelect?: (ticker: string) => void;
-}) {
-  const verdict = fromWeeklyConfluence(setup.confluence, setup.direction);
-  return (
-    <div className="panel">
-      <div className="panel-body">
-        {setup.action_verdict && <ActionVerdictBanner verdict={setup.action_verdict} />}
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-baseline gap-3 flex-wrap">
-            <span className="text-text-muted text-xs font-mono">#{rank}</span>
-            <span className="font-mono font-semibold text-base">{setup.ticker}</span>
-            <span className="text-xs text-text-secondary">
-              {fmtPrice(setup.close)} · bar {setup.bar_date ?? "—"}
-            </span>
-            {setup.is_penny_stock && (
-              <span className="badge badge-flag text-xs">PENNY</span>
-            )}
-          </div>
-          <VerdictBadge verdict={verdict} size="lg" />
-        </div>
-
-        {setup.why_now && (
-          <p className="text-sm text-text-primary mb-2">{setup.why_now}</p>
-        )}
-
-        {setup.blockers.length > 0 && (
-          <ul className="text-xs text-signal-flag mb-3 space-y-0.5">
-            {setup.blockers.map((b, i) => (
-              <li key={i}>⚠ {b}</li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            <span>
-              <span className="text-text-secondary">SQN</span>{" "}
-              <span className={`badge ${badgeClassForRegime(setup.sqn_100_regime)} text-[10px]`}>
-                {setup.sqn_100_regime ?? "—"}
-              </span>
-            </span>
-            <span>·</span>
-            <span>
-              <span className="text-text-secondary">stack</span>{" "}
-              <span className={`badge ${badgeClassForStack(setup.ma_stack_state)} text-[10px]`}>
-                {setup.ma_stack_state ?? "—"}
-              </span>
-            </span>
-            <span>·</span>
-            <span>stoch <span className="font-mono">{fmt(setup.stoch_k)}/{fmt(setup.stoch_d)}</span></span>
-            <span>·</span>
-            <span>vehicle {setup.suggested_vehicle}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {onSelect && (
-              <button
-                type="button"
-                className="btn text-xs"
-                onClick={() => onSelect(setup.ticker)}
-              >
-                Chart
-              </button>
-            )}
-            {setup.direction !== "none" ? (
-              <Link to={killSheetLink(setup)} className="btn btn-primary text-xs">
-                Kill sheet →
-              </Link>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 

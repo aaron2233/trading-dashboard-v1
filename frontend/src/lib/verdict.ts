@@ -54,6 +54,10 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const WEEKLY_CONF: Record<WeeklyConfluence, number> = {
   high_conviction_long: 9,
   high_conviction_short: 9,
+  // Track A 19/39 cross: early-entry, ranks between continuation and
+  // high-conviction (backend base score 60 vs 50/70 — scanner.py:293).
+  track_a_cross_long: 7,
+  track_a_cross_short: 7,
   continuation_long: 6,
   continuation_short: 6,
   compression: 3,
