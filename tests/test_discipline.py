@@ -433,6 +433,19 @@ def test_load_kill_sheet_for_returns_none_without_id():
     assert load_kill_sheet_for(p) is None
 
 
+def test_portfolio_sleeve_exempt_from_cut_and_tier_rules():
+    # Portfolio sleeve exits on thesis-break, sizes on a per-position % cap —
+    # the -60/-70% cut rule and the 0.5-3% conviction-tier check don't apply.
+    # A shares position closed at a deep loss must score N/A on both, not N.
+    p = _make_position(instrument="shares", account_key="portfolio",
+                       pnl_usd=-400.0, max_loss_usd=200.0)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
+    cut = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    tier = next(r for r in score.rules if r.rule_id == "size_within_tier")
+    assert cut.score == "N/A"
+    assert tier.score == "N/A"
+
+
 def test_cut_at_60_70_y_within_band():
     p = _make_position(pnl_usd=-650.0, max_loss_usd=1000.0)  # 65% loss
     score = score_trade(p, kill_sheet=_make_kill_sheet())

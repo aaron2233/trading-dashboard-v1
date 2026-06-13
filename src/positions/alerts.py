@@ -183,6 +183,13 @@ def _price_alerts(position: Position, scan_row: dict[str, Any]) -> list[Position
 
 def _technical_alerts(position: Position, scan_row: dict[str, Any]) -> list[PositionAlert]:
     out: list[PositionAlert] = []
+    # Portfolio sleeve is a multi-quarter thematic hold that exits on a
+    # thesis-break PRICE level (handled by _price_alerts), NOT on daily MA
+    # flips — firing "thesis structurally broken" on every daily ribbon wobble
+    # contradicts the sleeve's design (~/CLAUDE.md long-term sleeve). Skip the
+    # technical (ma_flip) alerts here; keep the price-based invalidation/target.
+    if position.account_key == "portfolio":
+        return out
     thesis = position.thesis_direction
 
     stack = (scan_row.get("ma_ribbon") or {}).get("stack_state")

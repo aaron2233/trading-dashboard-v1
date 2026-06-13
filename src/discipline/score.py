@@ -125,6 +125,11 @@ def _r_sqn20_respected(p: Position, ctx: ScoringContext) -> RuleResult:
 
 
 def _r_size_within_tier(p: Position, ctx: ScoringContext) -> RuleResult:
+    # Portfolio sleeve sizes on a per-position % cap (<=25% of sleeve), not the
+    # 0.5-3% conviction tiers — the tier check does not apply. (~/CLAUDE.md.)
+    if p.account_key == "portfolio":
+        return _result("size_within_tier", "N/A", True,
+                       note="Portfolio sleeve — per-position % cap, not conviction tiers")
     ks = ctx.kill_sheet
     if ks is None or ks.account_balance_usd <= 0:
         return _result("size_within_tier", "Y", False,
@@ -246,6 +251,11 @@ def _r_weekly_not_opposing(p: Position, ctx: ScoringContext) -> RuleResult:
 
 
 def _r_cut_at_60_70(p: Position, ctx: ScoringContext) -> RuleResult:
+    # Portfolio sleeve exits on thesis-break, not a % cut rule (~/CLAUDE.md:
+    # "No fixed % stop / cut rule") — the -60/-70% check does not apply.
+    if p.account_key == "portfolio":
+        return _result("cut_at_60_70", "N/A", True,
+                       note="Portfolio sleeve — thesis-break exit, no % cut rule")
     # Use total_cost_usd for options (max_loss_usd is zeroed by partial_close
     # on the final leg, which previously made every options trade auto-pass).
     denom = _loss_denominator(p)
