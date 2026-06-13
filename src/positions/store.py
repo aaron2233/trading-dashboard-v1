@@ -29,6 +29,17 @@ DEFAULT_POSITIONS_PATH = Path.home() / ".trading-dashboard" / "positions.json"
 logger = logging.getLogger(__name__)
 
 
+def _open_dedup_key(p: Position) -> tuple:
+    """Identity for double-submit detection: same contract in the same account."""
+    return (
+        (p.ticker or "").upper(),
+        (p.instrument or "").lower(),
+        p.strike,
+        p.expiry,
+        p.account_key,
+    )
+
+
 class PositionStore:
     def __init__(self, path: Path | None = None, cache: "Cache | None" = None):
         """Construct a position store.
@@ -92,10 +103,28 @@ class PositionStore:
                         entry.get("id"),
                     )
 
-    def add(self, position: Position) -> Position:
+    def add(self, position: Position, allow_duplicate: bool = False) -> Position:
         self._ensure_loaded()
         if any(p.id == position.id for p in self._positions):
             raise ValueError(f"Position id {position.id} already exists")
+        # Dedup guard: reject a new OPEN position identical (ticker + instrument
+        # + strike + expiry) to one already open in the same account — almost
+        # always a double-submit (the failure mode behind the MARA-dupe
+        # incident). Pass allow_duplicate=True for a genuine second lot. The
+        # portfolio sleeve is exempt: DCA into a held name is sanctioned there.
+        if not allow_duplicate and position.account_key != "portfolio":
+            key = _open_dedup_key(position)
+            dupe = next(
+                (p for p in self._positions
+                 if p.status == "open" and _open_dedup_key(p) == key),
+                None,
+            )
+            if dupe is not None:
+                raise ValueError(
+                    f"An open {position.ticker} {position.instrument} position with the "
+                    f"same strike/expiry already exists (id {dupe.id}). This is usually a "
+                    f"double-submit — pass allow_duplicate=True to add a second lot."
+                )
         self._positions.append(position)
         self.save()
         return position

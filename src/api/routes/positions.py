@@ -159,7 +159,12 @@ def make_positions_router(store_factory) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        store.add(position)
+        try:
+            store.add(position, allow_duplicate=req.allow_duplicate)
+        except ValueError as exc:
+            # Dedup guard tripped (suspected double-submit). 409 with the
+            # message so the client can confirm via allow_duplicate.
+            raise HTTPException(status_code=409, detail=str(exc))
         return position_to_response(position)
 
     @router.get("/api/v1/positions/alerts", response_model=list[AlertResponse])
