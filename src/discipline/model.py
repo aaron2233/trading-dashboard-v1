@@ -2,9 +2,9 @@
 
 Per DISCIPLINE-LAYER-ADDITION.md and the scorecard template at
 ~/.claude/skills/user/discipline/references/scorecard-template.md. NOTE: this
-engine implements 14 rules — the template's rule 15 ("trend-pyramid double-up")
-was retired with the trend-pyramid skill (2026-05-07). The template/orchestrator
-still say 15; retire rule 15 there to match. (Aligned dashboard-side 2026-06.)
+engine implements 14 rules — the former rule 15 ("trend-pyramid double-up") was
+retired with the trend-pyramid skill (2026-05-07). Template, skill, and engine
+are all on 14 as of 2026-06.
 
 A `DisciplineScore` records:
 - 14 rule results (Y / N / N/A) with auto/manual provenance
