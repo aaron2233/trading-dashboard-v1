@@ -362,7 +362,7 @@ def test_kill_sheet_allows_index_swing_qqq():
         skill="index-swing",
     )
     assert sheet.discipline_attestation.index_swing_universe_violation is False
-    assert sheet.discipline_attestation.index_swing_bear_volatile_block is False
+    assert sheet.discipline_attestation.bear_volatile_block is False
     assert sheet.discipline_attestation.entry_authorized is True
 
 
@@ -401,7 +401,7 @@ def test_kill_sheet_blocks_index_swing_strong_bear_100():
         options=options,
         skill="index-swing",
     )
-    assert sheet.discipline_attestation.index_swing_bear_volatile_block is True
+    assert sheet.discipline_attestation.bear_volatile_block is True
     assert sheet.discipline_attestation.entry_authorized is False
 
 
@@ -442,7 +442,7 @@ def test_kill_sheet_does_not_block_index_swing_bull_with_sqn20_capitulation():
         options=options,
         skill="index-swing",
     )
-    assert sheet.discipline_attestation.index_swing_bear_volatile_block is False
+    assert sheet.discipline_attestation.bear_volatile_block is False
     assert sheet.discipline_attestation.entry_authorized is True
 
 
