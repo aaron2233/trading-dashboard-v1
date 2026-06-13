@@ -262,6 +262,32 @@ def test_stop_does_not_exceed_2pct_below_entry():
         assert max_stop_distance_pct <= 2.05  # tiny tolerance for rounding
 
 
+def test_stop_caps_at_2pct_when_breakout_bar_low_is_wide():
+    # Regression for the stop-inversion bug (fixed 2026-06): when the breakout
+    # bar's low sits MORE than 2% below its close, the stop must still cap at
+    # 2% (the tighter of the two), not widen to the bar low. The old min()
+    # selected the WIDER stop here, blowing past the 2% structural premise and
+    # inflating the 2R target. The default _make_bars fixture (low = close*0.995)
+    # never reaches this branch, so this test forces a wide breakout bar.
+    closes = _breakout_setup_closes()
+    volumes = [1_000_000.0] * (len(closes) - 1) + [1_500_000.0]
+    bars = _make_bars(closes, volumes=volumes)
+    last = bars.index[-1]
+    bars.loc[last, "low"] = float(bars.loc[last, "close"]) * 0.95  # 5% below close
+    result = scan_index_swing_watchlist(
+        ["QQQ"],
+        bars_fn=lambda t: bars.copy(),
+        scan_fn=lambda t, tf: {"sqn": {"regime": "bull", "regime_20": "bull"}},
+    )
+    setup = result.setups[0]
+    assert setup.suggested_stop is not None
+    stop_distance_pct = (setup.close - setup.suggested_stop) / setup.close * 100
+    assert stop_distance_pct <= 2.05  # capped at 2%, NOT the 5%-wide bar low
+    # 2R target scales off the capped (2%) risk, not the wide bar.
+    risk = setup.close - setup.suggested_stop
+    assert setup.suggested_target_2r == pytest.approx(setup.close + 2.0 * risk, rel=0.001)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Kill-sheet hard blocks
 # ─────────────────────────────────────────────────────────────────────────
@@ -336,7 +362,7 @@ def test_kill_sheet_allows_index_swing_qqq():
         skill="index-swing",
     )
     assert sheet.discipline_attestation.index_swing_universe_violation is False
-    assert sheet.discipline_attestation.index_swing_bear_volatile_block is False
+    assert sheet.discipline_attestation.bear_volatile_block is False
     assert sheet.discipline_attestation.entry_authorized is True
 
 
@@ -375,7 +401,7 @@ def test_kill_sheet_blocks_index_swing_strong_bear_100():
         options=options,
         skill="index-swing",
     )
-    assert sheet.discipline_attestation.index_swing_bear_volatile_block is True
+    assert sheet.discipline_attestation.bear_volatile_block is True
     assert sheet.discipline_attestation.entry_authorized is False
 
 
@@ -416,7 +442,7 @@ def test_kill_sheet_does_not_block_index_swing_bull_with_sqn20_capitulation():
         options=options,
         skill="index-swing",
     )
-    assert sheet.discipline_attestation.index_swing_bear_volatile_block is False
+    assert sheet.discipline_attestation.bear_volatile_block is False
     assert sheet.discipline_attestation.entry_authorized is True
 
 

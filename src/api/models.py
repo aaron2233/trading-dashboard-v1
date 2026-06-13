@@ -146,6 +146,10 @@ class OpenPositionRequest(BaseModel):
     invalidation: float | None = None
     notes: str | None = None
 
+    # Set True to log a genuine second lot identical to an already-open position
+    # (the store rejects identical-open contracts by default as double-submits).
+    allow_duplicate: bool = False
+
     # Skill / tier tagging — drives orchestrator rule 11 portfolio scope.
     # Nullable; legacy positions stay None.
     skill: str | None = None

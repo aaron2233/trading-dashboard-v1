@@ -53,7 +53,13 @@ _DEFAULT_ACCOUNTS: dict[str, dict[str, Any]] = {
         "contract_price_max": 1.50,
         "dte_min": 5,
         "dte_max": 14,
-        "cut_rule_pct": -0.70,
+        # Lotto stop is -50% per the lotto-options skill and the v2-gate
+        # backtest's R definition (HARD_STOP_FRAC=0.50); -0.70 broke those PF
+        # numbers. (Decision 2026-06.) NOTE: nothing in this branch consumes
+        # cut_rule_pct yet — the cloud-scan email reader lives on the
+        # lotto-cloud-scan-routine branch (apply -0.50 there too), and the
+        # discipline scorecard's cut check still uses a uniform 0.70 threshold.
+        "cut_rule_pct": -0.50,
         "tempo_per_week": "2-4",
     },
     "weekly": {
@@ -167,6 +173,24 @@ class Config:
 
     def skills_at_tier(self, tier: int) -> list[SkillConfig]:
         return [s for s in self.skills.values() if s.tier == tier]
+
+    def pool_account_keys(self, account_key: str) -> set[str]:
+        """All account keys sharing a capital pool with ``account_key``.
+
+        Accounts with ``pool_member_of: X`` draw on X's balance (e.g. the
+        'weekly' account shares 'main's $10K pool), so premium-at-risk and
+        position-count gates must aggregate across the whole pool — otherwise
+        each key can independently consume the full budget. Returns just
+        ``{account_key}`` for a standalone account.
+        """
+        acct = self.accounts.get(account_key)
+        root = (acct.pool_member_of if acct and acct.pool_member_of else account_key)
+        keys = {root}
+        for k, a in self.accounts.items():
+            if k == root or a.pool_member_of == root:
+                keys.add(k)
+        keys.add(account_key)
+        return keys
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

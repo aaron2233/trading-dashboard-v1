@@ -14,9 +14,9 @@ from positions.model import Position
 
 
 def _open_pos(ticker="QQQ", direction="long", days_after_scan=2,
-              scan_date="2026-04-26") -> Position:
+              scan_date="2026-04-26", instrument="call") -> Position:
     pos = Position.open_options_position(
-        ticker=ticker, direction=direction, contract_type="call",
+        ticker=ticker, direction=direction, contract_type=instrument,
         account_key="main", strike=500, expiry="2026-06-19",
         premium=1.50, contracts=1,
     )
@@ -88,6 +88,19 @@ def test_find_matched_filters_by_ticker_and_direction():
         [qqq_long, qqq_short, gld_long],
     )
     assert matched == [qqq_long]
+
+
+def test_find_matched_bearish_long_put_matches_short_setup():
+    # A bearish long put is stored direction='long', instrument='put' (thesis
+    # bearish). It must match a 'short' (bearish) scan setup — matching by THESIS,
+    # not the raw stored contract direction (which is always 'long' for options).
+    long_put = _open_pos(ticker="QQQ", direction="long", instrument="put")
+    long_call = _open_pos(ticker="QQQ", direction="long", instrument="call")  # bullish
+    matched = find_matched_positions(
+        "2026-04-26", {"asset": "QQQ", "direction": "short"},
+        [long_put, long_call],
+    )
+    assert matched == [long_put]
 
 
 def test_find_matched_returns_empty_for_invalid_scan_date():

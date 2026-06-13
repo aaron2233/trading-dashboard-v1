@@ -10,7 +10,12 @@ from api.models import (
     PositionResponse,
 )
 from api.routes._helpers import position_to_response
-from discipline import DisciplineStore, is_legacy_position, score_trade
+from discipline import (
+    DisciplineStore,
+    is_legacy_position,
+    load_kill_sheet_for,
+    score_trade,
+)
 from positions import evaluate_all_open
 from positions.model import Position
 
@@ -126,9 +131,33 @@ def make_positions_router(store_factory) -> APIRouter:
                         status_code=400,
                         detail=f"{req.instrument} requires: {', '.join(missing)}",
                     )
+                # Cash account is long-only: every option here is BOUGHT (long
+                # the contract). The thesis is carried by req.direction
+                # (long=bullish, short=bearish — matching the kill sheet) plus
+                # the contract type. Only two combos are coherent as a long
+                # contract: bullish -> long CALL, bearish -> long PUT. Reject
+                # anything else (bearish 'call' = naked short call; bullish
+                # 'put' = inverted thesis) so a sold/short option can never be
+                # logged. CLAUDE.md: "Cash account -- long calls and long puts
+                # ONLY"; anti-pattern "Never recommend spreads ... or margin".
+                if (req.instrument == "call") != (req.direction.lower() == "long"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Cash account is long-only: a bullish thesis must be "
+                            "a long CALL and a bearish thesis a long PUT. "
+                            f"direction={req.direction!r} with "
+                            f"instrument={req.instrument!r} would require a "
+                            "sold/short option."
+                        ),
+                    )
                 position = Position.open_options_position(
                     ticker=req.ticker,
-                    direction=req.direction,
+                    # Stored contract direction is always 'long' — this account
+                    # only ever buys options. Bearishness is preserved by the
+                    # put instrument + Position.thesis_direction. Dissolves the
+                    # inverted short+put and naked short+call storage classes.
+                    direction="long",
                     contract_type=req.instrument,
                     account_key=req.account,
                     strike=req.strike,
@@ -154,7 +183,12 @@ def make_positions_router(store_factory) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
-        store.add(position)
+        try:
+            store.add(position, allow_duplicate=req.allow_duplicate)
+        except ValueError as exc:
+            # Dedup guard tripped (suspected double-submit). 409 with the
+            # message so the client can confirm via allow_duplicate.
+            raise HTTPException(status_code=409, detail=str(exc))
         return position_to_response(position)
 
     @router.get("/api/v1/positions/alerts", response_model=list[AlertResponse])
@@ -195,7 +229,7 @@ def make_positions_router(store_factory) -> APIRouter:
         # non-fatal — the close itself succeeded.
         if position.status == "closed" and not is_legacy_position(position.closed_date):
             try:
-                score = score_trade(position)
+                score = score_trade(position, kill_sheet=load_kill_sheet_for(position))
                 DisciplineStore().save_score(score)
             except Exception:
                 # Don't let scoring failure block the close response. Log and

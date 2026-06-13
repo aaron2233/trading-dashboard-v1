@@ -202,6 +202,58 @@ def test_store_recovers_from_corrupt_file(tmp_path: Path, caplog):
     assert any("could not be parsed" in r.message for r in caplog.records)
 
 
+def test_store_rejects_duplicate_open_contract(tmp_path: Path):
+    # Dedup guard (2026-06): a second OPEN position identical (ticker +
+    # instrument + strike + expiry) in the same account is rejected as an
+    # accidental double-submit.
+    s = PositionStore(path=tmp_path / "p.json")
+    s.add(_new_position(ticker="TST1"))
+    with pytest.raises(ValueError, match="double-submit"):
+        s.add(_new_position(ticker="TST1"))
+    assert len(s.list_open()) == 1
+
+
+def test_store_allows_duplicate_with_flag(tmp_path: Path):
+    s = PositionStore(path=tmp_path / "p.json")
+    s.add(_new_position(ticker="TST1"))
+    s.add(_new_position(ticker="TST1"), allow_duplicate=True)  # genuine 2nd lot
+    assert len(s.list_open()) == 2
+
+
+def test_store_dedup_exempts_portfolio_dca(tmp_path: Path):
+    # Portfolio sleeve allows DCA into a held name — a second shares lot is not
+    # a double-submit, so the dedup guard does not block it.
+    s = PositionStore(path=tmp_path / "p.json")
+    leg = lambda: Position.open_shares_position(
+        ticker="TST2", direction="long", account_key="portfolio",
+        shares=70, entry_price=7.14, invalidation_price=5.76,
+    )
+    s.add(leg())
+    s.add(leg())  # DCA add — allowed
+    assert len(s.list_open()) == 2
+
+
+def test_store_preserves_corrupt_file_before_overwrite(tmp_path: Path):
+    # Regression (fixed 2026-06): a corrupt positions.json must be copied to a
+    # .corrupt-* backup BEFORE the store starts empty and the next save()
+    # atomically overwrites it — otherwise the original (repairable) bytes are
+    # destroyed.
+    path = tmp_path / "positions.json"
+    original = '[{"id": "abc", "ticker": "AA'  # truncated mid-write
+    path.write_text(original)
+
+    s = PositionStore(path=path)
+    s.list_all()  # triggers _ensure_loaded
+
+    backups = list(tmp_path.glob("positions.json.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == original
+
+    # A subsequent save() (e.g. opening a trade) must not clobber the backup.
+    s.add(_new_position())
+    assert backups[0].read_text() == original
+
+
 def test_store_writes_are_atomic(tmp_path: Path):
     """After save() returns, no .tmp sibling files remain — confirming
     write_json_atomic cleaned up its tempfile."""
@@ -350,6 +402,26 @@ def test_rules_ignore_closed_positions():
         open_positions=open_positions,
     )
     assert violations == []
+
+
+def test_rules_aggregate_pooled_accounts():
+    # Regression (fixed 2026-06): main + weekly share one $10K pool, so an open
+    # weekly position must count toward main's premium-at-risk — otherwise each
+    # key independently consumes the full 10% budget (20% of the real pool).
+    account = _account(balance_usd=10_000.0, max_premium_at_risk_pct=0.10)
+    weekly_pos = _new_position(ticker="QQQ", account="weekly")
+    weekly_pos.max_loss_usd = 900.0  # $900 already at risk under 'weekly'
+
+    # Without pooling: main sees no existing risk → $200 = 2% < 10% → clean.
+    clean = check_proposed_trade(200.0, account, "main", [weekly_pos])
+    assert not any(v.rule == "max_premium_at_risk_pct" for v in clean)
+
+    # With pooling: $900 + $200 = $1,100 = 11% of the shared $10K pool → block.
+    blocked = check_proposed_trade(
+        200.0, account, "main", [weekly_pos],
+        pool_account_keys={"main", "weekly"},
+    )
+    assert any(v.rule == "max_premium_at_risk_pct" for v in blocked)
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
