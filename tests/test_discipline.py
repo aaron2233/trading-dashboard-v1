@@ -387,9 +387,9 @@ def test_cut_at_60_70_y_at_target():
 def test_cut_rule_uses_total_cost_when_max_loss_zeroed_by_partial_close():
     # Regression (fixed 2026-06): partial_close zeroes max_loss_usd on the final
     # leg, which previously made _r_cut_at_60_70 auto-pass ("max-loss missing")
-    # and blinded the -60/-70% cut check (this is exactly how a live -76% breach
-    # scored as compliant). For options it must use total_cost_usd (1000 in the
-    # helper) — so a -$760 loss = -76% > 70% cut threshold → N.
+    # and blinded the -60/-70% cut check — a deep loss past the cut could score
+    # compliant. For options it must use total_cost_usd (1000 in the helper) —
+    # so a -$760 loss = -76% > 70% cut threshold → N.
     p = _make_position(instrument="call", pnl_usd=-760.0, max_loss_usd=0.0)
     score = score_trade(p, kill_sheet=_make_kill_sheet())
     rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
