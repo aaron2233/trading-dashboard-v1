@@ -325,6 +325,33 @@ def build_standard(
             f"direction. Document a divergence thesis to override."
         )
 
+    # ── Counter-Weekly / 4H-opposing lotto gate ───────────────────────────
+    # SKILL.md instant disqualifier ("counter-Weekly lotto = bad R/R"; "4H
+    # opposes Daily") + orchestrator rule 2/6 (counter-weekly needs a documented
+    # divergence thesis). Uses the weekly/4H stacks already computed from
+    # multi_tf above — no extra fetches. Lotto only (the weekly-trend skill IS
+    # weekly-anchored, so "counter-weekly" doesn't apply there). A
+    # counter_weekly_thesis or divergence_thesis is the documented override.
+    # (Decision 2026-06: enforce at the kill-sheet layer, not the broad scanner.)
+    if (
+        account_key == "lotto"
+        and status != "REJECTED"
+        and not (counter_weekly_thesis or divergence_thesis)
+    ):
+        tf_4h_align = weekly_alignment(tf_4h_stack, direction) if tf_4h_stack else None
+        if weekly_align == "Counter-trend":
+            status = "REJECTED"
+            rejection_reason = (
+                f"Weekly stack ({weekly_stack}) opposes {direction.upper()} lotto "
+                "— counter-Weekly = bad R/R. Document a counter-weekly thesis to override."
+            )
+        elif tf_4h_align == "Counter-trend":
+            status = "REJECTED"
+            rejection_reason = (
+                f"4H stack ({tf_4h_stack}) opposes {direction.upper()} lotto "
+                "— 4H fights Daily. Document a divergence thesis to override."
+            )
+
     # ── Auto-attestation (6 anti-pattern flags from data) ──────────────────
     iv_rank = options.iv_rank if options is not None else None
     dte = options.dte if options is not None else None
