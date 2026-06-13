@@ -38,6 +38,7 @@ export interface KillSheetRequest {
   ticker: string;
   direction: "long" | "short";
   account?: string;
+  skill?: string | null;  // routes skill-keyed gates (index-swing universe, weekly-trend asset block, DTE bands)
   intent?: "SCALP" | "SWING" | "TREND CAPTURE" | "POSITION";
   trigger_tf?: "2H" | "4H" | "Daily" | "Weekly";
   conviction?: "high" | "medium" | "speculative" | "default";

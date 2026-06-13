@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { useDashboardState } from "../state/DashboardStateContext";
 import { Sparkline } from "../components/Sparkline";
 import type { OpenPositionRequest, Position, PositionAlert } from "../api/types";
 
-const ACCOUNTS = ["main", "lotto", "weekly"];
+const ACCOUNTS = ["main", "lotto", "weekly", "portfolio"];
 
 const SEVERITY_BADGE: Record<string, string> = {
   action: "badge-bear",
@@ -613,6 +614,9 @@ function GreeksDetail({ position: p }: { position: Position }) {
 }
 
 export function PositionsView() {
+  // Refresh the shared dashboard banner (balance / stage / unreviewed weeks)
+  // after a trade — otherwise the StatusBar shows app-load values all session.
+  const { refresh: refreshDashboard } = useDashboardState();
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
   const [closedPositions, setClosedPositions] = useState<Position[]>([]);
   const [alerts, setAlerts] = useState<PositionAlert[]>([]);
@@ -697,6 +701,7 @@ export function PositionsView() {
       setCloseNotes("");
       setCloseContracts("");
       await refresh();
+      await refreshDashboard();  // realized P&L changed → update banner
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
