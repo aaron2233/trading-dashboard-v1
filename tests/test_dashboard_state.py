@@ -46,14 +46,14 @@ def _account(name: str, balance: float, *, pool_member_of: str | None = None) ->
 
 def _closed_position(
     *, ticker: str = "SPY", pnl: float | None = 100.0, closed_date: str = "2026-05-10",
-    instrument: str = "call",
+    instrument: str = "call", account_key: str = "main",
 ) -> Position:
     return Position(
-        id=f"test_{ticker}_{closed_date}",
+        id=f"test_{ticker}_{closed_date}_{account_key}",
         ticker=ticker,
         direction="long",
         instrument=instrument,
-        account_key="main",
+        account_key=account_key,
         entry_date=closed_date,  # entry/close same for test simplicity
         contracts=1, strike=400, expiry="2026-07-01",
         premium_paid_per_contract=5.0,
@@ -194,6 +194,29 @@ def test_unreviewed_weeks_newest_first(tmp_path):
     weeks = find_unreviewed_weeks(closed, store, today=today)
     week_starts = [w.week_start for w in weeks]
     assert week_starts == ["2026-05-17", "2026-05-10", "2026-05-03"]
+
+
+def test_unreviewed_weeks_skips_portfolio_only_week(tmp_path):
+    """Portfolio sleeve runs a MONTHLY cadence — a week with only portfolio
+    closures must NOT raise the weekly-unreviewed nag."""
+    store = _empty_store(tmp_path)
+    today = date(2026, 5, 20)
+    closed = [_closed_position(closed_date="2026-05-12", account_key="portfolio")]
+    assert find_unreviewed_weeks(closed, store, today=today) == []
+
+
+def test_unreviewed_weeks_mixed_week_counts_non_portfolio_only(tmp_path):
+    """A week with one options-book closure + one portfolio closure nags only
+    for the non-portfolio trade."""
+    store = _empty_store(tmp_path)
+    today = date(2026, 5, 20)
+    closed = [
+        _closed_position(closed_date="2026-05-12"),  # main (options book)
+        _closed_position(ticker="MRLN", closed_date="2026-05-13", account_key="portfolio"),
+    ]
+    weeks = find_unreviewed_weeks(closed, store, today=today)
+    assert len(weeks) == 1
+    assert weeks[0].closed_trade_count == 1  # portfolio excluded from the count
 
 
 # ─────────────────────────────────────────────────────────────────────────
