@@ -70,9 +70,22 @@ def _cmd_open(args, store: PositionStore) -> int:
             print(f"⚠ {args.instrument} requires --{', --'.join(missing)}",
                   file=sys.stderr)
             return 2
+        # Long-only cash account: a bullish thesis is a long CALL, a bearish
+        # thesis a long PUT. Reject the sold-option combos and store the contract
+        # as long — same invariant the API open endpoint enforces (this writer
+        # shares positions.json, so it must hold the invariant too).
+        if (args.instrument == "call") != (args.direction.lower() == "long"):
+            print(
+                "⚠ Cash account is long-only: a bullish thesis must be a long "
+                "CALL and a bearish thesis a long PUT. "
+                f"--direction {args.direction} with --instrument {args.instrument} "
+                "would require a sold/short option.",
+                file=sys.stderr,
+            )
+            return 2
         position = Position.open_options_position(
             ticker=args.ticker,
-            direction=args.direction,
+            direction="long",
             contract_type=args.instrument,
             account_key=args.account,
             strike=args.strike,
