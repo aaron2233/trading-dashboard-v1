@@ -89,10 +89,11 @@ def find_unreviewed_weeks(
 ) -> list[UnreviewedWeek]:
     """Return unreviewed weeks (excluding the current/in-progress week).
 
-    A week is "unreviewed" when it contains at least one closed non-legacy
-    position AND no saved WeeklyReview file exists for its Sunday start. The
-    current week (containing `today`) is always excluded — we don't nag for a
-    review until the week ends.
+    A week is "unreviewed" when it contains at least one closed non-legacy,
+    non-portfolio position AND no saved WeeklyReview file exists for its Sunday
+    start. The current week (containing `today`) is always excluded — we don't
+    nag for a review until the week ends. Portfolio-sleeve closures are excluded
+    entirely: that sleeve runs a monthly scorecard cadence, not the weekly one.
     """
     today = today or date.today()
     current_sunday, _ = week_bounds(today)
@@ -103,6 +104,12 @@ def find_unreviewed_weeks(
         if p.status != "closed" or not p.closed_date:
             continue
         if is_legacy_position(p.closed_date):
+            continue
+        # Portfolio sleeve runs a MONTHLY scorecard cadence, not the weekly
+        # options-book cadence (~/CLAUDE.md: "Discipline cadence: monthly
+        # scorecard pass"). Exclude it from the weekly-unreviewed nag — mirrors
+        # the portfolio exemptions in score.py and alerts.py.
+        if p.account_key == "portfolio":
             continue
         try:
             closed_d = datetime.fromisoformat(
