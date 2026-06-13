@@ -131,9 +131,33 @@ def make_positions_router(store_factory) -> APIRouter:
                         status_code=400,
                         detail=f"{req.instrument} requires: {', '.join(missing)}",
                     )
+                # Cash account is long-only: every option here is BOUGHT (long
+                # the contract). The thesis is carried by req.direction
+                # (long=bullish, short=bearish — matching the kill sheet) plus
+                # the contract type. Only two combos are coherent as a long
+                # contract: bullish -> long CALL, bearish -> long PUT. Reject
+                # anything else (bearish 'call' = naked short call; bullish
+                # 'put' = inverted thesis) so a sold/short option can never be
+                # logged. CLAUDE.md: "Cash account -- long calls and long puts
+                # ONLY"; anti-pattern "Never recommend spreads ... or margin".
+                if (req.instrument == "call") != (req.direction.lower() == "long"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Cash account is long-only: a bullish thesis must be "
+                            "a long CALL and a bearish thesis a long PUT. "
+                            f"direction={req.direction!r} with "
+                            f"instrument={req.instrument!r} would require a "
+                            "sold/short option."
+                        ),
+                    )
                 position = Position.open_options_position(
                     ticker=req.ticker,
-                    direction=req.direction,
+                    # Stored contract direction is always 'long' — this account
+                    # only ever buys options. Bearishness is preserved by the
+                    # put instrument + Position.thesis_direction. Dissolves the
+                    # inverted short+put and naked short+call storage classes.
+                    direction="long",
                     contract_type=req.instrument,
                     account_key=req.account,
                     strike=req.strike,

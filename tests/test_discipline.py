@@ -229,6 +229,25 @@ def test_sqn20_respected_n_long_put_in_capitulation():
     assert rule.score == "N"
 
 
+def test_no_spreads_margin_n_for_short_option():
+    # A sold/short option (direction='short') is an anti-pattern in this
+    # long-only cash account. The old scorer whitelisted by instrument string
+    # and passed a naked short call (on-disk 7284781d) as compliant.
+    for instrument in ("call", "put"):
+        p = _make_position(direction="short", instrument=instrument)
+        score = score_trade(p)
+        rule = next(r for r in score.rules if r.rule_id == "no_spreads_margin")
+        assert rule.score == "N", instrument
+
+
+def test_no_spreads_margin_y_for_long_options_and_shares():
+    for direction, instrument in (("long", "call"), ("long", "put"), ("long", "shares")):
+        p = _make_position(direction=direction, instrument=instrument)
+        score = score_trade(p)
+        rule = next(r for r in score.rules if r.rule_id == "no_spreads_margin")
+        assert rule.score == "Y", (direction, instrument)
+
+
 def test_sqn100_authorized_y_with_divergence_thesis():
     p = _make_position(direction="long")
     scan_row = _make_scan_row(regime="bear", sqn_value=-1.0)

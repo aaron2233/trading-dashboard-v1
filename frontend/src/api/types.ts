@@ -157,6 +157,11 @@ export interface PositionAlert {
 
 export interface OpenPositionRequest {
   ticker: string;
+  // `direction` is the THESIS (long=bullish, short=bearish — matching the kill
+  // sheet). For options the backend always STORES the contract as long (this
+  // cash account only buys options); bearishness is carried by instrument=put.
+  // Only long+call (bullish) and short+put (bearish) are valid options combos —
+  // the API 422s a bearish CALL or bullish PUT (would be a sold/short option).
   direction?: "long" | "short";
   instrument?: "call" | "put" | "shares";
   account?: string;

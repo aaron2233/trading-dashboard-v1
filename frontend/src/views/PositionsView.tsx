@@ -686,6 +686,22 @@ export function PositionsView() {
   function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.ticker) return;
+    // Long-only cash account: a bullish (long) thesis must be a CALL and a
+    // bearish (short) thesis a PUT. Block the contradictory options combos
+    // here so the user gets immediate feedback instead of a 422 at open time.
+    // (Mirrors the API guard in src/api/routes/positions.py.)
+    if (
+      (form.instrument === "call" || form.instrument === "put") &&
+      (form.instrument === "call") !== (form.direction === "long")
+    ) {
+      setError(
+        "Cash account is long-only: pair a long (bullish) thesis with a CALL " +
+          "and a short (bearish) thesis with a PUT. A bearish CALL or bullish " +
+          "PUT would be a sold/short option.",
+      );
+      return;
+    }
+    setError(null);
     handleGenerateKillSheet();
   }
 
