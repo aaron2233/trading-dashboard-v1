@@ -204,19 +204,19 @@ def test_store_recovers_from_corrupt_file(tmp_path: Path, caplog):
 
 def test_store_rejects_duplicate_open_contract(tmp_path: Path):
     # Dedup guard (2026-06): a second OPEN position identical (ticker +
-    # instrument + strike + expiry) in the same account is rejected as a
-    # double-submit — the failure mode behind the MARA-dupe incident.
+    # instrument + strike + expiry) in the same account is rejected as an
+    # accidental double-submit.
     s = PositionStore(path=tmp_path / "p.json")
-    s.add(_new_position(ticker="MARA"))
+    s.add(_new_position(ticker="TST1"))
     with pytest.raises(ValueError, match="double-submit"):
-        s.add(_new_position(ticker="MARA"))
+        s.add(_new_position(ticker="TST1"))
     assert len(s.list_open()) == 1
 
 
 def test_store_allows_duplicate_with_flag(tmp_path: Path):
     s = PositionStore(path=tmp_path / "p.json")
-    s.add(_new_position(ticker="MARA"))
-    s.add(_new_position(ticker="MARA"), allow_duplicate=True)  # genuine 2nd lot
+    s.add(_new_position(ticker="TST1"))
+    s.add(_new_position(ticker="TST1"), allow_duplicate=True)  # genuine 2nd lot
     assert len(s.list_open()) == 2
 
 
@@ -225,7 +225,7 @@ def test_store_dedup_exempts_portfolio_dca(tmp_path: Path):
     # a double-submit, so the dedup guard does not block it.
     s = PositionStore(path=tmp_path / "p.json")
     leg = lambda: Position.open_shares_position(
-        ticker="MRLN", direction="long", account_key="portfolio",
+        ticker="TST2", direction="long", account_key="portfolio",
         shares=70, entry_price=7.14, invalidation_price=5.76,
     )
     s.add(leg())
@@ -237,7 +237,7 @@ def test_store_preserves_corrupt_file_before_overwrite(tmp_path: Path):
     # Regression (fixed 2026-06): a corrupt positions.json must be copied to a
     # .corrupt-* backup BEFORE the store starts empty and the next save()
     # atomically overwrites it — otherwise the original (repairable) bytes are
-    # destroyed. This is the failure mode behind the positions.json.bak-* trail.
+    # destroyed.
     path = tmp_path / "positions.json"
     original = '[{"id": "abc", "ticker": "AA'  # truncated mid-write
     path.write_text(original)

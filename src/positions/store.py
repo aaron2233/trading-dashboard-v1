@@ -62,8 +62,8 @@ class PositionStore:
             # File exists but was corrupt/unreadable. Preserve the original
             # bytes BEFORE we proceed — otherwise the next save() atomically
             # overwrites the corrupt file with a near-empty array, destroying
-            # data a JSON repair could often have recovered (this is the
-            # failure mode behind the positions.json.bak-* incident trail).
+            # data a JSON repair could often have recovered (otherwise a
+            # corrupt file is silently replaced by a near-empty one).
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             backup = self.path.with_name(f"{self.path.name}.corrupt-{stamp}")
             try:
@@ -109,9 +109,9 @@ class PositionStore:
             raise ValueError(f"Position id {position.id} already exists")
         # Dedup guard: reject a new OPEN position identical (ticker + instrument
         # + strike + expiry) to one already open in the same account — almost
-        # always a double-submit (the failure mode behind the MARA-dupe
-        # incident). Pass allow_duplicate=True for a genuine second lot. The
-        # portfolio sleeve is exempt: DCA into a held name is sanctioned there.
+        # always an accidental double-submit (e.g. a retried POST). Pass
+        # allow_duplicate=True for a genuine second lot. The portfolio sleeve is
+        # exempt: DCA into a held name is sanctioned there.
         if not allow_duplicate and position.account_key != "portfolio":
             key = _open_dedup_key(position)
             dupe = next(
