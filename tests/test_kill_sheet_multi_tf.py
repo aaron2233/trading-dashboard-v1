@@ -97,6 +97,54 @@ def test_long_against_weekly_bear_marks_counter_trend():
     assert sheet.weekly_alignment == "Counter-trend"
 
 
+def test_lotto_counter_weekly_rejected_without_thesis():
+    # Decision 2026-06: counter-Weekly lotto is REJECTED at the kill-sheet layer
+    # (SKILL.md instant disqualifier) unless a counter-weekly/divergence thesis
+    # is documented. Uses the multi_tf weekly stack already computed.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_daily_row(), direction="long",
+        account=cfg.account("lotto"), account_key="lotto",
+        multi_tf=_multi_tf(weekly_stack="full_bear"),
+    )
+    assert sheet.status == "REJECTED"
+    assert "counter-Weekly" in (sheet.rejection_reason or "")
+
+
+def test_lotto_counter_weekly_allowed_with_thesis():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_daily_row(), direction="long",
+        account=cfg.account("lotto"), account_key="lotto",
+        multi_tf=_multi_tf(weekly_stack="full_bear"),
+        counter_weekly_thesis="post-earnings reversal — documented divergence",
+    )
+    assert sheet.status == "AUTHORIZED"
+
+
+def test_lotto_with_weekly_trend_not_rejected():
+    # Weekly aligned with the lotto direction → no counter-Weekly rejection.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_daily_row(), direction="long",
+        account=cfg.account("lotto"), account_key="lotto",
+        multi_tf=_multi_tf(weekly_stack="full_bull"),
+    )
+    assert sheet.status == "AUTHORIZED"
+
+
+def test_lotto_4h_opposing_rejected_without_thesis():
+    # 4H stack opposing the lotto direction (weekly aligned) is also a reject.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_daily_row(), direction="long",
+        account=cfg.account("lotto"), account_key="lotto",
+        multi_tf=_multi_tf(weekly_stack="full_bull", tf_4h_stack="full_bear"),
+    )
+    assert sheet.status == "REJECTED"
+    assert "4H" in (sheet.rejection_reason or "")
+
+
 def test_text_renders_populated_multi_tf_sections():
     cfg = load_config(Path("/nonexistent.yaml"))
     sheet = build_standard(
