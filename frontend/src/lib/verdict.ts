@@ -7,6 +7,7 @@
 import type {
   DevilReport,
   FreeRangeDirection,
+  ScanVerdict,
   WeeklyConfluence,
   WeeklyDirection,
 } from "../api/types";
@@ -54,6 +55,10 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const WEEKLY_CONF: Record<WeeklyConfluence, number> = {
   high_conviction_long: 9,
   high_conviction_short: 9,
+  // Track A 19/39 cross: early-entry, ranks between continuation and
+  // high-conviction (backend base score 60 vs 50/70 — scanner.py:293).
+  track_a_cross_long: 7,
+  track_a_cross_short: 7,
   continuation_long: 6,
   continuation_short: 6,
   compression: 3,
@@ -69,6 +74,27 @@ export function fromWeeklyConfluence(
   const confidence = WEEKLY_CONF[c];
   if (c === "compression") return { kind: "wait", confidence, rationale };
   if (c === "chop" || c === "no_setup") return { kind: "skip", confidence, rationale };
+  if (direction === "long") return { kind: "long", confidence, rationale };
+  if (direction === "short") return { kind: "short", confidence, rationale };
+  return { kind: "wait", confidence, rationale };
+}
+
+// Render the backend's AUTHORITATIVE weekly verdict. scan_verdict.py is the
+// declared single source of truth — it downgrades a raw bullish confluence to
+// WAIT/SKIP for counter-regime SQN(100), red-candle confirmation, sub-0.5%
+// 19/39 separation, >15% stretch, and stale continuations. fromWeeklyConfluence
+// knows none of that, so the All-Scanned table must use this instead (kind from
+// the server verdict; the 1-10 confidence still reflects setup quality via the
+// confluence map). Fixed 2026-06.
+export function fromWeeklySetup(
+  verdict: ScanVerdict,
+  confluence: WeeklyConfluence,
+  direction: WeeklyDirection,
+  rationale?: string,
+): Verdict {
+  const confidence = WEEKLY_CONF[confluence] ?? 5;
+  if (verdict === "no_go") return { kind: "skip", confidence, rationale };
+  if (verdict === "wait") return { kind: "wait", confidence, rationale };
   if (direction === "long") return { kind: "long", confidence, rationale };
   if (direction === "short") return { kind: "short", confidence, rationale };
   return { kind: "wait", confidence, rationale };

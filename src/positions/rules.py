@@ -38,13 +38,22 @@ def check_proposed_trade(
     account: AccountConfig,
     account_key: str,
     open_positions: Iterable[Position],
+    pool_account_keys: set[str] | None = None,
 ) -> list[RuleViolation]:
     """Validate that opening a new trade with the given max loss won't violate
     any of the account's hard gates. Returns list of violations (empty = clean).
+
+    ``pool_account_keys`` is the set of account keys that share ``account``'s
+    capital pool (from ``Config.pool_account_keys``). When supplied, open
+    positions are aggregated across the whole pool for the premium-at-risk and
+    position-count gates — otherwise pooled accounts (e.g. main + weekly on one
+    $10K balance) each independently consume the full budget. Defaults to just
+    ``{account_key}`` (exact match, prior behavior).
     """
+    scope_keys = pool_account_keys or {account_key}
     open_in_account = [
         p for p in open_positions
-        if p.account_key == account_key and p.status == "open"
+        if p.account_key in scope_keys and p.status == "open"
     ]
     violations: list[RuleViolation] = []
 

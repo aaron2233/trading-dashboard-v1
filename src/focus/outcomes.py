@@ -95,6 +95,11 @@ def find_matched_positions(
     direction = (top_setup.get("direction") or "").lower()
     if not asset or not direction:
         return []
+    # The setup direction is the THESIS ("long"=bullish, "short"=bearish). Match
+    # on the position's THESIS, not its stored contract direction: every long
+    # option stores direction="long" (a long put is a bearish thesis), so a raw
+    # direction compare would never match a bearish put to a "short" setup.
+    setup_thesis = "bullish" if direction == "long" else "bearish"
 
     try:
         scan_dt = datetime.strptime(scan_date, "%Y-%m-%d").date()
@@ -106,7 +111,7 @@ def find_matched_positions(
     for p in positions:
         if p.ticker.upper() != asset:
             continue
-        if p.direction.lower() != direction:
+        if p.thesis_direction != setup_thesis:
             continue
         entry = _parse_iso_date(p.entry_date)
         if entry is None:

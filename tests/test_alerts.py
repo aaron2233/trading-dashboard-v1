@@ -162,6 +162,25 @@ def test_long_put_no_false_alerts_on_aligned_bear_stack():
     assert "stoch_reversal" not in rules
 
 
+def test_portfolio_sleeve_skips_ma_flip_alert():
+    # Portfolio sleeve (multi-quarter thematic hold) exits on a thesis-break
+    # price level, NOT on daily MA flips — a bearish daily stack against a
+    # bullish hold must not raise ma_flip. (2026-06.)
+    p = _options_position(account_key="portfolio")  # invalidation 575, target 600
+    alerts = evaluate_alerts(p, _scan(close=590, stack="full_bear"),
+                             today=date(2026, 4, 25))
+    assert not any(a.rule == "ma_flip" for a in alerts)
+
+
+def test_portfolio_sleeve_still_gets_invalidation_alert():
+    # The price-based thesis-break (invalidation) alert is the sleeve's exit
+    # mechanism and must still fire.
+    p = _options_position(account_key="portfolio")  # invalidation 575
+    alerts = evaluate_alerts(p, _scan(close=574, stack="full_bull"),
+                             today=date(2026, 4, 25))
+    assert any(a.rule == "invalidation_hit" for a in alerts)
+
+
 def test_long_put_invalidation_does_not_fire_below_invalidation():
     # Below invalidation = price hasn't moved up against the put yet.
     p = _options_position(direction="long", contract_type="put",

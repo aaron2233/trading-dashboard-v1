@@ -162,22 +162,34 @@ def test_exit_clarity_good_rr_passes():
 # ─── Aggregation ──────────────────────────────────────────────────────────────
 
 
-def test_run_devil_skipped_when_below_threshold():
-    sheet = _sheet()
-    # Default account = main = $10K, high = 2.5% = $250 → above threshold
-    # Set risk to a small value: we don't have a public API to set that, but lotto
-    # gives $75 (well under $150) — use that path.
+def test_run_devil_runs_in_stage1_even_below_threshold():
+    # Rule 5: stage 1 (account < $100K) → devil is mandatory for EVERY trade,
+    # even a $75 lotto sheet under the $150 stage-2 threshold. (Was: returned
+    # None below $150 regardless of stage — the rule-5 gap. Fixed 2026-06.)
     cfg = load_config(Path("/nonexistent.yaml"))
     lotto_sheet = build_standard(_row(), "long", cfg.account("lotto"),
                                  account_key="lotto", risk_conviction="default")
     assert lotto_sheet.max_risk_usd == 75.0
+    report = run_devil(lotto_sheet)
+    assert report is not None  # stage 1 ($1K lotto balance) → mandatory
+    assert report.triggered_by_risk_threshold is False  # risk $75 < $150
+
+
+def test_run_devil_skipped_below_threshold_in_stage2():
+    # Stage 2 (account >= $100K): the $150 threshold gates the run again.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    lotto_sheet = build_standard(_row(), "long", cfg.account("lotto"),
+                                 account_key="lotto", risk_conviction="default")
+    lotto_sheet.account_balance_usd = 150_000.0  # promote to stage 2
     assert run_devil(lotto_sheet) is None
 
 
 def test_run_devil_force_runs_below_threshold():
+    # force=True overrides the threshold even in stage 2.
     cfg = load_config(Path("/nonexistent.yaml"))
     lotto_sheet = build_standard(_row(), "long", cfg.account("lotto"),
                                  account_key="lotto", risk_conviction="default")
+    lotto_sheet.account_balance_usd = 150_000.0  # stage 2, so only force triggers
     report = run_devil(lotto_sheet, force=True)
     assert report is not None
     assert report.triggered_by_risk_threshold is False

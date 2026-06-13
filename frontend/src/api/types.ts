@@ -38,6 +38,7 @@ export interface KillSheetRequest {
   ticker: string;
   direction: "long" | "short";
   account?: string;
+  skill?: string | null;  // routes skill-keyed gates (index-swing universe, weekly-trend asset block, DTE bands)
   intent?: "SCALP" | "SWING" | "TREND CAPTURE" | "POSITION";
   trigger_tf?: "2H" | "4H" | "Daily" | "Weekly";
   conviction?: "high" | "medium" | "speculative" | "default";
@@ -156,6 +157,11 @@ export interface PositionAlert {
 
 export interface OpenPositionRequest {
   ticker: string;
+  // `direction` is the THESIS (long=bullish, short=bearish — matching the kill
+  // sheet). For options the backend always STORES the contract as long (this
+  // cash account only buys options); bearishness is carried by instrument=put.
+  // Only long+call (bullish) and short+put (bearish) are valid options combos —
+  // the API 422s a bearish CALL or bullish PUT (would be a sold/short option).
   direction?: "long" | "short";
   instrument?: "call" | "put" | "shares";
   account?: string;

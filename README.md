@@ -1,6 +1,8 @@
 # Trading Dashboard
 
-**A scaffold for building a trading-discipline dashboard that won't let you break your own rules.**
+**A scaffold for building a trading-discipline dashboard that flags every rule break at kill-sheet time and scores it after the close.**
+
+> Journal-first by design: the dashboard surfaces, records, and scores rule breaks — it does **not** hard-block you from opening a position (a deliberate 2026-05-10 decision so the journal can never refuse a real fill). Hard gates run at kill-sheet generation; `rules_blocked` + the violation list are persisted on the sheet and resurface in the discipline scorecard.
 
 Built originally because the author kept breaking theirs. Released as an opinionated reference implementation you can fork, configure, or rip out and replace with your own strategy logic — see [CUSTOMIZATION.md](./CUSTOMIZATION.md) for how.
 

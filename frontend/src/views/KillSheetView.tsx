@@ -5,6 +5,7 @@ import { TradingViewChart } from "../components/TradingViewChart";
 import { DisciplineOverridesPanel } from "../components/kill_sheet/DisciplineOverridesPanel";
 import { KillSheetResponsePanel } from "../components/kill_sheet/KillSheetResponsePanel";
 import { OptionsPasteInputPanel } from "../components/kill_sheet/OptionsPasteInputPanel";
+import { useDashboardState } from "../state/DashboardStateContext";
 import type {
   KillSheetRequest,
   KillSheetResponse,
@@ -13,7 +14,7 @@ import type {
   ParsedOptionsResponse,
 } from "../api/types";
 
-const ACCOUNTS = ["main", "lotto", "weekly"];
+const ACCOUNTS = ["main", "lotto", "weekly", "portfolio"];
 const INTENTS = ["SCALP", "SWING", "TREND CAPTURE", "POSITION"] as const;
 const CONVICTIONS = ["high", "medium", "speculative", "default"] as const;
 const DIRECTIONS = ["long", "short"] as const;
@@ -68,6 +69,7 @@ function OpenPositionGate({
   form: KillSheetRequest;
 }) {
   const navigate = useNavigate();
+  const { refresh: refreshDashboard } = useDashboardState();
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -226,6 +228,7 @@ function OpenPositionGate({
         kill_sheet_id: response.kill_sheet_id,
       };
       await api.openPosition(payload);
+      await refreshDashboard();  // premium-at-risk / balance changed → update banner
       navigate("/positions");
     } catch (err) {
       setOpenError(err instanceof Error ? err.message : String(err));
@@ -529,6 +532,7 @@ function readInitialForm(params: URLSearchParams): KillSheetRequest {
       ? (direction as "long" | "short")
       : "long",
     account: account && ACCOUNTS.includes(account) ? account : "main",
+    skill: params.get("skill") || null,  // forward skill so backend skill-keyed gates fire
     intent: INTENTS.includes(intent as (typeof INTENTS)[number])
       ? (intent as KillSheetRequest["intent"])
       : "SWING",
@@ -645,8 +649,7 @@ export function KillSheetView() {
   }
 
   function sourceBadge(key: keyof KillSheetRequest) {
-    const src = fieldSources[key];
-    if (!src) return null;
+    if (!fieldSources[key]) return null;
     return (
       <span className="badge badge-info text-[10px] ml-2">from paste</span>
     );

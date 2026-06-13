@@ -127,9 +127,12 @@ def test_by_instrument_groups_calls_and_puts():
 
 
 def test_by_direction_long_short():
+    # by_direction groups by THESIS (bullish->long, bearish->short). Every long
+    # option stores direction='long', so the split comes from thesis_direction:
+    # a long call is bullish, a long put is bearish.
     positions = [
-        _closed(100, direction="long"),
-        _closed(-50, direction="short", instrument="put"),
+        _closed(100, direction="long", instrument="call"),   # bullish -> 'long'
+        _closed(-50, direction="long", instrument="put"),    # bearish -> 'short'
     ]
     groups = by_direction(positions)
     assert set(groups.keys()) == {"long", "short"}

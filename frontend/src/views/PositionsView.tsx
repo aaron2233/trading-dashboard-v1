@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { useDashboardState } from "../state/DashboardStateContext";
 import { Sparkline } from "../components/Sparkline";
 import type { OpenPositionRequest, Position, PositionAlert } from "../api/types";
 
-const ACCOUNTS = ["main", "lotto", "weekly"];
+const ACCOUNTS = ["main", "lotto", "weekly", "portfolio"];
 
 const SEVERITY_BADGE: Record<string, string> = {
   action: "badge-bear",
@@ -613,6 +614,9 @@ function GreeksDetail({ position: p }: { position: Position }) {
 }
 
 export function PositionsView() {
+  // Refresh the shared dashboard banner (balance / stage / unreviewed weeks)
+  // after a trade — otherwise the StatusBar shows app-load values all session.
+  const { refresh: refreshDashboard } = useDashboardState();
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
   const [closedPositions, setClosedPositions] = useState<Position[]>([]);
   const [alerts, setAlerts] = useState<PositionAlert[]>([]);
@@ -681,7 +685,6 @@ export function PositionsView() {
   // POST /positions directly.
   function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.ticker) return;
     handleGenerateKillSheet();
   }
 
@@ -697,12 +700,32 @@ export function PositionsView() {
       setCloseNotes("");
       setCloseContracts("");
       await refresh();
+      await refreshDashboard();  // realized P&L changed → update banner
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   function handleGenerateKillSheet() {
+    if (!form.ticker) return;
+    // Long-only cash account: a bullish (long) thesis must be a CALL and a
+    // bearish (short) thesis a PUT. Block the contradictory options combos at
+    // form time — this is the single funnel the primary button and the
+    // Enter-key submit both call — so the user gets immediate feedback instead
+    // of generating a self-contradictory kill sheet and hitting a 422 only at
+    // open. (Mirrors the API guard in src/api/routes/positions.py.)
+    if (
+      (form.instrument === "call" || form.instrument === "put") &&
+      (form.instrument === "call") !== (form.direction === "long")
+    ) {
+      setError(
+        "Cash account is long-only: pair a long (bullish) thesis with a CALL " +
+          "and a short (bearish) thesis with a PUT. A bearish CALL or bullish " +
+          "PUT would be a sold/short option.",
+      );
+      return;
+    }
+    setError(null);
     // Carry every position-form field into the kill-sheet view via URL
     // params. After kill-sheet AUTHORIZED, the kill-sheet view reads these
     // back to POST /api/v1/positions with kill_sheet_id attached.

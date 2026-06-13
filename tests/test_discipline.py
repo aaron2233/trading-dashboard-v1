@@ -163,6 +163,14 @@ def test_score_includes_all_rules():
     assert {r.rule_id for r in score.rules} == set(RULE_IDS)
 
 
+def test_rule_15_trend_pyramid_stays_retired():
+    # Rule 15 (trend-pyramid double-up) was retired with the trend-pyramid skill
+    # (2026-05-07). Lock the engine at 14 rules and ensure no pyramid/double-up
+    # rule creeps back in — the doc/skill side is kept in sync manually.
+    assert len(RULE_IDS) == 14
+    assert all("pyramid" not in r and "double" not in r for r in RULE_IDS)
+
+
 def test_kill_sheet_complete_y_when_authorized():
     p = _make_position()
     ks = _make_kill_sheet()
@@ -227,6 +235,14 @@ def test_sqn20_respected_n_long_put_in_capitulation():
     score = score_trade(p, kill_sheet=ks)
     rule = next(r for r in score.rules if r.rule_id == "sqn20_respected")
     assert rule.score == "N"
+
+
+def test_no_spreads_margin_y_for_long_options_and_shares():
+    for direction, instrument in (("long", "call"), ("long", "put"), ("long", "shares")):
+        p = _make_position(direction=direction, instrument=instrument)
+        score = score_trade(p)
+        rule = next(r for r in score.rules if r.rule_id == "no_spreads_margin")
+        assert rule.score == "Y", (direction, instrument)
 
 
 def test_sqn100_authorized_y_with_divergence_thesis():
@@ -368,7 +384,7 @@ def test_no_spreads_margin_y_for_call():
 
 def test_daily_not_chop_n_when_chop():
     p = _make_position()
-    scan_row = _make_scan_row(ma_stack="chop_tangled")
+    scan_row = _make_scan_row(ma_stack="chop")  # real ma_ribbon token (was "chop_tangled", which never matched)
     cfg = load_config()
     account = cfg.account("main")
     ks = build_standard(scan_row, direction="long", account=account)
@@ -382,6 +398,88 @@ def test_cut_at_60_70_y_at_target():
     score = score_trade(p, kill_sheet=_make_kill_sheet())
     rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
     assert rule.score == "Y"
+
+
+def test_cut_rule_uses_total_cost_when_max_loss_zeroed_by_partial_close():
+    # Regression (fixed 2026-06): partial_close zeroes max_loss_usd on the final
+    # leg, which previously made _r_cut_at_60_70 auto-pass ("max-loss missing")
+    # and blinded the -60/-70% cut check — a deep loss past the cut could score
+    # compliant. For options it must use total_cost_usd (1000 in the helper) —
+    # so a -$760 loss = -76% > 70% cut threshold → N.
+    p = _make_position(instrument="call", pnl_usd=-760.0, max_loss_usd=0.0)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "N"
+
+
+def test_cut_rule_passes_at_40pct_loss_with_zeroed_max_loss():
+    # Positive control: a -40% loss (within the cut) still passes when
+    # max_loss_usd is zeroed, using total_cost_usd as the denominator.
+    p = _make_position(instrument="call", pnl_usd=-400.0, max_loss_usd=0.0)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "Y"
+
+
+def test_cut_rule_uses_per_account_threshold_lotto_50pct():
+    # Per-account cut threshold (2026-06): lotto cuts at -50%, so a lotto trade
+    # held to -55% of premium is a violation even though it's under the 70%
+    # default. cut_rule_pct is stamped on the kill sheet by the builder.
+    p = _make_position(instrument="call", pnl_usd=-550.0, max_loss_usd=0.0)  # 55% of $1000
+    ks = _make_kill_sheet(account_key="lotto", cut_rule_pct=-0.50)
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "N"
+
+
+def test_cut_rule_passes_within_lotto_threshold():
+    # -45% is within the -50% lotto cut → Y.
+    p = _make_position(instrument="call", pnl_usd=-450.0, max_loss_usd=0.0)  # 45% of $1000
+    ks = _make_kill_sheet(account_key="lotto", cut_rule_pct=-0.50)
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "Y"
+
+
+def test_sqn100_neutral_regime_passes_not_violation():
+    # Neutral SQN(100) is a no-bias zone (half-size tradeable per every skill),
+    # not "fighting the regime" — it must pass, not score as a violation.
+    # (Default chosen 2026-06; see _r_sqn100_authorized.)
+    p = _make_position(direction="long", instrument="call")
+    ks = _make_kill_sheet(regime="neutral")
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "sqn100_authorized")
+    assert rule.score == "Y"
+
+
+def test_score_trade_stamps_kill_sheet_id_from_sheet():
+    # Regression (fixed 2026-06): the score must record the kill_sheet_id it was
+    # scored against (was hardcoded None with a stale "no ID yet" TODO).
+    p = _make_position()
+    ks = _make_kill_sheet()
+    score = score_trade(p, kill_sheet=ks)
+    assert score.kill_sheet_id == ks.id
+
+
+def test_load_kill_sheet_for_returns_none_without_id():
+    # No kill_sheet_id on the position → resolver returns None (no disk hit).
+    from discipline import load_kill_sheet_for
+    p = _make_position()
+    assert getattr(p, "kill_sheet_id", None) is None
+    assert load_kill_sheet_for(p) is None
+
+
+def test_portfolio_sleeve_exempt_from_cut_and_tier_rules():
+    # Portfolio sleeve exits on thesis-break, sizes on a per-position % cap —
+    # the -60/-70% cut rule and the 0.5-3% conviction-tier check don't apply.
+    # A shares position closed at a deep loss must score N/A on both, not N.
+    p = _make_position(instrument="shares", account_key="portfolio",
+                       pnl_usd=-400.0, max_loss_usd=200.0)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
+    cut = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    tier = next(r for r in score.rules if r.rule_id == "size_within_tier")
+    assert cut.score == "N/A"
+    assert tier.score == "N/A"
 
 
 def test_cut_at_60_70_y_within_band():
@@ -535,6 +633,26 @@ def test_weekly_review_picks_up_trades_in_window(tmp_path: Path):
     store.save_score(s)
     review = compute_weekly_review(date(2026, 5, 5), store=store)
     assert review.trades_scored == 1
+
+
+def test_weekly_review_excludes_portfolio_scores(tmp_path: Path):
+    # Portfolio sleeve runs a MONTHLY cadence — its closures must not fold into
+    # the options-book weekly review (consistent with the unreviewed-week nag).
+    store = DisciplineStore(base_dir=tmp_path)
+    main = score_trade(
+        _make_position(closed_date="2026-05-05T12:00:00+00:00", pnl_usd=100,
+                       max_loss_usd=300),
+        kill_sheet=_make_kill_sheet(),
+    )
+    portfolio = score_trade(
+        _make_position(ticker="TST1", account_key="portfolio",
+                       closed_date="2026-05-06T12:00:00+00:00", pnl_usd=50),
+        kill_sheet=_make_kill_sheet(),
+    )
+    store.save_score(main)
+    store.save_score(portfolio)
+    review = compute_weekly_review(date(2026, 5, 5), store=store)
+    assert review.trades_scored == 1  # portfolio closure excluded
 
 
 def test_weekly_review_lockdown_persisted(tmp_path: Path):

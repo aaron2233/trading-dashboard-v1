@@ -138,4 +138,11 @@ def by_instrument(positions: Iterable[Position]) -> dict[str, JournalStats]:
 
 
 def by_direction(positions: Iterable[Position]) -> dict[str, JournalStats]:
-    return _group(positions, lambda p: p.direction)
+    # Group by THESIS expressed as long/short: every long option stores
+    # direction="long" regardless of call/put, so a raw direction group collapses
+    # bullish calls and bearish puts together. thesis_direction restores the
+    # bullish→long / bearish→short split.
+    return _group(
+        positions,
+        lambda p: "long" if p.thesis_direction == "bullish" else "short",
+    )

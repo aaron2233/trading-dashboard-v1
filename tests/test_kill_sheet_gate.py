@@ -208,6 +208,64 @@ def test_open_position_rejected_when_direction_mismatches(client, tmp_path):
     assert "direction" in r.json()["detail"]
 
 
+# ── Long-only enforcement (Fix 5c) ──────────────────────────────────────────
+# Cash account holds long calls / long puts only. The open endpoint normalizes
+# the stored contract direction to 'long' and rejects the two combos that would
+# require a sold/short option: a bearish CALL (= naked short call) and a bullish
+# PUT (= inverted thesis). A legitimate bearish LONG PUT must still log fine.
+
+
+def test_open_position_rejects_naked_short_call(client, tmp_path):
+    """direction='short' (bearish) + a CALL = a sold/naked short call. Must 422
+    even though the kill-sheet direction matches."""
+    ks_id = _persist_authorized(tmp_path, direction="short")
+    r = client.post(
+        "/api/v1/positions",
+        json=_open_payload(direction="short", instrument="call", kill_sheet_id=ks_id),
+    )
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert "long-only" in detail and "short option" in detail
+
+
+def test_open_position_bearish_long_put_logs_fine(client, tmp_path):
+    """The deadlock-dissolver: a bearish lotto LONG PUT (direction='short',
+    instrument='put') against a matching short kill sheet logs 201 and is
+    STORED as the canonical long+put (not the inverted short+put)."""
+    ks_id = _persist_authorized(tmp_path, direction="short")
+    r = client.post(
+        "/api/v1/positions",
+        json=_open_payload(direction="short", instrument="put", kill_sheet_id=ks_id),
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["direction"] == "long"   # contract normalized to long
+    assert body["instrument"] == "put"   # bearishness carried by the put
+
+
+def test_open_position_bullish_long_call_unchanged(client, tmp_path):
+    """Regression guard: the common bullish long call still logs as long+call."""
+    ks_id = _persist_authorized(tmp_path, direction="long")
+    r = client.post(
+        "/api/v1/positions",
+        json=_open_payload(direction="long", instrument="call", kill_sheet_id=ks_id),
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["direction"] == "long"
+
+
+def test_open_position_rejects_inverted_bullish_put(client, tmp_path):
+    """Mirror of the short-call case: direction='long' (bullish) + a PUT is an
+    inverted thesis (a long put is always bearish). Reject it too."""
+    ks_id = _persist_authorized(tmp_path, direction="long")
+    r = client.post(
+        "/api/v1/positions",
+        json=_open_payload(direction="long", instrument="put", kill_sheet_id=ks_id),
+    )
+    assert r.status_code == 422, r.text
+    assert "long-only" in r.json()["detail"]
+
+
 def test_open_position_accepts_failed_attestation_for_retrospective_review(client, tmp_path):
     """Per user intent (2026-05-10): a kill sheet with §8 attestation
     failures (entry_authorized=False) does NOT block position creation.

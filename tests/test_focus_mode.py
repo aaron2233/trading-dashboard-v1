@@ -23,9 +23,10 @@ from positions.model import Position
 # focus_rules unit tests
 # ─────────────────────────────────────────────────────────────────────────
 
-def _open_position(ticker: str, direction: str = "long") -> Position:
+def _open_position(ticker: str, direction: str = "long",
+                   instrument: str = "call") -> Position:
     return Position.open_options_position(
-        ticker=ticker, direction=direction, contract_type="call",
+        ticker=ticker, direction=direction, contract_type=instrument,
         account_key="main", strike=100, expiry="2026-06-19",
         premium=2.00, contracts=1,
     )
@@ -80,6 +81,25 @@ def test_focus_allows_opposite_direction_pair():
     open_pos = [_open_position("QQQ", "long")]
     violations = check_focus_trade("GLD", "short", open_pos, [])
     assert violations == []
+
+
+def test_focus_blocks_same_thesis_pair_with_long_put():
+    # An open bearish LONG PUT stores direction='long' (thesis bearish). A
+    # proposed bearish trade on the other asset is a same-THESIS correlated pair
+    # and must block — pre-fix the raw 'long' direction missed it.
+    open_pos = [_open_position("QQQ", "long", instrument="put")]  # bearish
+    violations = check_focus_trade("GLD", "short", open_pos, [])  # bearish thesis
+    rules = {v.rule for v in violations}
+    assert "focus_no_same_direction_pair" in rules
+
+
+def test_focus_allows_opposite_thesis_hedge_with_long_put():
+    # Open bearish long put on QQQ (thesis bearish). A proposed BULLISH GLD trade
+    # is an opposite-thesis hedge → must NOT be blocked as a same-direction pair.
+    open_pos = [_open_position("QQQ", "long", instrument="put")]  # bearish
+    violations = check_focus_trade("GLD", "long", open_pos, [])   # bullish thesis
+    rules = {v.rule for v in violations}
+    assert "focus_no_same_direction_pair" not in rules
 
 
 def test_focus_blocks_during_cooloff():

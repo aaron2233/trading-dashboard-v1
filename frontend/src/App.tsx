@@ -180,7 +180,7 @@ export function App() {
   // that hijacks page scroll AND silently mutates the field. We blur the
   // input on wheel so the page scrolls and the value stays put.
   useEffect(() => {
-    const handler = (e: WheelEvent) => {
+    const handler = () => {
       const active = document.activeElement;
       if (
         active instanceof HTMLInputElement &&

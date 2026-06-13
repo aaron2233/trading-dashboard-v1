@@ -276,22 +276,22 @@ def check_correlation_trap(sheet: KillSheet,
 
     same_ticker = [p for p in open_positions if p.ticker == sheet.ticker.upper()]
     if same_ticker:
-        # Already long → kill if proposing another long, flag if hedging
-        existing_long = [p for p in same_ticker if p.direction == "long"]
-        existing_short = [p for p in same_ticker if p.direction == "short"]
-        if sheet.direction.lower() == "long" and existing_long:
+        # Bucket by THESIS, not contract direction: every long-options position
+        # is direction="long" regardless of call/put, so a raw direction compare
+        # inverted the verdict whenever the open leg was a put — it KILLed
+        # legitimate hedges and only soft-FLAGged actual doubling-down. The
+        # sheet's direction is the thesis ("long"=bullish, "short"=bearish);
+        # existing positions expose thesis via Position.thesis_direction.
+        # (Fixed 2026-06.)
+        sheet_thesis = "bullish" if sheet.direction.lower() == "long" else "bearish"
+        same_thesis = [p for p in same_ticker if p.thesis_direction == sheet_thesis]
+        if same_thesis:
             return CategoryResult(
                 "Correlation Trap", Verdict.KILL,
-                f"Already {len(existing_long)} long position(s) open in {sheet.ticker} "
-                "— this would double down on the same thesis.",
+                f"Already {len(same_thesis)} {sheet_thesis} position(s) open in "
+                f"{sheet.ticker} — this would double down on the same thesis.",
             )
-        if sheet.direction.lower() == "short" and existing_short:
-            return CategoryResult(
-                "Correlation Trap", Verdict.KILL,
-                f"Already {len(existing_short)} short position(s) open in {sheet.ticker} "
-                "— this would double down on the same thesis.",
-            )
-        # Opposite direction = hedge (legitimate but worth flagging)
+        # Opposite thesis = hedge (legitimate but worth flagging)
         return CategoryResult(
             "Correlation Trap", Verdict.FLAG,
             f"Already {len(same_ticker)} position(s) in {sheet.ticker} on the other "
