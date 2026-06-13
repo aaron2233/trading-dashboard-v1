@@ -242,6 +242,14 @@ def build_standard(
     confidence, reason = derive_confidence(scan_row)
 
     risk_pct = account.risk_pct(risk_conviction)
+    # Neutral SQN(100) is a no-bias zone, not a no-trade zone: every skill
+    # treats it as half-size tradeable. Halve the conviction-tier risk before
+    # sizing (the dollar cap, if any, still applies as a ceiling). Decision
+    # 2026-06: authorize neutral at half size rather than reject-unless-thesis.
+    neutral_half_size = ((scan_row.get("sqn") or {}).get("regime")) == "neutral"
+    if neutral_half_size:
+        risk_pct = risk_pct * 0.5
+        reason = f"{reason} · Neutral SQN(100) → half size"
     # When options are supplied, premium-per-contract = max loss per unit, so
     # we can compute the contract count.
     max_loss_per_unit: float | None = None
@@ -292,10 +300,13 @@ def build_standard(
     # thesis to override, which is recorded on the kill sheet for audit.
     status: str = "AUTHORIZED"
     rejection_reason: str | None = None
-    if not sqn_authorizes and not divergence_thesis:
+    # Neutral is authorized (at half size, applied above) — only a regime that
+    # actively OPPOSES the direction (long in bear, short in bull) is rejected
+    # without a divergence thesis. (Decision 2026-06.)
+    if not sqn_authorizes and regime != "neutral" and not divergence_thesis:
         status = "REJECTED"
         rejection_reason = (
-            f"SQN(100) regime '{regime}' does not authorize {direction.upper()} "
+            f"SQN(100) regime '{regime}' opposes {direction.upper()} "
             f"direction. Document a divergence thesis to override."
         )
 
@@ -392,7 +403,7 @@ def build_standard(
         iv_rank_over_70=(iv_rank is not None and iv_rank > 70),
         dte_under_7=(dte is not None and dte < 7),
         daily_chop=(ma_stack_state in DAILY_CHOP_STATES),
-        fighting_sqn_regime=(not sqn_authorizes),
+        fighting_sqn_regime=(not sqn_authorizes and regime != "neutral"),
         averaging_down=averaging_down,
         lotto_chase_warning=lotto_chase_warning,
         weekly_trend_asset_blocked=weekly_trend_asset_blocked,

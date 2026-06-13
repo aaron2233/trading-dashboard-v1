@@ -23,6 +23,12 @@ def test_pool_account_keys_groups_pooled_accounts(tmp_path: Path):
     assert cfg.pool_account_keys("lotto") == {"lotto"}
 
 
+def test_lotto_cut_rule_is_minus_50pct(tmp_path: Path):
+    # Decision 2026-06: lotto stop is -50% (skill + backtest R), not -70%.
+    cfg = load_config(tmp_path / "missing.yaml")
+    assert cfg.account("lotto").raw["cut_rule_pct"] == -0.50
+
+
 def test_load_config_returns_defaults_for_empty_file(tmp_path: Path):
     p = tmp_path / "empty.yaml"
     p.write_text("")

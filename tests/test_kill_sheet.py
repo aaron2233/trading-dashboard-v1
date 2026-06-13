@@ -222,6 +222,43 @@ def test_chop_daily_stack_blocks_entry():
     assert sheet.discipline_attestation.entry_authorized is False
 
 
+def test_neutral_regime_authorized_at_half_size():
+    # Decision 2026-06: Neutral SQN(100) is a no-bias zone — authorize the entry
+    # at HALF the conviction-tier size (not reject-unless-thesis), matching the
+    # weekly-trend + trading-edge skills' "Neutral = half size".
+    cfg = load_config(Path("/nonexistent.yaml"))
+    bull = build_standard(_row("full_bull", "bull_cross_oversold", "bull"),
+                          direction="long", account=cfg.account("main"))
+    neutral = build_standard(_row("bull_developing", "bull_cross_oversold", "neutral"),
+                             direction="long", account=cfg.account("main"))
+    assert neutral.status == "AUTHORIZED"
+    assert neutral.discipline_attestation.fighting_sqn_regime is False
+    assert neutral.risk_pct == pytest.approx(bull.risk_pct / 2)
+
+
+def test_opposing_regime_still_rejected_without_thesis():
+    # Guard: half-size only applies to NEUTRAL — a regime that actively opposes
+    # the direction (long into bear) is still REJECTED without a divergence thesis.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_row("full_bear", "bear_cross_overbought", "bear"),
+                           direction="long", account=cfg.account("main"))
+    assert sheet.status == "REJECTED"
+
+
+def test_kill_sheet_persists_rules_blocked_and_violations():
+    # Decision 2026-06 (journal-first): the rule-engine outcome is persisted on
+    # the sheet so a breach stays visible when the scorer loads it at close.
+    from kill_sheet.store import _kill_sheet_from_dict
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_row("full_bull", "bull_cross_oversold", "bull"),
+                           direction="long", account=cfg.account("main"))
+    sheet.rules_blocked = True
+    sheet.rule_violations = [{"rule": "max_premium_at_risk_pct", "severity": "block"}]
+    restored = _kill_sheet_from_dict(sheet.to_dict())
+    assert restored.rules_blocked is True
+    assert restored.rule_violations == [{"rule": "max_premium_at_risk_pct", "severity": "block"}]
+
+
 def test_lotto_short_with_sqn20_high_not_chase_warning():
     """Chase warning is long-only — bullish chase, not bearish."""
     cfg = load_config(Path("/nonexistent.yaml"))
