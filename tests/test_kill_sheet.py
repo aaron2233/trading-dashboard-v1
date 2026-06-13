@@ -207,6 +207,21 @@ def test_lotto_long_below_chase_threshold_not_flagged():
     assert sheet.discipline_attestation.entry_authorized is True
 
 
+def test_chop_daily_stack_blocks_entry():
+    # Regression (fixed 2026-06): the daily-chop hard block compared against
+    # "chop_tangled" — a token ma_ribbon never emits — so the "no trend = no
+    # trade" anti-pattern silently never fired. A real "chop" stack must set
+    # daily_chop and de-authorize entry.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row("chop", "neutral", "bull"),
+        direction="long",
+        account=cfg.account("main"),
+    )
+    assert sheet.discipline_attestation.daily_chop is True
+    assert sheet.discipline_attestation.entry_authorized is False
+
+
 def test_lotto_short_with_sqn20_high_not_chase_warning():
     """Chase warning is long-only — bullish chase, not bearish."""
     cfg = load_config(Path("/nonexistent.yaml"))

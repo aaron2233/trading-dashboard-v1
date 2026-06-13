@@ -529,14 +529,18 @@ def scan_index_swing_watchlist(
         suggested_target_2r: float | None = None
         if breakout is not None:
             entry = breakout.breakout_close
-            # Stop: lesser of (a) -2% from entry, (b) bar low (which is also
-            # the breakout day's low). Per skill: use the more structural one.
+            # Stop: the TIGHTER (closer to entry) of (a) -2% from entry,
+            # (b) just below the breakout bar's low. For a long, the higher
+            # price is the tighter stop, so use max(): risk is capped at 2%
+            # when the breakout bar is wide, and the structural bar low is
+            # used when it sits tighter than 2%. The skill's "2% is the
+            # structural premise — never widen it" governs.
+            # (Was min(), which selected the WIDER stop and could blow well
+            # past the 2% premise on a high-volatility breakout bar, while the
+            # correct max() line was dead — immediately overwritten. Fixed 2026-06.)
             stop_2pct = entry * 0.98
             stop_bar_low = float(bars.iloc[-1]["low"])
             suggested_stop = max(stop_2pct, stop_bar_low - (entry * 0.001))
-            # Use min so stop is closer to entry (tighter); the skill says
-            # LESSER (closer to entry) for the "less of" rule.
-            suggested_stop = min(stop_2pct, stop_bar_low)
             risk = entry - suggested_stop
             suggested_target_2r = entry + (2.0 * risk)
 

@@ -69,6 +69,27 @@ def test_correlation_flags_opposite_direction_hedge():
     assert "hedge" in r.reason.lower()
 
 
+def test_correlation_uses_thesis_not_contract_direction_for_puts():
+    # Regression (fixed 2026-06): a long PUT is a bearish thesis though its
+    # contract direction is "long". The Correlation Trap must bucket by thesis,
+    # so a same-thesis double-down KILLs and a real hedge only FLAGs. The old
+    # contract-direction compare inverted both: it KILLed hedges and FLAGged
+    # actual doubling-down whenever the open leg was a put.
+    long_put = Position.open_options_position(
+        ticker="SPY", direction="long", contract_type="put",
+        account_key="main", strike=560, expiry="2026-06-19",
+        premium=5.0, contracts=1,
+    )
+    assert long_put.thesis_direction == "bearish"
+    # Proposed bearish ('short' thesis) → same thesis as the put → KILL
+    r_double = check_correlation_trap(_sheet(direction="short"), open_positions=[long_put])
+    assert r_double.verdict is Verdict.KILL
+    assert "double down" in r_double.reason.lower()
+    # Proposed bullish ('long') → opposite thesis → legitimate hedge → FLAG
+    r_hedge = check_correlation_trap(_sheet(direction="long"), open_positions=[long_put])
+    assert r_hedge.verdict is Verdict.FLAG
+
+
 def test_correlation_passes_with_different_ticker_open():
     existing = [_existing(ticker="QQQ", direction="long")]
     r = check_correlation_trap(_sheet(ticker="SPY", direction="long"),

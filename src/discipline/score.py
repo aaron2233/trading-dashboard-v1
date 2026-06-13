@@ -33,7 +33,9 @@ COUNTERFACTUAL_CUT_FRACTION = 0.65
 
 
 # MA stack states that count as "chop" (rule 10 fails when at entry).
-CHOP_STATES = {"chop_tangled", "compression"}
+# The indicator emits "chop" (not "chop_tangled" — the old value never
+# matched, so rule 10 could never fail on real chop). Fixed 2026-06.
+CHOP_STATES = {"chop", "compression"}
 
 
 @dataclass
@@ -82,6 +84,14 @@ def _r_sqn100_authorized(p: Position, ctx: ScoringContext) -> RuleResult:
     if bull_ok or bear_ok:
         return _result("sqn100_authorized", "Y", True,
                        note=f"SQN(100)={ks.sqn_value}, regime={ks.regime}")
+    # Neutral (SQN(100) in -0.7..+0.7) is a no-bias zone, not a no-trade zone:
+    # every skill treats Neutral as half-size tradeable, and the anti-pattern
+    # is *fighting* the regime — a Neutral entry fights nothing. So Neutral
+    # passes (rule satisfied), not a violation. (Default chosen 2026-06 per the
+    # skills; flip to "N" here if Neutral should count against adherence.)
+    if ks.regime == "neutral":
+        return _result("sqn100_authorized", "Y", True,
+                       note=f"SQN(100)={ks.sqn_value} Neutral — no-bias zone, half-size expected")
     if ks.divergence_thesis:
         return _result("sqn100_authorized", "Y", True,
                        note=f"Counter-regime trade authorized by divergence thesis")
@@ -233,16 +243,19 @@ def _r_weekly_not_opposing(p: Position, ctx: ScoringContext) -> RuleResult:
 
 
 def _r_cut_at_60_70(p: Position, ctx: ScoringContext) -> RuleResult:
-    if p.pnl_usd is None or p.max_loss_usd <= 0:
-        return _result("cut_at_60_70", "Y", False, note="P&L or max-loss missing")
+    # Use total_cost_usd for options (max_loss_usd is zeroed by partial_close
+    # on the final leg, which previously made every options trade auto-pass).
+    denom = _loss_denominator(p)
+    if p.pnl_usd is None or not denom or denom <= 0:
+        return _result("cut_at_60_70", "Y", False, note="P&L or cost basis missing")
     if p.pnl_usd >= 0:
         return _result("cut_at_60_70", "Y", True, note=f"Closed at +${p.pnl_usd:,.0f}")
-    loss_ratio = abs(p.pnl_usd) / p.max_loss_usd
+    loss_ratio = abs(p.pnl_usd) / denom
     if loss_ratio <= 0.7:
         return _result("cut_at_60_70", "Y", True,
-                       note=f"Cut at {loss_ratio*100:.0f}% of max loss")
+                       note=f"Cut at {loss_ratio*100:.0f}% of premium at risk")
     return _result("cut_at_60_70", "N", True,
-                   note=f"Held to {loss_ratio*100:.0f}% of max loss > 70% cut threshold")
+                   note=f"Held to {loss_ratio*100:.0f}% of premium at risk > 70% cut threshold")
 
 
 def _r_exit_within_dte_band(p: Position, ctx: ScoringContext) -> RuleResult:
@@ -321,11 +334,46 @@ _EVALUATORS = {
 # ── Top-level scorer ─────────────────────────────────────────────────────────
 
 
+def _loss_denominator(p: Position) -> float | None:
+    """Premium-at-risk basis for the cut-rule and counterfactual math.
+
+    For options, use the immutable ``total_cost_usd`` (premium paid): the
+    ``partial_close`` path scales ``max_loss_usd`` to 0 on the final leg, which
+    previously blinded the cut-rule check (every closed options trade read
+    max_loss_usd == 0 and auto-passed). For shares, ``max_loss_usd`` is the
+    stop-distance risk and remains the correct denominator.
+    """
+    if (p.instrument or "").lower() in {"call", "put"}:
+        return p.total_cost_usd
+    return p.max_loss_usd
+
+
 def _counterfactual_loss(p: Position) -> float | None:
     """Counterfactual: dollars lost if the trade had been cut at -65% per rule 12."""
-    if p.max_loss_usd <= 0:
+    denom = _loss_denominator(p)
+    if not denom or denom <= 0:
         return None
-    return -COUNTERFACTUAL_CUT_FRACTION * p.max_loss_usd
+    return -COUNTERFACTUAL_CUT_FRACTION * denom
+
+
+def load_kill_sheet_for(position: Position) -> KillSheet | None:
+    """Resolve the kill sheet a position was opened under, or None.
+
+    Returns None when the position carries no ``kill_sheet_id`` or the sheet is
+    missing/corrupt on disk. Kept separate from :func:`score_trade` so the
+    scorer stays pure and disk-free for unit tests; callers (API routes, CLI)
+    use this to feed the kill sheet in. (Before this existed, all scoring call
+    sites passed kill_sheet=None, so every scored trade falsely failed
+    kill_sheet_complete + sqn100_authorized — the stage-1 KPI was corrupted.)
+    """
+    ks_id = getattr(position, "kill_sheet_id", None)
+    if not ks_id:
+        return None
+    from kill_sheet.store import KillSheetStore
+    try:
+        return KillSheetStore().load(ks_id)
+    except Exception:
+        return None
 
 
 def score_trade(
@@ -372,7 +420,8 @@ def score_trade(
 
     return DisciplineScore.stamp(
         position_id=position.id,
-        kill_sheet_id=None,  # KillSheet doesn't carry an ID yet — TODO (v2 spec)
+        kill_sheet_id=(kill_sheet.id if kill_sheet is not None
+                       else getattr(position, "kill_sheet_id", None)),
         closed_at=position.closed_date or "",
         rules=rule_results,
         pnl_usd=position.pnl_usd,

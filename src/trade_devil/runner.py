@@ -121,14 +121,24 @@ def run_devil(sheet: KillSheet, force: bool = False,
               open_positions: list | None = None) -> DevilReport | None:
     """Run all 8 kill categories on a KillSheet.
 
-    The skill auto-fires when sheet.max_risk_usd > AUTO_TRIGGER_USD ($150).
-    For lower-risk sheets, pass force=True to evaluate anyway. Returns None
-    when the sheet is below threshold and force is False.
+    Orchestrator rule 5: in **stage 1** (account < $100K) the devil is mandatory
+    for EVERY actionable trade; the $150 ``AUTO_TRIGGER_USD`` threshold is the
+    **stage 2** (account >= $100K) rule. We detect the stage from the sheet's
+    own ``account_balance_usd`` and always run in stage 1 — otherwise lotto
+    trades (capped at exactly $150, and `>` is strict) and any sub-$150 main
+    trade would silently skip the mandatory gate. (Fixed 2026-06; previously the
+    stage-2 threshold was applied universally with no stage awareness.)
 
-    Pass open_positions (list of Position) to enable the Correlation Trap
-    category to check against real open trades.
+    For lower-risk sheets you can still force a run with force=True. Pass
+    open_positions (list of Position) to enable the Correlation Trap category
+    to check against real open trades.
     """
-    triggered = sheet.max_risk_usd > AUTO_TRIGGER_USD
+    from discipline.stage import current_stage
+
+    balance = getattr(sheet, "account_balance_usd", None)
+    stage_1 = balance is not None and current_stage(balance) == "stage_1"
+    risk_threshold_hit = sheet.max_risk_usd > AUTO_TRIGGER_USD
+    triggered = stage_1 or risk_threshold_hit
     if not triggered and not force:
         return None
 
@@ -151,5 +161,5 @@ def run_devil(sheet: KillSheet, force: bool = False,
         kills=kills,
         flags=flags,
         passes=passes,
-        triggered_by_risk_threshold=triggered,
+        triggered_by_risk_threshold=risk_threshold_hit,
     )

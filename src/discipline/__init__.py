@@ -27,7 +27,7 @@ from discipline.model import (
     RuleResult,
     WeeklyReview,
 )
-from discipline.score import ScoringContext, score_trade
+from discipline.score import ScoringContext, load_kill_sheet_for, score_trade
 from discipline.stage import STAGE_1_THRESHOLD_USD, Stage, current_stage, stage_reminder
 from discipline.stats import DisciplineStats, compute_discipline_stats
 from discipline.store import (
@@ -66,6 +66,7 @@ __all__ = [
     "find_unreviewed_weeks",
     "get_or_compute_weekly",
     "is_legacy_position",
+    "load_kill_sheet_for",
     "score_trade",
     "stage_reminder",
     "week_bounds",
