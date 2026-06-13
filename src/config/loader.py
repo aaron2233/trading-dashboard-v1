@@ -168,6 +168,24 @@ class Config:
     def skills_at_tier(self, tier: int) -> list[SkillConfig]:
         return [s for s in self.skills.values() if s.tier == tier]
 
+    def pool_account_keys(self, account_key: str) -> set[str]:
+        """All account keys sharing a capital pool with ``account_key``.
+
+        Accounts with ``pool_member_of: X`` draw on X's balance (e.g. the
+        'weekly' account shares 'main's $10K pool), so premium-at-risk and
+        position-count gates must aggregate across the whole pool — otherwise
+        each key can independently consume the full budget. Returns just
+        ``{account_key}`` for a standalone account.
+        """
+        acct = self.accounts.get(account_key)
+        root = (acct.pool_member_of if acct and acct.pool_member_of else account_key)
+        keys = {root}
+        for k, a in self.accounts.items():
+            if k == root or a.pool_member_of == root:
+                keys.add(k)
+        keys.add(account_key)
+        return keys
+
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     out = dict(base)

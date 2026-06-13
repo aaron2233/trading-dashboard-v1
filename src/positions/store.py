@@ -12,6 +12,8 @@ empty rather than crashing the app at boot.
 from __future__ import annotations
 
 import logging
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -46,13 +48,28 @@ class PositionStore:
             return
         data = load_json_safe(self.path, default=None)
         if data is None and self.path.exists():
-            # File exists but was corrupt/unreadable. Surface loudly so the
-            # user can recover from a backup, but don't crash the app.
-            logger.error(
-                "positions.json at %s could not be parsed; starting empty. "
-                "Inspect/restore the file before opening new trades.",
-                self.path,
-            )
+            # File exists but was corrupt/unreadable. Preserve the original
+            # bytes BEFORE we proceed — otherwise the next save() atomically
+            # overwrites the corrupt file with a near-empty array, destroying
+            # data a JSON repair could often have recovered (this is the
+            # failure mode behind the positions.json.bak-* incident trail).
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup = self.path.with_name(f"{self.path.name}.corrupt-{stamp}")
+            try:
+                shutil.copy2(self.path, backup)
+                logger.error(
+                    "positions.json at %s could not be parsed; preserved the "
+                    "original to %s and starting empty. Inspect/restore before "
+                    "opening new trades.",
+                    self.path, backup,
+                )
+            except Exception:
+                logger.exception(
+                    "positions.json at %s could not be parsed AND the corrupt "
+                    "file could not be backed up; starting empty. Do NOT open "
+                    "new trades until you have inspected the file by hand.",
+                    self.path,
+                )
             data = []
         elif data is None:
             data = []
