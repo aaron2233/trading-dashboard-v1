@@ -256,6 +256,16 @@ def _r_cut_at_60_70(p: Position, ctx: ScoringContext) -> RuleResult:
     if p.account_key == "portfolio":
         return _result("cut_at_60_70", "N/A", True,
                        note="Portfolio sleeve — thesis-break exit, no % cut rule")
+    # Cut threshold by account semantics. Lotto has a HARD stop (skill: "-50%
+    # → exit, no questions"), so its stamped cut_rule_pct IS the violation
+    # threshold. main/weekly use a -60/-70 BAND — cutting anywhere up to the -70
+    # outer bound is compliant (a 65% cut is fine), so their threshold stays
+    # 0.70; the config's -0.60 is the target, not the max. (Per-account 2026-06.)
+    ks = ctx.kill_sheet
+    if ks is not None and ks.account_key == "lotto" and ks.cut_rule_pct:
+        cut = abs(ks.cut_rule_pct)
+    else:
+        cut = 0.70
     # Use total_cost_usd for options (max_loss_usd is zeroed by partial_close
     # on the final leg, which previously made every options trade auto-pass).
     denom = _loss_denominator(p)
@@ -264,11 +274,11 @@ def _r_cut_at_60_70(p: Position, ctx: ScoringContext) -> RuleResult:
     if p.pnl_usd >= 0:
         return _result("cut_at_60_70", "Y", True, note=f"Closed at +${p.pnl_usd:,.0f}")
     loss_ratio = abs(p.pnl_usd) / denom
-    if loss_ratio <= 0.7:
+    if loss_ratio <= cut:
         return _result("cut_at_60_70", "Y", True,
-                       note=f"Cut at {loss_ratio*100:.0f}% of premium at risk")
+                       note=f"Cut at {loss_ratio*100:.0f}% of premium (≤ {cut*100:.0f}% threshold)")
     return _result("cut_at_60_70", "N", True,
-                   note=f"Held to {loss_ratio*100:.0f}% of premium at risk > 70% cut threshold")
+                   note=f"Held to {loss_ratio*100:.0f}% of premium > {cut*100:.0f}% cut threshold")
 
 
 def _r_exit_within_dte_band(p: Position, ctx: ScoringContext) -> RuleResult:
