@@ -212,7 +212,7 @@ def test_unreviewed_weeks_mixed_week_counts_non_portfolio_only(tmp_path):
     today = date(2026, 5, 20)
     closed = [
         _closed_position(closed_date="2026-05-12"),  # main (options book)
-        _closed_position(ticker="MRLN", closed_date="2026-05-13", account_key="portfolio"),
+        _closed_position(ticker="TST1", closed_date="2026-05-13", account_key="portfolio"),
     ]
     weeks = find_unreviewed_weeks(closed, store, today=today)
     assert len(weeks) == 1

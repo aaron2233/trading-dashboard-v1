@@ -645,7 +645,7 @@ def test_weekly_review_excludes_portfolio_scores(tmp_path: Path):
         kill_sheet=_make_kill_sheet(),
     )
     portfolio = score_trade(
-        _make_position(ticker="MRLN", account_key="portfolio",
+        _make_position(ticker="TST1", account_key="portfolio",
                        closed_date="2026-05-06T12:00:00+00:00", pnl_usd=50),
         kill_sheet=_make_kill_sheet(),
     )

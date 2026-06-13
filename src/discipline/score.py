@@ -222,7 +222,7 @@ def _r_no_spreads_margin(p: Position, ctx: ScoringContext) -> RuleResult:
     # at score time: historical "short"-stored options are old-convention
     # artifacts of BOUGHT options (positive total_cost_usd), not genuine sold
     # options, so keying N on direction=='short' would false-flag real long puts
-    # (e.g. on-disk 0cd67b4c). Score by instrument shape only.
+    # (e.g. an on-disk legacy short-stored long put). Score by instrument shape only.
     if p.instrument in ("call", "put", "shares"):
         return _result("no_spreads_margin", "Y", True,
                        note=f"Instrument: {p.instrument}")
