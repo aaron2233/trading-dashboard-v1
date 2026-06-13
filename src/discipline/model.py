@@ -82,6 +82,7 @@ class DisciplineScore:
     ticker: str = ""
     direction: str = ""
     instrument: str = ""
+    account_key: str = ""   # sleeve the trade belongs to; '' for legacy scores
     entry_at: str | None = None
 
     # Computed at scoring time and persisted; recomputed on round-trip is

@@ -237,17 +237,6 @@ def test_sqn20_respected_n_long_put_in_capitulation():
     assert rule.score == "N"
 
 
-def test_no_spreads_margin_n_for_short_option():
-    # A sold/short option (direction='short') is an anti-pattern in this
-    # long-only cash account. The old scorer whitelisted by instrument string
-    # and passed a naked short call (on-disk 7284781d) as compliant.
-    for instrument in ("call", "put"):
-        p = _make_position(direction="short", instrument=instrument)
-        score = score_trade(p)
-        rule = next(r for r in score.rules if r.rule_id == "no_spreads_margin")
-        assert rule.score == "N", instrument
-
-
 def test_no_spreads_margin_y_for_long_options_and_shares():
     for direction, instrument in (("long", "call"), ("long", "put"), ("long", "shares")):
         p = _make_position(direction=direction, instrument=instrument)
@@ -644,6 +633,26 @@ def test_weekly_review_picks_up_trades_in_window(tmp_path: Path):
     store.save_score(s)
     review = compute_weekly_review(date(2026, 5, 5), store=store)
     assert review.trades_scored == 1
+
+
+def test_weekly_review_excludes_portfolio_scores(tmp_path: Path):
+    # Portfolio sleeve runs a MONTHLY cadence — its closures must not fold into
+    # the options-book weekly review (consistent with the unreviewed-week nag).
+    store = DisciplineStore(base_dir=tmp_path)
+    main = score_trade(
+        _make_position(closed_date="2026-05-05T12:00:00+00:00", pnl_usd=100,
+                       max_loss_usd=300),
+        kill_sheet=_make_kill_sheet(),
+    )
+    portfolio = score_trade(
+        _make_position(ticker="MRLN", account_key="portfolio",
+                       closed_date="2026-05-06T12:00:00+00:00", pnl_usd=50),
+        kill_sheet=_make_kill_sheet(),
+    )
+    store.save_score(main)
+    store.save_score(portfolio)
+    review = compute_weekly_review(date(2026, 5, 5), store=store)
+    assert review.trades_scored == 1  # portfolio closure excluded
 
 
 def test_weekly_review_lockdown_persisted(tmp_path: Path):

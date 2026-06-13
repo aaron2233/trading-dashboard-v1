@@ -117,8 +117,13 @@ def check_focus_trade(
         ))
 
     # ─ No same-direction pair across QQQ + GLD ─
+    # Compare by THESIS, not stored contract direction: every long option stores
+    # direction="long" (a long put is bearish), so a raw direction compare both
+    # missed correlated bearish pairs and wrongly blocked opposite-thesis hedges.
+    # The proposed `direction` is the thesis ("long"=bullish, "short"=bearish).
+    proposed_thesis = "bullish" if direction_l == "long" else "bearish"
     other = [p for p in open_focus if p.ticker.upper() != ticker_u]
-    same_dir_other = [p for p in other if p.direction.lower() == direction_l]
+    same_dir_other = [p for p in other if p.thesis_direction == proposed_thesis]
     if same_dir_other:
         existing = same_dir_other[0]
         violations.append(RuleViolation(
@@ -126,7 +131,7 @@ def check_focus_trade(
             severity="block",
             message=(
                 f"Focus mode rejects same-direction QQQ+GLD pairs: "
-                f"{existing.ticker} is already {existing.direction}. "
+                f"{existing.ticker} is already {existing.thesis_direction}. "
                 "Pick the stronger setup; correlation is 1.0, not diversification."
             ),
             current_value=1.0,

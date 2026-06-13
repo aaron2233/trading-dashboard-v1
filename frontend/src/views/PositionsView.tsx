@@ -685,23 +685,6 @@ export function PositionsView() {
   // POST /positions directly.
   function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.ticker) return;
-    // Long-only cash account: a bullish (long) thesis must be a CALL and a
-    // bearish (short) thesis a PUT. Block the contradictory options combos
-    // here so the user gets immediate feedback instead of a 422 at open time.
-    // (Mirrors the API guard in src/api/routes/positions.py.)
-    if (
-      (form.instrument === "call" || form.instrument === "put") &&
-      (form.instrument === "call") !== (form.direction === "long")
-    ) {
-      setError(
-        "Cash account is long-only: pair a long (bullish) thesis with a CALL " +
-          "and a short (bearish) thesis with a PUT. A bearish CALL or bullish " +
-          "PUT would be a sold/short option.",
-      );
-      return;
-    }
-    setError(null);
     handleGenerateKillSheet();
   }
 
@@ -724,6 +707,25 @@ export function PositionsView() {
   }
 
   function handleGenerateKillSheet() {
+    if (!form.ticker) return;
+    // Long-only cash account: a bullish (long) thesis must be a CALL and a
+    // bearish (short) thesis a PUT. Block the contradictory options combos at
+    // form time — this is the single funnel the primary button and the
+    // Enter-key submit both call — so the user gets immediate feedback instead
+    // of generating a self-contradictory kill sheet and hitting a 422 only at
+    // open. (Mirrors the API guard in src/api/routes/positions.py.)
+    if (
+      (form.instrument === "call" || form.instrument === "put") &&
+      (form.instrument === "call") !== (form.direction === "long")
+    ) {
+      setError(
+        "Cash account is long-only: pair a long (bullish) thesis with a CALL " +
+          "and a short (bearish) thesis with a PUT. A bearish CALL or bullish " +
+          "PUT would be a sold/short option.",
+      );
+      return;
+    }
+    setError(null);
     // Carry every position-form field into the kill-sheet view via URL
     // params. After kill-sheet AUTHORIZED, the kill-sheet view reads these
     // back to POST /api/v1/positions with kill_sheet_id attached.

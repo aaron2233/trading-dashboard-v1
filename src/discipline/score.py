@@ -216,20 +216,18 @@ def _r_trade_devil_passed(p: Position, ctx: ScoringContext) -> RuleResult:
 
 
 def _r_no_spreads_margin(p: Position, ctx: ScoringContext) -> RuleResult:
-    instrument = (p.instrument or "").lower()
-    direction = (p.direction or "").lower()
-    # A sold/short option is an anti-pattern in this long-only cash account
-    # ("Cash account -- long calls and long puts ONLY"). Whitelisting by the
-    # instrument string alone (the old behaviour) passed a naked short call as
-    # compliant — catch it here so it scores N at (re-)score time.
-    if instrument in ("call", "put") and direction == "short":
-        return _result("no_spreads_margin", "N", True,
-                       note=f"Sold/short option (direction=short, {instrument}); cash account is long-only")
-    if instrument in ("call", "put", "shares"):
+    # Long-only enforcement (no sold options / spreads) lives at the WRITE layer
+    # — the open endpoint and CLI reject contradictory combos and store every
+    # option contract as long. `direction` is NOT a reliable sold-option signal
+    # at score time: historical "short"-stored options are old-convention
+    # artifacts of BOUGHT options (positive total_cost_usd), not genuine sold
+    # options, so keying N on direction=='short' would false-flag real long puts
+    # (e.g. on-disk 0cd67b4c). Score by instrument shape only.
+    if p.instrument in ("call", "put", "shares"):
         return _result("no_spreads_margin", "Y", True,
-                       note=f"Instrument: {instrument}")
+                       note=f"Instrument: {p.instrument}")
     return _result("no_spreads_margin", "N", True,
-                   note=f"Non-cash instrument: {instrument}")
+                   note=f"Non-cash instrument: {p.instrument}")
 
 
 def _r_daily_not_chop(p: Position, ctx: ScoringContext) -> RuleResult:
@@ -460,6 +458,7 @@ def score_trade(
         ticker=position.ticker,
         direction=position.direction,
         instrument=position.instrument,
+        account_key=position.account_key,
         entry_at=position.entry_date,
         score_numerator=y_count,
         score_denominator=denom,
