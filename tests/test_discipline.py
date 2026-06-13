@@ -405,6 +405,26 @@ def test_cut_rule_passes_at_40pct_loss_with_zeroed_max_loss():
     assert rule.score == "Y"
 
 
+def test_cut_rule_uses_per_account_threshold_lotto_50pct():
+    # Per-account cut threshold (2026-06): lotto cuts at -50%, so a lotto trade
+    # held to -55% of premium is a violation even though it's under the 70%
+    # default. cut_rule_pct is stamped on the kill sheet by the builder.
+    p = _make_position(instrument="call", pnl_usd=-550.0, max_loss_usd=0.0)  # 55% of $1000
+    ks = _make_kill_sheet(account_key="lotto", cut_rule_pct=-0.50)
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "N"
+
+
+def test_cut_rule_passes_within_lotto_threshold():
+    # -45% is within the -50% lotto cut → Y.
+    p = _make_position(instrument="call", pnl_usd=-450.0, max_loss_usd=0.0)  # 45% of $1000
+    ks = _make_kill_sheet(account_key="lotto", cut_rule_pct=-0.50)
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "Y"
+
+
 def test_sqn100_neutral_regime_passes_not_violation():
     # Neutral SQN(100) is a no-bias zone (half-size tradeable per every skill),
     # not "fighting the regime" — it must pass, not score as a violation.

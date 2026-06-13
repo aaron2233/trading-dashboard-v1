@@ -177,6 +177,11 @@ class KillSheet:
     # in the transient generation response. (2026-06.)
     rules_blocked: bool = False
     rule_violations: list = field(default_factory=list)
+
+    # Account's cut-rule % (e.g. lotto -0.50, main/weekly -0.60), stamped from
+    # config so the discipline scorer can apply the per-account cut threshold
+    # without re-reading config. None → scorer uses the 70% band outer bound.
+    cut_rule_pct: float | None = None
     discipline_attestation: DisciplineAttestation | None = None
 
     # Skill / tier tagging (Sprint A of orchestrator-change 2026-05-02).

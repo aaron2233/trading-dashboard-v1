@@ -507,6 +507,7 @@ def build_standard(
         account_key=account_key,
         account_name=account.name,
         account_balance_usd=account.balance_usd,
+        cut_rule_pct=account.raw.get("cut_rule_pct"),
         risk_conviction=risk_conviction,
         risk_pct=risk_pct,
         max_risk_usd=sizing.max_risk_usd,
