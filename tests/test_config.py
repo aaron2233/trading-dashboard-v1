@@ -14,6 +14,15 @@ def test_load_config_returns_defaults_when_no_file(tmp_path: Path):
     assert cfg.accounts["lotto"].balance_usd == 1_000.0
 
 
+def test_pool_account_keys_groups_pooled_accounts(tmp_path: Path):
+    # 'weekly' shares 'main's capital pool (pool_member_of: main); 'lotto' is
+    # standalone. Premium-at-risk gates must aggregate across a pool.
+    cfg = load_config(tmp_path / "missing.yaml")
+    assert cfg.pool_account_keys("main") == {"main", "weekly"}
+    assert cfg.pool_account_keys("weekly") == {"main", "weekly"}
+    assert cfg.pool_account_keys("lotto") == {"lotto"}
+
+
 def test_load_config_returns_defaults_for_empty_file(tmp_path: Path):
     p = tmp_path / "empty.yaml"
     p.write_text("")

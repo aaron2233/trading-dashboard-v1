@@ -144,6 +144,7 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
                 account=account,
                 account_key=req.account,
                 open_positions=open_positions,
+                pool_account_keys=config.pool_account_keys(req.account),
             )
             if req.focus:
                 closed_positions = [
