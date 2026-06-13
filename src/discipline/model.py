@@ -1,10 +1,13 @@
 """Discipline scorecard data model.
 
-Per DISCIPLINE-LAYER-ADDITION.md and the 15-rule scorecard template at
-~/.claude/skills/user/discipline/references/scorecard-template.md.
+Per DISCIPLINE-LAYER-ADDITION.md and the scorecard template at
+~/.claude/skills/user/discipline/references/scorecard-template.md. NOTE: this
+engine implements 14 rules — the template's rule 15 ("trend-pyramid double-up")
+was retired with the trend-pyramid skill (2026-05-07). The template/orchestrator
+still say 15; retire rule 15 there to match. (Aligned dashboard-side 2026-06.)
 
 A `DisciplineScore` records:
-- 15 rule results (Y / N / N/A) with auto/manual provenance
+- 14 rule results (Y / N / N/A) with auto/manual provenance
 - Numerator (Y count) and denominator (non-N/A count) for the discipline score
 - P&L (separate axis — never blended with discipline score per stage-1 rule)
 - Profitable-violation flag (score < 1.0 AND P&L > 0) — highest-risk pattern

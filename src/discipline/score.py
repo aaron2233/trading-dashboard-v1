@@ -1,6 +1,9 @@
-"""Auto-scoring engine for the 15-rule discipline checklist.
+"""Auto-scoring engine for the 14-rule discipline checklist.
 
-Per DISCIPLINE-LAYER-ADDITION.md: 13 of 15 rules are auto-evaluable from
+(Template/orchestrator say 15; rule 15 = trend-pyramid double-up, retired with
+that skill on 2026-05-07. Aligned dashboard-side to 14 on 2026-06.)
+
+Per DISCIPLINE-LAYER-ADDITION.md: 12 of 14 rules are auto-evaluable from
 KillSheet + Position data already captured. The two manual ones
 (`trade_devil_passed`, `no_average_down`) default to `Y` with `auto_evaluated=False`
 when we can't determine — the user can override via the persistence endpoint.

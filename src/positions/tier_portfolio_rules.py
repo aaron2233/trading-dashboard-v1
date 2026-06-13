@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
 from positions.model import Position
 from positions.rules import RuleViolation
@@ -32,9 +33,20 @@ TIER_PORTFOLIO_TICKERS: frozenset[str] = frozenset({"QQQ", "GLD"})
 COOLOFF_TRADING_DAYS: int = 3
 TIERS_IN_SCOPE: frozenset[int] = frozenset({1, 2})
 
+# Cool-off "trading days" are exchange-local (ET) calendar days — a stop logged
+# evening-PT is ~03:00 UTC the next day, so counting in UTC shifted the window
+# by a day. Convert all timestamps to ET before counting. (Fixed 2026-06.)
+_EXCHANGE_TZ = ZoneInfo("America/New_York")
+
 
 def _weekdays_elapsed(since: datetime, now: datetime) -> int:
-    """Count weekdays (Mon-Fri) from the day AFTER `since` through `now`.
+    """Count FULL weekdays (Mon-Fri) elapsed between `since` and `now`.
+
+    Counts the day AFTER `since` through the last COMPLETED day before `now`
+    — the in-progress day (`now`'s own date) does NOT count, so "3 trading
+    days after a stop" means re-entry on the (N+1)th session, not the Nth.
+    (Decision 2026-06: "after N full trading days".) Both args are assumed to
+    be in the same timezone frame (ET) so `.date()` yields ET calendar days.
 
     Mirrors focus_rules._weekdays_elapsed (intentionally duplicated rather
     than imported to keep the two modules independent — focus_rules can be
@@ -44,7 +56,7 @@ def _weekdays_elapsed(since: datetime, now: datetime) -> int:
         return 0
     days = 0
     cursor = since.date() + timedelta(days=1)
-    end_date = now.date()
+    end_date = now.date() - timedelta(days=1)  # exclude the in-progress day
     while cursor <= end_date:
         if cursor.weekday() < 5:
             days += 1
@@ -94,8 +106,14 @@ def check_tier_portfolio_trade(
     if ticker_u not in TIER_PORTFOLIO_TICKERS:
         return []
 
+    # Work in exchange-local (ET): default to ET now; convert a passed-in clock
+    # (aware → ET; naive → assume UTC, as positions are stored UTC-aware).
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(_EXCHANGE_TZ)
+    elif now.tzinfo is not None:
+        now = now.astimezone(_EXCHANGE_TZ)
+    else:
+        now = now.replace(tzinfo=timezone.utc).astimezone(_EXCHANGE_TZ)
 
     violations: list[RuleViolation] = []
 
@@ -162,6 +180,7 @@ def check_tier_portfolio_trade(
             continue
         if closed_dt.tzinfo is None:
             closed_dt = closed_dt.replace(tzinfo=timezone.utc)
+        closed_dt = closed_dt.astimezone(_EXCHANGE_TZ)  # count in ET, not UTC
         elapsed = _weekdays_elapsed(closed_dt, now)
         if elapsed < COOLOFF_TRADING_DAYS:
             violations.append(RuleViolation(
