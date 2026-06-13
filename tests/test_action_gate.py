@@ -127,6 +127,20 @@ def test_lotto_disqualified_when_daily_opposes_long():
     assert "opposes" in v.headline
 
 
+def test_lotto_disqualified_when_sqn100_opposes_long():
+    # Rule 1 / rule 18 (2026-06): a long lotto in a Strong-Bear SQN(100) regime
+    # is not actionable even when the MA stacks would support — the verdict must
+    # consult SQN(100), not just the stacks.
+    reads = {
+        "1d":  _read(timeframe="1d", stack="full_bull", sqn_regime="strong_bear"),
+        "2h":  _read(timeframe="2h", stack="full_bull", stoch_zone="oversold",
+                     stoch_signal="bull_cross_oversold", sqn_regime="strong_bear"),
+    }
+    v = classify_lotto_action(reads, "long")
+    assert v.state == "disqualified"
+    assert "SQN(100)" in v.headline
+
+
 def test_lotto_chase_zone_long_via_sqn20():
     """SPY-style: daily SQN20 strong_bull + daily stoch overbought = chase."""
     reads = {

@@ -60,7 +60,7 @@ class DisciplineAttestation:
     # AND SQN(20) < -1.9 (extreme low). SQN(20) < -1.9 inside SQN(100) Bull
     # is the OPPOSITE — buy-the-dip zone per orchestrator rule 12.
     # Hard block, no override.
-    index_swing_bear_volatile_block: bool = False
+    bear_volatile_block: bool = False  # rule 18: index-swing + lotto longs
     # Track A (19/39 weekly cross) per-asset gate for weekly-trend-trader.
     # Backtest 2026-05-09: QQQ/GLD/SPY/AMZN/NFLX/AMD/TSLA had net-negative
     # avg R on the 19/39 cross signal in recent data. These tickers should
@@ -169,6 +169,19 @@ class KillSheet:
     rejection_reason: str | None = None
     divergence_thesis: str | None = None
     counter_weekly_thesis: str | None = None  # auto-passes rule 11 when populated
+
+    # Account-rules outcome at generation. The dashboard is journal-first —
+    # opening a position is never blocked (2026-05-10 decision) — so a breach
+    # of the hard gates (premium-at-risk, max-open, cool-off, etc.) must be
+    # persisted ON the sheet to stay visible at scoring/review time, not just
+    # in the transient generation response. (2026-06.)
+    rules_blocked: bool = False
+    rule_violations: list = field(default_factory=list)
+
+    # Account's cut-rule % (e.g. lotto -0.50, main/weekly -0.60), stamped from
+    # config so the discipline scorer can apply the per-account cut threshold
+    # without re-reading config. None → scorer uses the 70% band outer bound.
+    cut_rule_pct: float | None = None
     discipline_attestation: DisciplineAttestation | None = None
 
     # Skill / tier tagging (Sprint A of orchestrator-change 2026-05-02).

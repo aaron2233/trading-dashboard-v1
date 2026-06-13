@@ -43,6 +43,18 @@ def _diag_has_token(diag: str | None, tokens: tuple[str, ...]) -> bool:
     return any(tok in d for tok in tokens)
 
 
+def _sqn100_opposes(sqn_100: str | None, direction: Direction) -> bool:
+    """SQN(100) primary regime actively fights the direction (orchestrator
+    rule 1 / "never fight the SQN regime"). Long opposed by Bear/Strong Bear;
+    short opposed by Bull/Strong Bull. Neutral opposes neither.
+    """
+    if direction == "long":
+        return sqn_100 in ("bear", "strong_bear")
+    if direction == "short":
+        return sqn_100 in ("bull", "strong_bull")
+    return False
+
+
 def _is_chase_signal(
     sqn20: str | None,
     stoch_zone: str | None,
@@ -186,6 +198,22 @@ def classify_lotto_action(
             headline=f"SKIP — daily stack opposes {direction}",
             blockers=[f"daily MA = {daily_stack}; conflicts with {direction}"],
             rule_citations=["~/CLAUDE.md:120-122 daily MA = direction filter"],
+        )
+
+    # ── SQN(100) regime gate (orchestrator rule 1; subsumes rule-18 long) ────
+    # The verdict must consult SQN(100), not just the MA stacks: a long in a
+    # Bear/Strong-Bear regime (or short in Bull) fights the regime and isn't
+    # actionable at scan time — the kill sheet is where a divergence thesis can
+    # override. This also covers rule 18's bullish Bear-Volatile hard skip.
+    if _sqn100_opposes(daily_sqn.get("regime"), direction):
+        return ActionVerdict(
+            state="disqualified", direction=direction, skill=skill,
+            headline=f"SKIP — SQN(100) {daily_sqn.get('regime')} opposes {direction}",
+            blockers=[
+                f"SQN(100) regime {daily_sqn.get('regime')} fights {direction} "
+                "(rule 1; counter-regime needs a kill-sheet divergence thesis)"
+            ],
+            rule_citations=["~/CLAUDE.md rule 1: always start with SQN(100) regime"],
         )
 
     # ── STALE ────────────────────────────────────────────────────────────────

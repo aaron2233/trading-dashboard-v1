@@ -135,6 +135,7 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
         # Pre-check: account rules
         rules_blocked = False
         violations: list[RuleViolationResponse] = []
+        violation_dicts: list = []  # plain dicts persisted onto the sheet
         store = store_factory()
         open_positions: list = []
         if not req.skip_rules:
@@ -144,6 +145,7 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
                 account=account,
                 account_key=req.account,
                 open_positions=open_positions,
+                pool_account_keys=config.pool_account_keys(req.account),
             )
             if req.focus:
                 closed_positions = [
@@ -188,7 +190,8 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
                     base_balance_usd=lotto_base,
                 )
 
-            violations = [RuleViolationResponse(**v.to_dict()) for v in raw]
+            violation_dicts = [v.to_dict() for v in raw]
+            violations = [RuleViolationResponse(**d) for d in violation_dicts]
             # Only severity="block" gates the trade. Warn-level violations
             # (e.g. lotto_size_lock) surface for the user but don't stop kill
             # sheet generation — they're advisory, not a hard gate.
@@ -207,6 +210,12 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
         # endpoint can validate kill_sheet_id against the canonical record.
         # Rejected kill sheets stay transient — they're diagnostic, not
         # load-bearing.
+        # Persist the rule-engine outcome on the sheet (journal-first: the trade
+        # isn't blocked, but the breach must be visible when the scorer loads
+        # this sheet at close). Set before save so it lands in the record.
+        sheet.rules_blocked = rules_blocked
+        sheet.rule_violations = violation_dicts
+
         kill_sheet_id: str | None = None
         if sheet.status == "AUTHORIZED":
             try:

@@ -16,9 +16,11 @@ VALID_INTENTS = {"SCALP", "SWING", "TREND CAPTURE", "POSITION"}
 VALID_TRIGGER_TFS = {"2H", "4H", "Daily", "Weekly"}
 
 # MA stack states that count as "Daily chop" for the auto-attestation flag.
-# `compression` and `chop_tangled` are produced by indicators.ma_ribbon when
-# the ribbon is tangled / no clear order.
-DAILY_CHOP_STATES = {"chop_tangled", "compression"}
+# indicators.ma_ribbon emits "chop" (tangled / no clear order) and
+# "compression" (tightening, pre-breakout). NOTE: the token is "chop", not
+# "chop_tangled" — the old value never matched the indicator, so this hard
+# block silently never fired on real chop. Fixed 2026-06.
+DAILY_CHOP_STATES = {"chop", "compression"}
 
 # SQN(100) regimes that authorize each direction.
 REGIME_AUTHORIZES_LONG = {"bull", "strong_bull"}
@@ -159,16 +161,18 @@ def _compute_entry_authorized(att: DisciplineAttestation) -> bool:
     """Final gate per DISCIPLINE-LAYER-ADDITION.md.
 
     Hard blocks (no user override): spreads_or_margin, daily_chop,
-    index_swing_universe_violation, index_swing_bear_volatile_block.
+    index_swing_universe_violation, bear_volatile_block (rule 18 — index-swing
+    and lotto longs).
 
     Conditional anti-patterns require their corresponding user attestation.
     """
     if att.spreads_or_margin or att.daily_chop:
         return False
-    # Index-swing hard blocks (no override path — strategy is universe-locked).
+    # Index-swing hard universe gate (no override path — universe-locked).
     if att.index_swing_universe_violation:
         return False
-    if att.index_swing_bear_volatile_block:
+    # Rule 18 structural Bear-Volatile hard skip (tight-stop bullish entries).
+    if att.bear_volatile_block:
         return False
     if att.iv_rank_over_70 and not att.explicit_post_earnings_crush_thesis:
         return False
@@ -240,6 +244,27 @@ def build_standard(
     confidence, reason = derive_confidence(scan_row)
 
     risk_pct = account.risk_pct(risk_conviction)
+    _regime_early = (scan_row.get("sqn") or {}).get("regime")
+    # Neutral SQN(100) is a no-bias zone, not a no-trade zone: every skill
+    # treats it as half-size tradeable. Halve the conviction-tier risk before
+    # sizing (the dollar cap, if any, still applies as a ceiling). Decision
+    # 2026-06: authorize neutral at half size rather than reject-unless-thesis.
+    if _regime_early == "neutral":
+        risk_pct = risk_pct * 0.5
+        reason = f"{reason} · Neutral SQN(100) → half size"
+    # Rule 17: a counter-regime index short (QQQ/IWM/SPY put) is authorized only
+    # via a divergence thesis, and then ONLY at speculative-tier size — shorts on
+    # these names are net-unprofitable outside Bear regimes. Clamp before sizing.
+    if (
+        direction == "short"
+        and (scan_row.get("ticker") or "").upper() in INDEX_SWING_ALLOWED_TICKERS
+        and not _regime_authorizes("short", _regime_early)
+        and divergence_thesis
+    ):
+        spec_pct = account.risk_pct("speculative")
+        if risk_pct > spec_pct:
+            risk_pct = spec_pct
+            reason = f"{reason} · Rule 17: counter-regime index short → speculative size"
     # When options are supplied, premium-per-contract = max loss per unit, so
     # we can compute the contract count.
     max_loss_per_unit: float | None = None
@@ -290,12 +315,42 @@ def build_standard(
     # thesis to override, which is recorded on the kill sheet for audit.
     status: str = "AUTHORIZED"
     rejection_reason: str | None = None
-    if not sqn_authorizes and not divergence_thesis:
+    # Neutral is authorized (at half size, applied above) — only a regime that
+    # actively OPPOSES the direction (long in bear, short in bull) is rejected
+    # without a divergence thesis. (Decision 2026-06.)
+    if not sqn_authorizes and regime != "neutral" and not divergence_thesis:
         status = "REJECTED"
         rejection_reason = (
-            f"SQN(100) regime '{regime}' does not authorize {direction.upper()} "
+            f"SQN(100) regime '{regime}' opposes {direction.upper()} "
             f"direction. Document a divergence thesis to override."
         )
+
+    # ── Counter-Weekly / 4H-opposing lotto gate ───────────────────────────
+    # SKILL.md instant disqualifier ("counter-Weekly lotto = bad R/R"; "4H
+    # opposes Daily") + orchestrator rule 2/6 (counter-weekly needs a documented
+    # divergence thesis). Uses the weekly/4H stacks already computed from
+    # multi_tf above — no extra fetches. Lotto only (the weekly-trend skill IS
+    # weekly-anchored, so "counter-weekly" doesn't apply there). A
+    # counter_weekly_thesis or divergence_thesis is the documented override.
+    # (Decision 2026-06: enforce at the kill-sheet layer, not the broad scanner.)
+    if (
+        account_key == "lotto"
+        and status != "REJECTED"
+        and not (counter_weekly_thesis or divergence_thesis)
+    ):
+        tf_4h_align = weekly_alignment(tf_4h_stack, direction) if tf_4h_stack else None
+        if weekly_align == "Counter-trend":
+            status = "REJECTED"
+            rejection_reason = (
+                f"Weekly stack ({weekly_stack}) opposes {direction.upper()} lotto "
+                "— counter-Weekly = bad R/R. Document a counter-weekly thesis to override."
+            )
+        elif tf_4h_align == "Counter-trend":
+            status = "REJECTED"
+            rejection_reason = (
+                f"4H stack ({tf_4h_stack}) opposes {direction.upper()} lotto "
+                "— 4H fights Daily. Document a divergence thesis to override."
+            )
 
     # ── Auto-attestation (6 anti-pattern flags from data) ──────────────────
     iv_rank = options.iv_rank if options is not None else None
@@ -373,16 +428,21 @@ def build_standard(
         sqn_20_value = float(sqn_20_value_raw) if sqn_20_value_raw is not None else None
     except (TypeError, ValueError):
         sqn_20_value = None
-    index_swing_bear_volatile_block = bool(
-        is_index_swing
-        and (
-            sqn_100_regime_value == "strong_bear"
-            or (
-                sqn_100_regime_value == "bear"
-                and sqn_20_value is not None
-                and sqn_20_value < -1.9
-            )
+    bear_volatile_regime = (
+        sqn_100_regime_value == "strong_bear"
+        or (
+            sqn_100_regime_value == "bear"
+            and sqn_20_value is not None
+            and sqn_20_value < -1.9
         )
+    )
+    # Rule 18: structural Bear-Volatile is a hard skip for tight-stop BULLISH
+    # entries — index-swing (always long) AND lotto longs. Non-overridable.
+    # (Generalized from index-swing-only 2026-06.)
+    bear_volatile_block = bool(
+        bear_volatile_regime
+        and (is_index_swing or account_key == "lotto")
+        and direction == "long"
     )
 
     user_inputs = attestation_user_inputs or {}
@@ -390,14 +450,14 @@ def build_standard(
         iv_rank_over_70=(iv_rank is not None and iv_rank > 70),
         dte_under_7=(dte is not None and dte < 7),
         daily_chop=(ma_stack_state in DAILY_CHOP_STATES),
-        fighting_sqn_regime=(not sqn_authorizes),
+        fighting_sqn_regime=(not sqn_authorizes and regime != "neutral"),
         averaging_down=averaging_down,
         lotto_chase_warning=lotto_chase_warning,
         weekly_trend_asset_blocked=weekly_trend_asset_blocked,
         weekly_trend_asset_marginal=weekly_trend_asset_marginal,
         weekly_trend_track_a_asset_blocked=weekly_trend_track_a_asset_blocked,
         index_swing_universe_violation=index_swing_universe_violation,
-        index_swing_bear_volatile_block=index_swing_bear_volatile_block,
+        bear_volatile_block=bear_volatile_block,
         spreads_or_margin=user_inputs.get("spreads_or_margin", False),
         explicit_post_earnings_crush_thesis=user_inputs.get(
             "explicit_post_earnings_crush_thesis", False
@@ -447,6 +507,7 @@ def build_standard(
         account_key=account_key,
         account_name=account.name,
         account_balance_usd=account.balance_usd,
+        cut_rule_pct=account.raw.get("cut_rule_pct"),
         risk_conviction=risk_conviction,
         risk_pct=risk_pct,
         max_risk_usd=sizing.max_risk_usd,

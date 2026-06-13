@@ -334,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
             account=account,
             account_key=args.account,
             open_positions=open_positions,
+            pool_account_keys=config.pool_account_keys(args.account),
         )
         if args.focus:
             all_positions = store.list_all()

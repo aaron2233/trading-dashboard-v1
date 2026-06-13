@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { TradingViewChart } from "../components/TradingViewChart";
 import { TradeCard, type TradeCardBadge } from "../components/TradeCard";
 import { VerdictBadge } from "../components/Verdict";
-import { fromWeeklyConfluence } from "../lib/verdict";
+import { fromWeeklySetup } from "../lib/verdict";
 import type {
   WeeklyScanResponse,
   WeeklyScanUniverseName,
@@ -35,6 +35,7 @@ function killSheetLink(s: WeeklySetup): string {
     intent: "TREND CAPTURE",
     trigger_tf: "Weekly",
     conviction: "high",
+    skill: "weekly-trend-trader",
     contract_type: s.direction === "long" ? "call" : "put",
   });
   if (s.target_price != null) params.set("target", String(s.target_price));
@@ -99,7 +100,9 @@ function ThinSetupRow({ setup, onSelect }: {
   setup: WeeklySetup;
   onSelect?: (ticker: string) => void;
 }) {
-  const verdict = fromWeeklyConfluence(setup.confluence, setup.direction);
+  const verdict = fromWeeklySetup(
+    setup.verdict, setup.confluence, setup.direction, setup.verdict_reason,
+  );
   return (
     <tr className="border-b border-bg-border/40">
       <td className="px-3 py-2">

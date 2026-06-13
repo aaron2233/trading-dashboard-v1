@@ -65,7 +65,13 @@ def compute_weekly_review(
     store = store or DisciplineStore()
     sunday, saturday = week_bounds(week_of)
 
-    all_scores = list(store.iter_scores())
+    # Portfolio sleeve runs a MONTHLY scorecard cadence, not the weekly
+    # options-book cadence (~/CLAUDE.md), and is excluded from the weekly
+    # unreviewed-nag (dashboard.find_unreviewed_weeks) — exclude it here too so
+    # the weekly review the nag links to doesn't fold portfolio closures into
+    # the options-book stats. (Legacy scores predating the account_key field
+    # carry '' and are unaffected.)
+    all_scores = [s for s in store.iter_scores() if s.account_key != "portfolio"]
     week_scores = _scores_in_window(all_scores, sunday, saturday)
 
     # Drift trend: compare against prior 4-week moving avg

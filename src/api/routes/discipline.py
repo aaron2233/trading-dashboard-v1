@@ -15,6 +15,7 @@ from discipline import (
     compute_discipline_stats,
     get_or_compute_weekly,
     is_legacy_position,
+    load_kill_sheet_for,
     score_trade,
 )
 from discipline.model import RuleResult
@@ -56,7 +57,7 @@ def make_discipline_router(store_factory) -> APIRouter:
                 ),
             )
 
-        score = score_trade(position)
+        score = score_trade(position, kill_sheet=load_kill_sheet_for(position))
         dstore.save_score(score)
         return _to_discipline_response(score)
 
@@ -78,7 +79,7 @@ def make_discipline_router(store_factory) -> APIRouter:
                 raise HTTPException(status_code=409, detail="position not closed")
             if is_legacy_position(position.closed_date) and not req.score_legacy:
                 raise HTTPException(status_code=409, detail="legacy position; pass score_legacy=true")
-            score = score_trade(position)
+            score = score_trade(position, kill_sheet=load_kill_sheet_for(position))
         else:
             score = dstore.load_score(position_id)
 

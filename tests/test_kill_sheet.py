@@ -207,6 +207,112 @@ def test_lotto_long_below_chase_threshold_not_flagged():
     assert sheet.discipline_attestation.entry_authorized is True
 
 
+def test_chop_daily_stack_blocks_entry():
+    # Regression (fixed 2026-06): the daily-chop hard block compared against
+    # "chop_tangled" — a token ma_ribbon never emits — so the "no trend = no
+    # trade" anti-pattern silently never fired. A real "chop" stack must set
+    # daily_chop and de-authorize entry.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        scan_row=_row("chop", "neutral", "bull"),
+        direction="long",
+        account=cfg.account("main"),
+    )
+    assert sheet.discipline_attestation.daily_chop is True
+    assert sheet.discipline_attestation.entry_authorized is False
+
+
+def test_neutral_regime_authorized_at_half_size():
+    # Decision 2026-06: Neutral SQN(100) is a no-bias zone — authorize the entry
+    # at HALF the conviction-tier size (not reject-unless-thesis), matching the
+    # weekly-trend + trading-edge skills' "Neutral = half size".
+    cfg = load_config(Path("/nonexistent.yaml"))
+    bull = build_standard(_row("full_bull", "bull_cross_oversold", "bull"),
+                          direction="long", account=cfg.account("main"))
+    neutral = build_standard(_row("bull_developing", "bull_cross_oversold", "neutral"),
+                             direction="long", account=cfg.account("main"))
+    assert neutral.status == "AUTHORIZED"
+    assert neutral.discipline_attestation.fighting_sqn_regime is False
+    assert neutral.risk_pct == pytest.approx(bull.risk_pct / 2)
+
+
+def test_opposing_regime_still_rejected_without_thesis():
+    # Guard: half-size only applies to NEUTRAL — a regime that actively opposes
+    # the direction (long into bear) is still REJECTED without a divergence thesis.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_row("full_bear", "bear_cross_overbought", "bear"),
+                           direction="long", account=cfg.account("main"))
+    assert sheet.status == "REJECTED"
+
+
+def test_kill_sheet_persists_rules_blocked_and_violations():
+    # Decision 2026-06 (journal-first): the rule-engine outcome is persisted on
+    # the sheet so a breach stays visible when the scorer loads it at close.
+    from kill_sheet.store import _kill_sheet_from_dict
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_row("full_bull", "bull_cross_oversold", "bull"),
+                           direction="long", account=cfg.account("main"))
+    sheet.rules_blocked = True
+    sheet.rule_violations = [{"rule": "max_premium_at_risk_pct", "severity": "block"}]
+    restored = _kill_sheet_from_dict(sheet.to_dict())
+    assert restored.rules_blocked is True
+    assert restored.rule_violations == [{"rule": "max_premium_at_risk_pct", "severity": "block"}]
+
+
+def test_rule18_lotto_long_blocked_in_bear_volatile_regime():
+    # Rule 18 generalized to lotto (2026-06): a long lotto entry in Strong Bear
+    # is a hard skip (tight-stop bullish entry), not authorized.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        _row("full_bull", "bull_cross_oversold", "strong_bear"),
+        direction="long", account=cfg.account("lotto"), account_key="lotto",
+    )
+    assert sheet.discipline_attestation.bear_volatile_block is True
+    assert sheet.discipline_attestation.entry_authorized is False
+
+
+def test_rule18_bear_volatile_block_not_overridable_by_thesis():
+    # The bear-volatile block is a hard skip — a divergence thesis cannot clear it.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(
+        _row("full_bull", "bull_cross_oversold", "strong_bear"),
+        direction="long", account=cfg.account("lotto"), account_key="lotto",
+        divergence_thesis="I think it bounces",
+    )
+    assert sheet.discipline_attestation.bear_volatile_block is True
+    assert sheet.discipline_attestation.entry_authorized is False
+
+
+def test_rule17_counter_regime_index_short_clamped_to_speculative():
+    # Rule 17 (2026-06): a counter-regime index short (SPY put into a bull
+    # regime, authorized via divergence) is clamped to speculative-tier size.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    acct = cfg.account("main")
+    row = _row("full_bull", "bull_cross_oversold", "bull")
+    row["ticker"] = "SPY"
+    sheet = build_standard(
+        row, direction="short", account=acct, account_key="main",
+        risk_conviction="high", divergence_thesis="mean-reversion short",
+    )
+    assert sheet.status == "AUTHORIZED"  # divergence thesis cleared the regime gate
+    assert sheet.risk_pct == pytest.approx(acct.risk_pct("speculative"))
+    assert sheet.risk_pct < acct.risk_pct("high")
+
+
+def test_rule17_does_not_clamp_non_index_short():
+    # Rule 17 is index-only (QQQ/IWM/SPY) — a non-index counter-regime short
+    # keeps its chosen conviction tier.
+    cfg = load_config(Path("/nonexistent.yaml"))
+    acct = cfg.account("main")
+    row = _row("full_bull", "bull_cross_oversold", "bull")
+    row["ticker"] = "FAKE"
+    sheet = build_standard(
+        row, direction="short", account=acct, account_key="main",
+        risk_conviction="high", divergence_thesis="some thesis",
+    )
+    assert sheet.risk_pct == pytest.approx(acct.risk_pct("high"))
+
+
 def test_lotto_short_with_sqn20_high_not_chase_warning():
     """Chase warning is long-only — bullish chase, not bearish."""
     cfg = load_config(Path("/nonexistent.yaml"))

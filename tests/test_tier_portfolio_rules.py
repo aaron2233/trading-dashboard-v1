@@ -129,6 +129,29 @@ def test_blocks_qqq_short_when_gld_short_open():
     assert "tier_portfolio_no_same_direction_pair" in rules
 
 
+def test_pair_rule_compares_thesis_not_contract_direction_for_puts():
+    # Regression (fixed 2026-06): rule 11.2 must compare THESIS, not contract
+    # direction. A long PUT is bearish even though its contract direction is
+    # "long". An existing GLD long put (bearish) + a proposed bearish QQQ
+    # ("short") is the correlated same-thesis pair the rule forbids; the old
+    # contract-direction compare missed it (false negative) and instead blocked
+    # the opposite-thesis hedge (false positive).
+    gld_put = _open_position(ticker="GLD", direction="long", instrument="put")
+    assert gld_put.thesis_direction == "bearish"
+    # Proposed bearish QQQ → same thesis → BLOCK
+    blocked = check_tier_portfolio_trade(
+        ticker="QQQ", direction="short",
+        open_positions=[gld_put], closed_positions=[],
+    )
+    assert "tier_portfolio_no_same_direction_pair" in {v.rule for v in blocked}
+    # Proposed bullish QQQ → opposite thesis (a hedge) → allowed
+    allowed = check_tier_portfolio_trade(
+        ticker="QQQ", direction="long",
+        open_positions=[gld_put], closed_positions=[],
+    )
+    assert "tier_portfolio_no_same_direction_pair" not in {v.rule for v in allowed}
+
+
 # ── 3-day cool-off (rule 11.3) ──────────────────────────────────────────────
 
 
@@ -181,6 +204,38 @@ def test_passes_after_cooloff_elapsed():
     )
     rules = {v.rule for v in violations}
     assert "tier_portfolio_cooloff" not in rules
+
+
+def test_weekdays_elapsed_excludes_in_progress_day():
+    # Decision 2026-06 "after N full trading days": today (now's own date) does
+    # NOT count, so a Monday stop clears on Friday, not Thursday.
+    from positions.tier_portfolio_rules import _weekdays_elapsed
+    mon = datetime(2026, 5, 4, 12, 0)  # Monday
+    assert _weekdays_elapsed(mon, datetime(2026, 5, 7, 12, 0)) == 2  # Tue,Wed (Thu in-progress)
+    assert _weekdays_elapsed(mon, datetime(2026, 5, 8, 12, 0)) == 3  # Tue,Wed,Thu complete
+
+
+def test_cooloff_requires_full_trading_days_after_stop():
+    closed = datetime(2026, 5, 4, 16, 0, tzinfo=timezone.utc)  # Monday, 12:00 ET
+    p = Position(
+        id="stop", ticker="QQQ", direction="long", instrument="call",
+        account_key="main", entry_date=(closed - timedelta(days=5)).isoformat(),
+        contracts=1, strike=400, expiry="2026-06-01",
+        premium_paid_per_contract=5.0, total_cost_usd=500, max_loss_usd=500,
+        status="closed", closed_date=closed.isoformat(), pnl_usd=-300,
+    )
+    # Thursday: only Tue + Wed are full elapsed sessions (2 < 3) → still blocked.
+    thu = check_tier_portfolio_trade(
+        "QQQ", "long", [], [p],
+        now=datetime(2026, 5, 7, 16, 0, tzinfo=timezone.utc),
+    )
+    assert "tier_portfolio_cooloff" in {v.rule for v in thu}
+    # Friday: Tue + Wed + Thu = 3 full sessions → clear.
+    fri = check_tier_portfolio_trade(
+        "QQQ", "long", [], [p],
+        now=datetime(2026, 5, 8, 16, 0, tzinfo=timezone.utc),
+    )
+    assert "tier_portfolio_cooloff" not in {v.rule for v in fri}
 
 
 def test_winner_does_not_trigger_cooloff():
