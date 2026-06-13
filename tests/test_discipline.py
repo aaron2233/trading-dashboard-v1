@@ -163,6 +163,14 @@ def test_score_includes_all_rules():
     assert {r.rule_id for r in score.rules} == set(RULE_IDS)
 
 
+def test_rule_15_trend_pyramid_stays_retired():
+    # Rule 15 (trend-pyramid double-up) was retired with the trend-pyramid skill
+    # (2026-05-07). Lock the engine at 14 rules and ensure no pyramid/double-up
+    # rule creeps back in — the doc/skill side is kept in sync manually.
+    assert len(RULE_IDS) == 14
+    assert all("pyramid" not in r and "double" not in r for r in RULE_IDS)
+
+
 def test_kill_sheet_complete_y_when_authorized():
     p = _make_position()
     ks = _make_kill_sheet()

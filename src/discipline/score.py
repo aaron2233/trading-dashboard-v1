@@ -1,7 +1,7 @@
 """Auto-scoring engine for the 14-rule discipline checklist.
 
-(Template/orchestrator say 15; rule 15 = trend-pyramid double-up, retired with
-that skill on 2026-05-07. Aligned dashboard-side to 14 on 2026-06.)
+(The former rule 15 = trend-pyramid double-up, retired with that skill on
+2026-05-07. Template, skill, and engine are all on 14 as of 2026-06.)
 
 Per DISCIPLINE-LAYER-ADDITION.md: 12 of 14 rules are auto-evaluable from
 KillSheet + Position data already captured. The two manual ones
