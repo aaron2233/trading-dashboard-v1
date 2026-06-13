@@ -161,16 +161,18 @@ def _compute_entry_authorized(att: DisciplineAttestation) -> bool:
     """Final gate per DISCIPLINE-LAYER-ADDITION.md.
 
     Hard blocks (no user override): spreads_or_margin, daily_chop,
-    index_swing_universe_violation, index_swing_bear_volatile_block.
+    index_swing_universe_violation, bear_volatile_block (rule 18 — index-swing
+    and lotto longs).
 
     Conditional anti-patterns require their corresponding user attestation.
     """
     if att.spreads_or_margin or att.daily_chop:
         return False
-    # Index-swing hard blocks (no override path — strategy is universe-locked).
+    # Index-swing hard universe gate (no override path — universe-locked).
     if att.index_swing_universe_violation:
         return False
-    if att.index_swing_bear_volatile_block:
+    # Rule 18 structural Bear-Volatile hard skip (tight-stop bullish entries).
+    if att.bear_volatile_block:
         return False
     if att.iv_rank_over_70 and not att.explicit_post_earnings_crush_thesis:
         return False
@@ -242,14 +244,27 @@ def build_standard(
     confidence, reason = derive_confidence(scan_row)
 
     risk_pct = account.risk_pct(risk_conviction)
+    _regime_early = (scan_row.get("sqn") or {}).get("regime")
     # Neutral SQN(100) is a no-bias zone, not a no-trade zone: every skill
     # treats it as half-size tradeable. Halve the conviction-tier risk before
     # sizing (the dollar cap, if any, still applies as a ceiling). Decision
     # 2026-06: authorize neutral at half size rather than reject-unless-thesis.
-    neutral_half_size = ((scan_row.get("sqn") or {}).get("regime")) == "neutral"
-    if neutral_half_size:
+    if _regime_early == "neutral":
         risk_pct = risk_pct * 0.5
         reason = f"{reason} · Neutral SQN(100) → half size"
+    # Rule 17: a counter-regime index short (QQQ/IWM/SPY put) is authorized only
+    # via a divergence thesis, and then ONLY at speculative-tier size — shorts on
+    # these names are net-unprofitable outside Bear regimes. Clamp before sizing.
+    if (
+        direction == "short"
+        and (scan_row.get("ticker") or "").upper() in INDEX_SWING_ALLOWED_TICKERS
+        and not _regime_authorizes("short", _regime_early)
+        and divergence_thesis
+    ):
+        spec_pct = account.risk_pct("speculative")
+        if risk_pct > spec_pct:
+            risk_pct = spec_pct
+            reason = f"{reason} · Rule 17: counter-regime index short → speculative size"
     # When options are supplied, premium-per-contract = max loss per unit, so
     # we can compute the contract count.
     max_loss_per_unit: float | None = None
@@ -386,16 +401,21 @@ def build_standard(
         sqn_20_value = float(sqn_20_value_raw) if sqn_20_value_raw is not None else None
     except (TypeError, ValueError):
         sqn_20_value = None
-    index_swing_bear_volatile_block = bool(
-        is_index_swing
-        and (
-            sqn_100_regime_value == "strong_bear"
-            or (
-                sqn_100_regime_value == "bear"
-                and sqn_20_value is not None
-                and sqn_20_value < -1.9
-            )
+    bear_volatile_regime = (
+        sqn_100_regime_value == "strong_bear"
+        or (
+            sqn_100_regime_value == "bear"
+            and sqn_20_value is not None
+            and sqn_20_value < -1.9
         )
+    )
+    # Rule 18: structural Bear-Volatile is a hard skip for tight-stop BULLISH
+    # entries — index-swing (always long) AND lotto longs. Non-overridable.
+    # (Generalized from index-swing-only 2026-06.)
+    bear_volatile_block = bool(
+        bear_volatile_regime
+        and (is_index_swing or account_key == "lotto")
+        and direction == "long"
     )
 
     user_inputs = attestation_user_inputs or {}
@@ -410,7 +430,7 @@ def build_standard(
         weekly_trend_asset_marginal=weekly_trend_asset_marginal,
         weekly_trend_track_a_asset_blocked=weekly_trend_track_a_asset_blocked,
         index_swing_universe_violation=index_swing_universe_violation,
-        index_swing_bear_volatile_block=index_swing_bear_volatile_block,
+        bear_volatile_block=bear_volatile_block,
         spreads_or_margin=user_inputs.get("spreads_or_margin", False),
         explicit_post_earnings_crush_thesis=user_inputs.get(
             "explicit_post_earnings_crush_thesis", False

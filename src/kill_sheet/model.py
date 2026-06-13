@@ -60,7 +60,7 @@ class DisciplineAttestation:
     # AND SQN(20) < -1.9 (extreme low). SQN(20) < -1.9 inside SQN(100) Bull
     # is the OPPOSITE — buy-the-dip zone per orchestrator rule 12.
     # Hard block, no override.
-    index_swing_bear_volatile_block: bool = False
+    bear_volatile_block: bool = False  # rule 18: index-swing + lotto longs
     # Track A (19/39 weekly cross) per-asset gate for weekly-trend-trader.
     # Backtest 2026-05-09: QQQ/GLD/SPY/AMZN/NFLX/AMD/TSLA had net-negative
     # avg R on the 19/39 cross signal in recent data. These tickers should
