@@ -368,7 +368,7 @@ def test_no_spreads_margin_y_for_call():
 
 def test_daily_not_chop_n_when_chop():
     p = _make_position()
-    scan_row = _make_scan_row(ma_stack="chop_tangled")
+    scan_row = _make_scan_row(ma_stack="chop")  # real ma_ribbon token (was "chop_tangled", which never matched)
     cfg = load_config()
     account = cfg.account("main")
     ks = build_standard(scan_row, direction="long", account=account)
@@ -382,6 +382,55 @@ def test_cut_at_60_70_y_at_target():
     score = score_trade(p, kill_sheet=_make_kill_sheet())
     rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
     assert rule.score == "Y"
+
+
+def test_cut_rule_uses_total_cost_when_max_loss_zeroed_by_partial_close():
+    # Regression (fixed 2026-06): partial_close zeroes max_loss_usd on the final
+    # leg, which previously made _r_cut_at_60_70 auto-pass ("max-loss missing")
+    # and blinded the -60/-70% cut check (this is exactly how a live -76% breach
+    # scored as compliant). For options it must use total_cost_usd (1000 in the
+    # helper) — so a -$760 loss = -76% > 70% cut threshold → N.
+    p = _make_position(instrument="call", pnl_usd=-760.0, max_loss_usd=0.0)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "N"
+
+
+def test_cut_rule_passes_at_40pct_loss_with_zeroed_max_loss():
+    # Positive control: a -40% loss (within the cut) still passes when
+    # max_loss_usd is zeroed, using total_cost_usd as the denominator.
+    p = _make_position(instrument="call", pnl_usd=-400.0, max_loss_usd=0.0)
+    score = score_trade(p, kill_sheet=_make_kill_sheet())
+    rule = next(r for r in score.rules if r.rule_id == "cut_at_60_70")
+    assert rule.score == "Y"
+
+
+def test_sqn100_neutral_regime_passes_not_violation():
+    # Neutral SQN(100) is a no-bias zone (half-size tradeable per every skill),
+    # not "fighting the regime" — it must pass, not score as a violation.
+    # (Default chosen 2026-06; see _r_sqn100_authorized.)
+    p = _make_position(direction="long", instrument="call")
+    ks = _make_kill_sheet(regime="neutral")
+    score = score_trade(p, kill_sheet=ks)
+    rule = next(r for r in score.rules if r.rule_id == "sqn100_authorized")
+    assert rule.score == "Y"
+
+
+def test_score_trade_stamps_kill_sheet_id_from_sheet():
+    # Regression (fixed 2026-06): the score must record the kill_sheet_id it was
+    # scored against (was hardcoded None with a stale "no ID yet" TODO).
+    p = _make_position()
+    ks = _make_kill_sheet()
+    score = score_trade(p, kill_sheet=ks)
+    assert score.kill_sheet_id == ks.id
+
+
+def test_load_kill_sheet_for_returns_none_without_id():
+    # No kill_sheet_id on the position → resolver returns None (no disk hit).
+    from discipline import load_kill_sheet_for
+    p = _make_position()
+    assert getattr(p, "kill_sheet_id", None) is None
+    assert load_kill_sheet_for(p) is None
 
 
 def test_cut_at_60_70_y_within_band():

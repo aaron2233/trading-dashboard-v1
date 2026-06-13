@@ -120,9 +120,16 @@ def check_tier_portfolio_trade(
             limit=1.0,
         ))
 
-    # ─ Rule 11.2: No same-direction QQQ+GLD pair simultaneously ─
+    # ─ Rule 11.2: No same-THESIS QQQ+GLD pair simultaneously ─
+    # Compare thesis direction, not contract direction: in this cash account
+    # every option is direction="long" (a bearish trade is a long PUT), so a
+    # raw p.direction compare both missed real correlated pairs (two bearish
+    # legs both read "long") and blocked legitimate hedges. The proposed
+    # `direction` is the kill-sheet thesis ("long"=bullish, "short"=bearish);
+    # existing positions expose thesis via Position.thesis_direction. (Fixed 2026-06.)
+    proposed_thesis = "bullish" if direction_l == "long" else "bearish"
     other_asset = [p for p in open_in_scope if p.ticker.upper() != ticker_u]
-    same_dir_other = [p for p in other_asset if p.direction.lower() == direction_l]
+    same_dir_other = [p for p in other_asset if p.thesis_direction == proposed_thesis]
     if same_dir_other:
         existing = same_dir_other[0]
         violations.append(RuleViolation(
@@ -130,8 +137,8 @@ def check_tier_portfolio_trade(
             severity="block",
             message=(
                 f"Tier 1+2 portfolio rule (orchestrator rule 11): "
-                f"{existing.ticker} is already {existing.direction}. Never long "
-                "QQQ + long GLD same direction simultaneously — pick the "
+                f"{existing.ticker} is already {existing.thesis_direction}. Never "
+                "hold QQQ + GLD same thesis simultaneously — pick the "
                 "stronger setup. Correlation in this regime is 1.0, not "
                 "diversification."
             ),

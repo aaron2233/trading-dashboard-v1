@@ -10,7 +10,12 @@ from api.models import (
     PositionResponse,
 )
 from api.routes._helpers import position_to_response
-from discipline import DisciplineStore, is_legacy_position, score_trade
+from discipline import (
+    DisciplineStore,
+    is_legacy_position,
+    load_kill_sheet_for,
+    score_trade,
+)
 from positions import evaluate_all_open
 from positions.model import Position
 
@@ -195,7 +200,7 @@ def make_positions_router(store_factory) -> APIRouter:
         # non-fatal — the close itself succeeded.
         if position.status == "closed" and not is_legacy_position(position.closed_date):
             try:
-                score = score_trade(position)
+                score = score_trade(position, kill_sheet=load_kill_sheet_for(position))
                 DisciplineStore().save_score(score)
             except Exception:
                 # Don't let scoring failure block the close response. Log and

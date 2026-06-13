@@ -105,6 +105,7 @@ def _cmd_close(args, store: PositionStore) -> int:
         from discipline import (
             DisciplineStore as _DS,
             is_legacy_position as _is_legacy,
+            load_kill_sheet_for as _load_ks,
             score_trade as _score_trade,
         )
     except ImportError:
@@ -115,7 +116,7 @@ def _cmd_close(args, store: PositionStore) -> int:
         return 0
 
     try:
-        score = _score_trade(position)
+        score = _score_trade(position, kill_sheet=_load_ks(position))
         _DS().save_score(score)
         viol = "⚠ profitable-violation" if score.profitable_violation else (
             "100% adherence" if score.full_adherence else f"{score.score_numerator}/{score.score_denominator}"

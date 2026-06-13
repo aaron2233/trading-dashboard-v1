@@ -16,9 +16,11 @@ VALID_INTENTS = {"SCALP", "SWING", "TREND CAPTURE", "POSITION"}
 VALID_TRIGGER_TFS = {"2H", "4H", "Daily", "Weekly"}
 
 # MA stack states that count as "Daily chop" for the auto-attestation flag.
-# `compression` and `chop_tangled` are produced by indicators.ma_ribbon when
-# the ribbon is tangled / no clear order.
-DAILY_CHOP_STATES = {"chop_tangled", "compression"}
+# indicators.ma_ribbon emits "chop" (tangled / no clear order) and
+# "compression" (tightening, pre-breakout). NOTE: the token is "chop", not
+# "chop_tangled" — the old value never matched the indicator, so this hard
+# block silently never fired on real chop. Fixed 2026-06.
+DAILY_CHOP_STATES = {"chop", "compression"}
 
 # SQN(100) regimes that authorize each direction.
 REGIME_AUTHORIZES_LONG = {"bull", "strong_bull"}

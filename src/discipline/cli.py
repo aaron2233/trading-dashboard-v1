@@ -18,7 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from discipline.model import RULE_IDS, RULE_TEXT, DisciplineScore, RuleResult
-from discipline.score import score_trade
+from discipline.score import load_kill_sheet_for, score_trade
 from discipline.stage import current_stage, stage_reminder
 from discipline.stats import compute_discipline_stats
 from discipline.store import DisciplineStore, is_legacy_position
@@ -27,16 +27,6 @@ from positions import PositionStore
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-def _try_load_kill_sheet_from_disk(position_id: str) -> dict | None:
-    """Best-effort lookup of a saved kill sheet matching position_id.
-
-    Kill sheets are saved at `~/.trading-dashboard/kill_sheets/<ts>-<ticker>-<dir>.json`
-    and don't carry the position_id (yet). Without an index we can't match
-    reliably, so this returns None. The caller falls back to manual entry.
-    """
-    return None
 
 
 def _format_score(score: DisciplineScore) -> str:
@@ -97,7 +87,7 @@ def cmd_score(args: argparse.Namespace) -> int:
 
     score = score_trade(
         position,
-        kill_sheet=None,  # TODO: lookup from disk via index when available
+        kill_sheet=load_kill_sheet_for(position),
         notes=args.notes or "",
     )
 

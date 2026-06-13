@@ -129,6 +129,29 @@ def test_blocks_qqq_short_when_gld_short_open():
     assert "tier_portfolio_no_same_direction_pair" in rules
 
 
+def test_pair_rule_compares_thesis_not_contract_direction_for_puts():
+    # Regression (fixed 2026-06): rule 11.2 must compare THESIS, not contract
+    # direction. A long PUT is bearish even though its contract direction is
+    # "long". An existing GLD long put (bearish) + a proposed bearish QQQ
+    # ("short") is the correlated same-thesis pair the rule forbids; the old
+    # contract-direction compare missed it (false negative) and instead blocked
+    # the opposite-thesis hedge (false positive).
+    gld_put = _open_position(ticker="GLD", direction="long", instrument="put")
+    assert gld_put.thesis_direction == "bearish"
+    # Proposed bearish QQQ → same thesis → BLOCK
+    blocked = check_tier_portfolio_trade(
+        ticker="QQQ", direction="short",
+        open_positions=[gld_put], closed_positions=[],
+    )
+    assert "tier_portfolio_no_same_direction_pair" in {v.rule for v in blocked}
+    # Proposed bullish QQQ → opposite thesis (a hedge) → allowed
+    allowed = check_tier_portfolio_trade(
+        ticker="QQQ", direction="long",
+        open_positions=[gld_put], closed_positions=[],
+    )
+    assert "tier_portfolio_no_same_direction_pair" not in {v.rule for v in allowed}
+
+
 # ── 3-day cool-off (rule 11.3) ──────────────────────────────────────────────
 
 
