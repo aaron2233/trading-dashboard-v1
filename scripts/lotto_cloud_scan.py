@@ -82,13 +82,14 @@ UNIVERSE_LABEL = "NASDAQ top 50"
 
 # ─── Fresh-bar / trading-session guard ──────────────────────────────────────
 def latest_2h_bar_time() -> datetime | None:
-    """Latest 2H bar timestamp (tz-aware, exchange tz) for the guard ticker,
-    or None if bars can't be fetched."""
-    try:
-        from scan import load_bars
-        bars = load_bars(GUARD_TICKER, interval="2h")
-    except Exception:
-        return None
+    """Latest 2H bar timestamp (tz-aware, exchange tz) for the guard ticker.
+
+    Propagates fetch errors so the caller can tell a data blackout (egress
+    block / rate-limit → load_bars raises) apart from a genuinely closed or
+    stale session (fetch succeeds, bar simply isn't current). Returns None
+    only when the fetch succeeds but yields no usable bar."""
+    from scan import load_bars
+    bars = load_bars(GUARD_TICKER, interval="2h")
     if bars.empty:
         return None
     ts = bars.index[-1]
@@ -183,7 +184,15 @@ def run_scan() -> dict:
     }
 
     # 1. Fresh-bar / trading-session guard (cheap single-ticker fetch first).
-    bar_time = latest_2h_bar_time()
+    #    A raised fetch error here (egress block / rate-limit) must surface as
+    #    a loud data_failed, never a silent "skipped" — see latest_2h_bar_time.
+    try:
+        bar_time = latest_2h_bar_time()
+    except Exception as e:
+        return {"status": "data_failed", **base, "trades": [],
+                "message": f"DATA FETCH FAILED (guard-ticker {GUARD_TICKER} fetch "
+                           f"errored: {type(e).__name__}: {e}) — likely egress "
+                           f"block or datacenter rate-limit; no scan produced."}
     if not is_fresh_session(bar_time, now_et):
         bar_str = (bar_time.astimezone(PT).strftime("%Y-%m-%d %H:%M %Z")
                    if bar_time else "no bar")
