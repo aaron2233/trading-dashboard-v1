@@ -1,0 +1,81 @@
+name: stage-market-data
+
+# Cloud-routine egress workaround. The scheduled claude.ai routines can't reach
+# Yahoo (sandbox egress allowlist; the Capabilities setting doesn't propagate to
+# cloud containers). yfinance DOES work from GitHub Actions, so this job fetches
+# the bars both routines need and force-pushes them to the `cloud-data` branch.
+# The routines clone that branch (GitHub is on the allowlist) and read the CSVs
+# via STAGED_DATA_DIR. See src/data/staged_loader.py.
+
+on:
+  workflow_dispatch:
+
+  # Test trigger off the feature branch (schedule only fires from the default
+  # branch). Lets us exercise staging before merging to main.
+  push:
+    branches: [lotto-cloud-scan-routine]
+    paths:
+      - scripts/stage_market_data.py
+      - .github/workflows/stage-market-data.yml
+
+  # INERT until this file is on the default branch (main) — GitHub only fires
+  # `schedule` from main. Cron is UTC with NO DST awareness (manual swap twice
+  # a year). Each run stages ~20 min before a routine window.
+  schedule:
+    # -- PDT (UTC-7), in effect 2026-03-08 -> 2026-11-01 -- ACTIVE NOW --
+    - cron: "40 12 * * 1-5"   # ~20m before beat-market (13:00 UTC / 06:00 PT)
+    - cron: "15 15 * * 1-5"   # ~20m before lotto window 1 (15:35 UTC / 08:35 PT)
+    - cron: "15 17 * * 1-5"   # ~20m before lotto window 2 (17:35 UTC / 10:35 PT)
+    - cron: "15 19 * * 1-5"   # ~20m before lotto window 3 (19:35 UTC / 12:35 PT)
+    # -- PST (UTC-8) -- SWAP TO THESE ON FALL-BACK (2026-11-01) --
+    # - cron: "40 13 * * 1-5"
+    # - cron: "15 16 * * 1-5"
+    # - cron: "15 18 * * 1-5"
+    # - cron: "15 20 * * 1-5"
+
+# Needs write to force-push the cloud-data branch.
+permissions:
+  contents: write
+
+# A later stage run should win over an earlier one still in flight.
+concurrency:
+  group: stage-market-data
+  cancel-in-progress: true
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15   # ~108 Yahoo fetches; generous headroom
+    steps:
+      - name: Checkout (feature branch — holds the stager + src)
+        uses: actions/checkout@v4
+        with:
+          ref: lotto-cloud-scan-routine
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Pin yfinance to the version validated for these routines (matches
+      # lotto-scan.yml) so staging is reproducible.
+      - name: Install package
+        run: pip install -e . "yfinance==1.3.0"
+
+      - name: Fetch + stage bars
+        run: python scripts/stage_market_data.py --out staged_out
+
+      - name: Publish to cloud-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd staged_out
+          git init -q
+          git checkout -q -b cloud-data
+          git add -A
+          git -c user.email='github-actions[bot]@users.noreply.github.com' \
+              -c user.name='github-actions[bot]' \
+              commit -qm "stage market data (run ${GITHUB_RUN_ID})"
+          git push -f \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            cloud-data
