@@ -1,0 +1,72 @@
+name: shadow-open-bar
+
+# Shadow log for the 09:30 ET open-bar lotto signals (tracked, NOT drafted).
+# Modeling on 2026-06-19 found adding a live open-bar window marginal (~1
+# unique signal/month, edge unproven). Instead of paying +33% scans/drafts,
+# this CI-only job accumulates the signals on the `shadow-log` branch so the
+# call can be revisited with real n. Zero impact on the claude routines.
+
+on:
+  workflow_dispatch:
+
+  # Test trigger off the feature branch (schedule only fires from main).
+  push:
+    branches: [lotto-cloud-scan-routine]
+    paths:
+      - scripts/shadow_open_bar.py
+      - .github/workflows/shadow-open-bar.yml
+
+  # INERT until on the default branch (main). Post-close so all four 2h bars
+  # exist. Cron is UTC, no DST awareness (manual swap twice a year).
+  schedule:
+    # -- EDT (UTC-4), in effect 2026-03-08 -> 2026-11-01 -- ACTIVE NOW --
+    - cron: "45 20 * * 1-5"   # 16:45 ET, ~45m after the close
+    # -- EST (UTC-5) -- SWAP TO THIS ON FALL-BACK (2026-11-01) --
+    # - cron: "45 21 * * 1-5"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shadow-open-bar
+  cancel-in-progress: false   # never drop a day's log entry
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (feature branch — holds the script + src)
+        uses: actions/checkout@v4
+        with:
+          ref: lotto-cloud-scan-routine
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install -e . "yfinance==1.3.0"
+
+      - name: Append to shadow-log branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GH="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone --depth 1 --branch shadow-log "$GH" shadow-log 2>/dev/null; then
+            echo "cloned existing shadow-log"
+          else
+            echo "shadow-log branch absent — initializing"
+            mkdir shadow-log && (cd shadow-log && git init -q && git checkout -q -b shadow-log)
+          fi
+          python scripts/shadow_open_bar.py --logdir shadow-log
+          cd shadow-log
+          git add -A
+          if git -c user.email='github-actions[bot]@users.noreply.github.com' \
+                 -c user.name='github-actions[bot]' \
+                 commit -qm "shadow open-bar log (run ${GITHUB_RUN_ID})"; then
+            git push "$GH" HEAD:shadow-log
+          else
+            echo "no changes to commit"
+          fi
