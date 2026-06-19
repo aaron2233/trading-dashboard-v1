@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,7 +37,19 @@ def load_bars(
     Existing tests patch ``scan.load_bars`` to inject fixtures; that contract
     is preserved — the patch target is this dispatcher, not the underlying
     loader. Vendor selection happens at import-time per-call (cheap env read).
+
+    When ``STAGED_DATA_DIR`` is set, bars are read from pre-staged CSVs instead
+    of any live vendor. This is the cloud-routine egress workaround: the
+    scheduled sandbox can't reach Yahoo, so a GitHub Action stages the bars to
+    the ``cloud-data`` branch and the routine points STAGED_DATA_DIR at its
+    clone. See the project-cloud-routine-egress-allowlist note.
     """
+    staged_dir = os.environ.get("STAGED_DATA_DIR")
+    if staged_dir:
+        from data.staged_loader import load_bars as _load_staged_bars
+        return _load_staged_bars(
+            ticker, period=period, interval=interval, staged_dir=staged_dir
+        )
     if _polygon_available():
         return _load_polygon_bars(ticker, period=period, interval=interval)
     return _load_yfinance_bars(ticker, period=period, interval=interval)
