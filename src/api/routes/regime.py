@@ -32,12 +32,17 @@ def make_regime_router(store_factory, config_loader, cache_factory) -> APIRouter
             return cached.to_dict()
         try:
             snapshot = assemble_snapshot()
-        except Exception as exc:
+        except Exception:
             # Total failure — return an empty snapshot rather than 500.
             # Frontend renders a "regime health unavailable" panel.
+            # Log full exception server-side; return only generic text to clients.
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "regime_health snapshot assembly failed",
+            )
             from regime_health.model import RegimeHealthSnapshot
             placeholder = RegimeHealthSnapshot.empty()
-            placeholder.overall_drivers = [f"snapshot assembly failed: {exc}"]
+            placeholder.overall_drivers = ["snapshot assembly failed"]
             return placeholder.to_dict()
         try:
             store.save(snapshot)
