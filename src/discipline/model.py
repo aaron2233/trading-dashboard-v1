@@ -2,12 +2,13 @@
 
 Per DISCIPLINE-LAYER-ADDITION.md and the scorecard template at
 ~/.claude/skills/user/discipline/references/scorecard-template.md. NOTE: this
-engine implements 14 rules — the former rule 15 ("trend-pyramid double-up") was
-retired with the trend-pyramid skill (2026-05-07). Template, skill, and engine
-are all on 14 as of 2026-06.
+engine implements 15 rules — the former rule 15 ("trend-pyramid double-up") was
+retired with the trend-pyramid skill (2026-05-07); `exit_per_plan` (win-side
+exit discipline) was added 2026-07-01. Template, skill, and engine are all on
+15 as of 2026-07.
 
 A `DisciplineScore` records:
-- 14 rule results (Y / N / N/A) with auto/manual provenance
+- 15 rule results (Y / N / N/A) with auto/manual provenance
 - Numerator (Y count) and denominator (non-N/A count) for the discipline score
 - P&L (separate axis — never blended with discipline score per stage-1 rule)
 - Profitable-violation flag (score < 1.0 AND P&L > 0) — highest-risk pattern
@@ -37,6 +38,7 @@ RULE_IDS: list[str] = [
     "weekly_not_opposing",
     "cut_at_60_70",
     "exit_within_dte_band",
+    "exit_per_plan",
     "no_average_down",
 ]
 
@@ -55,6 +57,7 @@ RULE_TEXT: dict[str, str] = {
     "weekly_not_opposing":  "Weekly not opposing (or counter-Weekly downsized + thesis documented)",
     "cut_at_60_70":         "Cut at -60% to -70% if invalidation hit (or exit at target)",
     "exit_within_dte_band": "Exited before 50% DTE (lotto/trading-edge) or held >60 DTE (weekly-trend-trader) or closed with >=21 DTE remaining (index-swing)",
+    "exit_per_plan":        "Winner exited per plan (target 1 / time stop / expiry) — not an early discretionary profit-take",
     "no_average_down":      "Did not average down without a new signal",
 }
 

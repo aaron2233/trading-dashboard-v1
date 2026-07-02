@@ -904,7 +904,7 @@ def test_close_position_auto_scores(client):
     score = dstore.load_score("ds_test")
     assert score.position_id == "ds_test"
     assert score.pnl_usd == 250.0
-    assert len(score.rules) == 14
+    assert len(score.rules) == 15
     # Cleanup so this test is hermetic against real ~/.trading-dashboard/
     dstore.delete_score("ds_test")
 
