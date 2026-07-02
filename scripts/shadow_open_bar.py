@@ -29,8 +29,8 @@ LATER_TIMES = {"11:30", "13:30", "15:30"}
 def build_cache(datadir: str | None):
     """Fetch 1d+2h bars for the lotto universe. From CSVs if --datadir given
     (test/offline), else live via the repo's yfinance loader (CI default)."""
-    from lotto_cloud_scan import NASDAQ_50, GUARD_TICKER
-    tickers = sorted(set(NASDAQ_50) | {GUARD_TICKER})
+    from lotto_cloud_scan import UNIVERSE, GUARD_TICKER
+    tickers = sorted(set(UNIVERSE) | {GUARD_TICKER})
     cache, errors = {}, []
     if datadir:
         d = Path(datadir)
@@ -49,7 +49,7 @@ def build_cache(datadir: str | None):
                     cache[(t, iv)] = yf(t, interval=iv)
                 except Exception as e:
                     errors.append(f"{t} {iv}: {e}")
-    return cache, errors, NASDAQ_50, GUARD_TICKER
+    return cache, errors, UNIVERSE, GUARD_TICKER
 
 
 def append_rows(path: Path, header: list[str], rows: list[dict]):
@@ -68,7 +68,7 @@ def main() -> int:
     ap.add_argument("--datadir", help="read CSVs from here instead of fetching (test)")
     args = ap.parse_args()
 
-    cache, errors, NASDAQ_50, GUARD = build_cache(args.datadir)
+    cache, errors, UNIVERSE, GUARD = build_cache(args.datadir)
 
     import scan
     _T = {"now": None}
@@ -99,7 +99,7 @@ def main() -> int:
     def actionable_at(T):
         _T["now"] = T
         try:
-            res = scan_lotto_watchlist(tickers=NASDAQ_50)
+            res = scan_lotto_watchlist(tickers=UNIVERSE)
         except Exception as e:
             print(f"scan error @ {T}: {e}")
             return []
