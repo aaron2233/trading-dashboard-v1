@@ -345,3 +345,20 @@ def test_load_sunday_scan_raises_on_corrupt_file(tmp_path: Path):
     (tmp_path / "2026-04-28.json").write_text("not json {{")
     with pytest.raises(json.JSONDecodeError):
         load_sunday_scan("2026-04-28", sunday_scans_dir=tmp_path)
+
+
+def test_run_sunday_scan_records_weekly_trend_log():
+    # Every Sunday scan must leave one line per default-watchlist ticker
+    # explaining why weekly-trend did or didn't fire (dormancy audit trail).
+    rows = {
+        "SPY": _row(sqn_regime="bull"),
+        "QQQ": _row(stack="full_bull", zone="overbought", signal="none"),
+        "GLD": _row(stack="chop"),
+    }
+    result = run_sunday_scan(_make_scan_fn(rows))
+    assert len(result.weekly_trend_log) == 2
+    joined = " | ".join(result.weekly_trend_log)
+    assert "QQQ" in joined and "GLD" in joined
+    assert "stack=" in result.weekly_trend_log[0]
+    # Log survives round-trip into the persisted payload
+    assert result.to_dict()["weekly_trend_log"] == result.weekly_trend_log
