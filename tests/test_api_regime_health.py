@@ -103,8 +103,10 @@ def test_snapshot_endpoint_handles_assemble_failure(client: TestClient):
     assert r.status_code == 200
     body = r.json()
     assert body["overall_status"] == "unknown"
-    # Drivers carry the failure context for the panel
-    assert any("everything is on fire" in d for d in body["overall_drivers"])
+    # Drivers carry a generic failure marker for the panel. The exception
+    # text itself is logged server-side only, never sent to the client.
+    assert any("snapshot assembly failed" in d for d in body["overall_drivers"])
+    assert not any("everything is on fire" in d for d in body["overall_drivers"])
 
 
 # ── /regime-health/refresh ───────────────────────────────────────────────────
