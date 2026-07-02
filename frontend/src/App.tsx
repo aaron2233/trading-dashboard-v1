@@ -10,6 +10,7 @@ import { KillSheetView } from "./views/KillSheetView";
 import { LottoView } from "./views/LottoView";
 import { WeeklyTrendView } from "./views/WeeklyTrendView";
 import { IndexSwingView } from "./views/IndexSwingView";
+import { RegimeLeveredView } from "./views/RegimeLeveredView";
 import { PositionsView } from "./views/PositionsView";
 import { JournalView } from "./views/JournalView";
 import { RegimeHealthView } from "./views/RegimeHealthView";
@@ -34,6 +35,7 @@ const SCAN_GROUP: NavGroupDef = {
     { kind: "link", to: "/scan", label: "Scan ticker" },
     { kind: "link", to: "/weekly", label: "Weekly trend" },
     { kind: "link", to: "/index-swing", label: "Index swing" },
+    { kind: "link", to: "/regime-levered", label: "Regime-levered trend" },
     { kind: "divider" },
     { kind: "link", to: "/lotto", label: "Lotto · $1K playbook" },
   ],
@@ -224,6 +226,7 @@ export function App() {
           <Route path="/scan" element={<ScanView />} />
           <Route path="/weekly" element={<WeeklyTrendView />} />
           <Route path="/index-swing" element={<IndexSwingView />} />
+          <Route path="/regime-levered" element={<RegimeLeveredView />} />
           <Route path="/kill-sheet" element={<KillSheetView />} />
           <Route path="/lotto" element={<LottoView />} />
           <Route path="/regime-health" element={<RegimeHealthView />} />
