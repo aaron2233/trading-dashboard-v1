@@ -441,7 +441,7 @@ class LockdownRequest(BaseModel):
 
 
 FreeRangeUniverseName = Literal[
-    "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
+    "nasdaq_100", "sp500_top_50", "russell_2000_top_50", "lotto_high_vol",
 ]
 
 
@@ -744,16 +744,18 @@ class LottoScanRequest(BaseModel):
     `tickers` (explicit list, wins if both given) — scans exactly those names.
     `universe` (list of FreeRangeUniverseName) — scans every ticker in the
         listed indexes; each result is tagged with its source_universe so the
-        UI can group by index. Default = all three indexes (NASDAQ 100 +
-        S&P 500 Top 50 + Russell 2000 Top 50, ~200 names, ~60-90s scan).
+        UI can group by index. Default = the curated lotto high-vol watchlist
+        ("lotto_high_vol", 36 names, ~15-25s) — the only cohort the
+        2026-05-16 backtests scored profitable for lotto (PF 1.39-1.48;
+        broad NDX-100 / broad-ETF universes scored PF 0.75-0.89 = skip, and
+        most broad-index names are hard-blocked by the $10-50 band anyway).
+        The broad indexes remain available by passing them explicitly.
     Pass `tickers=[]` and `universe=[]` to fall back to the QQQ + GLD
     legacy baseline.
     """
     tickers: list[str] | None = None
     universe: list[FreeRangeUniverseName] = Field(
-        default_factory=lambda: [
-            "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
-        ],
+        default_factory=lambda: ["lotto_high_vol"],
     )
 
 
