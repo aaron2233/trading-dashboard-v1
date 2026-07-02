@@ -3,7 +3,7 @@
 (The former rule 15 = trend-pyramid double-up, retired with that skill on
 2026-05-07. Template, skill, and engine are all on 14 as of 2026-06.)
 
-Per DISCIPLINE-LAYER-ADDITION.md: 12 of 14 rules are auto-evaluable from
+Per DISCIPLINE-LAYER-ADDITION.md: 13 of 15 rules are auto-evaluable from
 KillSheet + Position data already captured. The two manual ones
 (`trade_devil_passed`, `no_average_down`) default to `Y` with `auto_evaluated=False`
 when we can't determine — the user can override via the persistence endpoint.
@@ -33,6 +33,13 @@ from positions.model import Position
 # Cut-loss threshold for the counterfactual computation — midpoint of the
 # 60-70% band. Used when flagging profitable violations.
 COUNTERFACTUAL_CUT_FRACTION = 0.65
+
+# Lotto exit-ladder target 1: sell 50% at +200% gain (premium reaches 3x entry).
+# A plan-consistent ladder (half off at +200%, remainder trailed no worse than
+# breakeven) can never blend below +100% total — so a winner under +100% that
+# wasn't a time-stop or expiry-forced exit is a definitive early profit-take.
+LOTTO_TARGET1_GAIN = 2.0
+LOTTO_LADDER_MIN_BLEND = 1.0
 
 
 # MA stack states that count as "chop" (rule 10 fails when at entry).
@@ -331,6 +338,62 @@ def _r_exit_within_dte_band(p: Position, ctx: ScoringContext) -> RuleResult:
                    note=f"Held {held}d of {dte_at_entry}d DTE > 50% threshold")
 
 
+def _r_exit_per_plan(p: Position, ctx: ScoringContext) -> RuleResult:
+    # Win-side exit discipline. Loss-side exits are policed by cut_at_60_70;
+    # before this rule existed, a winner cut at +16% against the +200% target-1
+    # plan scored a perfect card (2026-05/06 journal), so the exact leak the
+    # lotto design warns about — cutting winners early — was invisible.
+    if p.account_key == "portfolio":
+        return _result("exit_per_plan", "N/A", True,
+                       note="Portfolio sleeve — thesis-break exits, no premium ladder")
+    if p.instrument == "shares":
+        return _result("exit_per_plan", "N/A", True,
+                       note="Shares — no premium exit ladder")
+    if p.status != "closed" or p.pnl_usd is None:
+        return _result("exit_per_plan", "Y", False,
+                       note="Position not closed or P&L missing")
+    if p.pnl_usd <= 0:
+        return _result("exit_per_plan", "N/A", True,
+                       note="Loser — exit discipline scored by cut_at_60_70")
+    ks = ctx.kill_sheet
+    account = (ks.account_key if ks is not None and ks.account_key
+               else p.account_key)
+    if account != "lotto":
+        # main/weekly winners trim on the +3R/+10R underlying schedule, which
+        # premium P&L alone can't reconstruct — leave to manual review.
+        return _result("exit_per_plan", "Y", False,
+                       note="Non-lotto winner — verify +3R/+10R trim schedule manually")
+    denom = _loss_denominator(p)
+    if not denom or denom <= 0:
+        return _result("exit_per_plan", "Y", False, note="Cost basis missing")
+    gain = p.pnl_usd / denom
+    if gain >= LOTTO_TARGET1_GAIN:
+        return _result("exit_per_plan", "Y", True,
+                       note=f"Closed at +{gain*100:.0f}% (>= +200% target 1)")
+    entry_d = _parse_date(p.entry_date)
+    expiry_d = _parse_date(p.expiry)
+    closed_d = _parse_date(p.closed_date)
+    if not all((entry_d, expiry_d, closed_d)):
+        return _result("exit_per_plan", "Y", False, note="Date parse failed")
+    dte_at_entry = (expiry_d - entry_d).days  # type: ignore[operator]
+    held = (closed_d - entry_d).days  # type: ignore[operator]
+    if dte_at_entry > 0 and held * 2 >= dte_at_entry:
+        return _result("exit_per_plan", "Y", True,
+                       note=f"Time stop — held {held}d of {dte_at_entry} DTE (>= half)")
+    if (expiry_d - closed_d).days <= 1:  # type: ignore[operator]
+        return _result("exit_per_plan", "Y", True, note="Closed at/near expiry")
+    if gain >= LOTTO_LADDER_MIN_BLEND:
+        # +100..200% blended total is consistent with a taken target-1 leg plus
+        # a trailed remainder — can't distinguish from Position data alone.
+        return _result("exit_per_plan", "Y", False,
+                       note=f"Closed at +{gain*100:.0f}% — plausible partial ladder, "
+                            f"verify target-1 leg was taken")
+    return _result("exit_per_plan", "N", True,
+                   note=f"Winner cut at +{gain*100:.0f}% before +200% target with "
+                        f"{max(dte_at_entry - held, 0)} DTE left — early discretionary "
+                        f"profit-take")
+
+
 def _r_no_average_down(p: Position, ctx: ScoringContext) -> RuleResult:
     """Detection requires snapshot of open positions at entry; default Y manual."""
     if ctx.earlier_open_position_at_entry is True:
@@ -357,6 +420,7 @@ _EVALUATORS = {
     "weekly_not_opposing":  _r_weekly_not_opposing,
     "cut_at_60_70":         _r_cut_at_60_70,
     "exit_within_dte_band": _r_exit_within_dte_band,
+    "exit_per_plan":        _r_exit_per_plan,
     "no_average_down":      _r_no_average_down,
 }
 
@@ -414,7 +478,7 @@ def score_trade(
     notes: str = "",
     user_overrides: dict[str, RuleResult] | None = None,
 ) -> DisciplineScore:
-    """Score a closed Position against the 14-rule checklist.
+    """Score a closed Position against the 15-rule checklist.
 
     Args:
         position: the closed Position to score.

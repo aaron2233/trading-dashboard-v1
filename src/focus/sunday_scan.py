@@ -205,6 +205,12 @@ class SundayScan:
     # overlapping universe.
     index_swing_setups: list[dict[str, Any]] = field(default_factory=list)
     index_swing_actionable: list[dict[str, Any]] = field(default_factory=list)
+    # Weekly-trend (Track B) read on QQQ/GLD. One log line per ticker records
+    # why the weekly skill did or didn't fire this week — added 2026-07-01
+    # after the skill went 8 straight no-trade weeks and nothing on disk
+    # could distinguish "correctly selective" from "silently broken".
+    weekly_trend_setups: list[dict[str, Any]] = field(default_factory=list)
+    weekly_trend_log: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,6 +224,8 @@ class SundayScan:
             "errors": self.errors,
             "index_swing_setups": self.index_swing_setups,
             "index_swing_actionable": self.index_swing_actionable,
+            "weekly_trend_setups": self.weekly_trend_setups,
+            "weekly_trend_log": self.weekly_trend_log,
         }
 
 
@@ -329,6 +337,34 @@ def run_sunday_scan(
     except Exception as exc:
         errors["INDEX_SWING"] = f"index-swing scan failed: {exc}"
 
+    # Weekly-trend (Track B) overlay on QQQ/GLD — best-effort. Reuses the
+    # injected scan_fn so tests stay offline. Failure is captured in errors,
+    # not raised: the Sunday focus scan remains the canonical output.
+    weekly_trend_setups: list[dict[str, Any]] = []
+    weekly_trend_log: list[str] = []
+    try:
+        from weekly_trend import scan_weekly_watchlist
+
+        def _wk_scan(ticker: str, timeframe: str) -> dict[str, Any]:
+            try:
+                return scan_fn(ticker, timeframe=timeframe)
+            except TypeError:
+                # Single-arg scan_fns (test fixtures) — same fallback as 2H.
+                return scan_fn(ticker)
+
+        wt = scan_weekly_watchlist(tickers=["QQQ", "GLD"], scan_fn=_wk_scan)
+        weekly_trend_setups = [s.to_dict() for s in wt.setups]
+        for s in wt.setups:
+            k = f"{s.stoch_k:.0f}" if s.stoch_k is not None else "?"
+            d = f"{s.stoch_d:.0f}" if s.stoch_d is not None else "?"
+            why = "; ".join(s.blockers) if s.blockers else s.why_now
+            weekly_trend_log.append(
+                f"{s.ticker}: {s.confluence} — stack={s.ma_stack_state}, "
+                f"Stoch K={k}/D={d}, SQN(100)={s.sqn_100_regime} — {why}"
+            )
+    except Exception as exc:
+        errors["WEEKLY_TREND"] = f"weekly-trend scan failed: {exc}"
+
     return SundayScan(
         spy=rows["SPY"],
         qqq=rows["QQQ"],
@@ -340,6 +376,8 @@ def run_sunday_scan(
         scan_time_utc=datetime.now(timezone.utc).isoformat(),
         index_swing_setups=index_swing_setups,
         index_swing_actionable=index_swing_actionable,
+        weekly_trend_setups=weekly_trend_setups,
+        weekly_trend_log=weekly_trend_log,
     )
 
 
