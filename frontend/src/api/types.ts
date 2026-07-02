@@ -402,7 +402,8 @@ export interface CandidateSnapshot {
 export type FreeRangeUniverse =
   | "nasdaq_100"
   | "sp500_top_50"
-  | "russell_2000_top_50";
+  | "russell_2000_top_50"
+  | "lotto_high_vol";
 
 export interface FreeRangeScanRequest {
   user_tickers?: string[];
@@ -612,7 +613,7 @@ export interface LottoSetup {
 
 export interface LottoScanRequest {
   tickers?: string[] | null;
-  /** Defaults server-side to all three indexes. */
+  /** Defaults server-side to the curated lotto high-vol watchlist. */
   universe?: FreeRangeUniverse[];
 }
 
