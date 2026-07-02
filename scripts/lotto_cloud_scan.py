@@ -56,28 +56,24 @@ warnings.filterwarnings("ignore")  # silence yfinance / pandas chatter on stdout
 
 from config import load_config  # noqa: E402
 from kill_sheet.builder import build_standard  # noqa: E402
-from lotto import scan_lotto_watchlist, suggest_strikes  # noqa: E402
+from lotto import LOTTO_HIGH_VOL_WATCHLIST, scan_lotto_watchlist, suggest_strikes  # noqa: E402
 from scan import populate_trigger_bar, scan_ticker  # noqa: E402
 
 PT = ZoneInfo("America/Los_Angeles")
 ET = ZoneInfo("America/New_York")
 EXCHANGE_TZ = ET  # yfinance returns naive timestamps in US/Eastern (exchange time)
 
-# NASDAQ-100 top 50 by market cap (yfinance fast_info snapshot 2026-05-28;
-# ANSS excluded — no cap returned, mid-acquisition). Trimmed from the full
-# 100 to halve the per-run yfinance load and cut datacenter rate-limit /
-# timeout risk on the cloud routine. Re-rank with scripts/ rank logic if the
-# membership drifts materially.
-NASDAQ_50 = [
-    "AAPL", "ADBE", "ADI", "ADP", "AMAT", "AMD", "AMGN", "AMZN", "ARM", "ASML",
-    "AVGO", "AZN", "BKNG", "CDNS", "CEG", "CMCSA", "COST", "CRWD", "CSCO", "CSX",
-    "FTNT", "GILD", "GOOG", "GOOGL", "HON", "INTC", "INTU", "ISRG", "KLAC", "LIN",
-    "LRCX", "MAR", "MELI", "META", "MNST", "MRVL", "MSFT", "MU", "NFLX", "NVDA",
-    "PANW", "PDD", "PEP", "QCOM", "SBUX", "SNPS", "TMUS", "TSLA", "TXN", "VRTX",
-]
+# Curated high-vol watchlist (src/lotto/scanner.py) — the cohort where the
+# lotto backtest edge lives. Replaces the former NASDAQ-top-50 universe: 40
+# of its 50 mega-caps were hard-blocked by the $10-50 price band before the
+# verdict ever ran (only Mag 7 are band-exempt), so scans chronically
+# returned no_setups. The curated list's ETFs are band-exempt and its
+# single-stock names drift in/out of band with price — the scanner's band
+# gate stays the arbiter at scan time.
+UNIVERSE = list(LOTTO_HIGH_VOL_WATCHLIST)
 GUARD_TICKER = "QQQ"  # liquid proxy used only to read the latest 2H bar timestamp
 LOTTO_TARGET_PCT = 200  # lotto standard: +200% premium target (skill spec)
-UNIVERSE_LABEL = "NASDAQ top 50"
+UNIVERSE_LABEL = "lotto high-vol watchlist"
 
 
 # ─── Fresh-bar / trading-session guard ──────────────────────────────────────
@@ -180,7 +176,7 @@ def run_scan() -> dict:
         "trigger_tf": "2H",
         "dte_band": "0-14 DTE",
         "universe": UNIVERSE_LABEL,
-        "universe_count": len(NASDAQ_50),
+        "universe_count": len(UNIVERSE),
     }
 
     # 1. Fresh-bar / trading-session guard (cheap single-ticker fetch first).
@@ -203,7 +199,7 @@ def run_scan() -> dict:
 
     # 2. Scan the NASDAQ-100 top 50. Scanner applies v2 gates (G2/G3) + price
     #    band internally; actionable = verdict "buy".
-    result = scan_lotto_watchlist(tickers=NASDAQ_50)
+    result = scan_lotto_watchlist(tickers=UNIVERSE)
 
     # 3. Distinguish a data blackout from a genuine no-setups result, so a
     #    yfinance rate-limit is never silently mistaken for "no trades".
