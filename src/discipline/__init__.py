@@ -1,7 +1,7 @@
 """Discipline enforcement layer for the trading dashboard.
 
 Implements the discipline skill (`~/.claude/skills/user/discipline/`):
-- 15-rule per-trade scoring with profitable-violation flagging
+- 14-rule per-trade scoring with profitable-violation flagging
 - Weekly review aggregating discipline drift
 - Stage detection (stage 1 = discipline > P&L)
 

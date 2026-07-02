@@ -1,0 +1,132 @@
+name: lotto-cloud-scan
+
+# Purpose: run the lotto 2H scan on a GitHub Actions cloud runner and surface the
+# result. PRIMARY near-term job: test whether yfinance survives Actions' shared
+# datacenter IPs (the suspected root cause of the flaky routine). The Telegram
+# push is DECOUPLED/optional — when the TELEGRAM_BOT_TOKEN secret is absent the
+# push step is skipped and the IP test still completes.
+
+on:
+  # Manual run button. NOTE: workflow_dispatch only appears / fires once this
+  # file is on the DEFAULT branch (main). On the feature branch use the push
+  # trigger below.
+  workflow_dispatch:
+
+  # TEMP test trigger — REMOVE THIS `push:` BLOCK BEFORE MERGING TO main.
+  # push fires from a NON-default branch, so it's the only way to exercise the
+  # cloud-IP question pre-merge. Each push to lotto-cloud-scan-routine runs the
+  # job on a cloud runner and writes result.json (status ok vs data_failed).
+  push:
+    branches: [lotto-cloud-scan-routine]
+
+  # Scheduled runs. INERT until this file is on the default branch (main) —
+  # GitHub only fires `schedule` from the default branch. Cron is UTC and has
+  # NO DST awareness, so the wall-clock target shifts twice a year (manual swap).
+  #
+  # Target: 8:35 / 10:35 / 12:35 America/Los_Angeles, weekdays (Mon-Fri).
+  #
+  # PUNCTUALITY: GitHub cron is best-effort — measured 1.5-3.3h late on this
+  # repo (2026-06/07), which delivered every scan ~2h stale. Each cron
+  # therefore fires ~3h (PDT; ~4h PST) BEFORE its window, and the job sleeps
+  # to the exact PT target via scripts/sleep_until_pt.py. The target is
+  # computed in America/Los_Angeles, so NO PDT/PST cron swap is needed —
+  # winter runs just sleep up to an hour longer. Keep the cron→target map in
+  # the "Resolve window target" step in sync with these entries.
+  schedule:
+    - cron: "35 12 * * 1-5"   # window 08:35 PT
+    - cron: "35 14 * * 1-5"   # window 10:35 PT
+    - cron: "35 16 * * 1-5"   # window 12:35 PT
+
+# Least privilege: checkout needs contents:read; upload-artifact uses the
+# runtime token, not a permissions scope. Everything unspecified -> none.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    # Scheduled runs sleep up to ~4h waiting for their window (see cron
+    # comments above), then the scan itself needs a few minutes.
+    timeout-minutes: 320
+    # Secrets lifted to JOB level so the Telegram step's `if:` can see the token
+    # (a step's own env: is NOT in scope for its own if:). Absent secret -> "" ->
+    # step skipped -> IP test still runs Telegram-free.
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          # No `cache: pip` on purpose: this repo has no requirements.txt, and
+          # setup-python's pip cache globs for one and HARD-FAILS the job when
+          # absent. Deps are few; a clean install is fast enough for a test harness.
+
+      # Pin yfinance to the version validated locally (1.3.0) so the cloud-IP
+      # experiment is reproducible, rather than installing whatever is latest on
+      # PyPI that day (pyproject only requires yfinance>=0.2).
+      - name: Install package
+        run: pip install -e . "yfinance==1.3.0"
+
+      # Map the firing cron to its PT window, then hold until that wall time.
+      # Deps are installed BEFORE the sleep so the scan starts fetching at the
+      # target, not minutes after. Push / manual runs skip both steps and run
+      # immediately.
+      - name: Resolve window target
+        id: window
+        if: github.event_name == 'schedule'
+        run: |
+          case "${{ github.event.schedule }}" in
+            "35 12 * * 1-5") echo "target=08:35" >> "$GITHUB_OUTPUT" ;;
+            "35 14 * * 1-5") echo "target=10:35" >> "$GITHUB_OUTPUT" ;;
+            "35 16 * * 1-5") echo "target=12:35" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown cron '${{ github.event.schedule }}'" >&2; exit 1 ;;
+          esac
+
+      - name: Sleep until window (PT)
+        if: github.event_name == 'schedule'
+        run: python3 scripts/sleep_until_pt.py "${{ steps.window.outputs.target }}"
+
+      # Run the scan ONCE. It hits Yahoo ~50x; running it twice would double the
+      # 429 risk, so the JSON is the single source of truth. `tee` keeps the raw
+      # JSON in the log too.
+      - name: Run lotto scan (--json)
+        run: PYTHONPATH=src python scripts/lotto_cloud_scan.py --json | tee result.json
+
+      # Surface ONLY the IP-test verdict (status + counts) to the run summary.
+      # Does not re-run the scan and does not re-render trade blocks — that lives
+      # in the scan's own renderer; this just makes the result legible at a glance.
+      - name: Summarize result
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          r = json.load(open("result.json"))
+          s = r.get("status", "?")
+          print(f"## Lotto cloud scan -- {s}")
+          print(f"- universe: {r.get('universe','?')} ({r.get('universe_count','?')} tickers)")
+          if s == "ok":
+              print(f"- actionable: {r.get('actionable_count', 0)} | window close {r.get('window_close','?')}")
+          else:
+              print(f"- {r.get('message','')}")
+          print()
+          print("**yfinance-IP read:** `ok` / `no_setups` = survived | `data_failed` = blocked on runner IP")
+          PY
+
+      # Always upload, even on data_failed -- that's the IP-test evidence.
+      - name: Upload result.json
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lotto-scan-result
+          path: result.json
+
+      # Telegram push -- DECOUPLED/optional. Gate reads the JOB-level env (above).
+      # No secret set -> "" -> step skipped. The notifier no-ops on
+      # skipped/no_setups and never prints the token.
+      - name: Telegram push (optional)
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' }}
+        run: python scripts/notify_telegram.py result.json

@@ -16,6 +16,7 @@ import type {
 } from "../api/types";
 
 const UNIVERSE_LABELS: Record<FreeRangeUniverse, string> = {
+  lotto_high_vol: "Lotto High-Vol Watchlist",
   nasdaq_100: "NASDAQ 100",
   sp500_top_50: "S&P 500 Top 50",
   russell_2000_top_50: "Russell 2000 Top 50",
@@ -427,7 +428,8 @@ function LottoSetupScanSection({
     });
   }
   const universeOrder: (FreeRangeUniverse | "other")[] = [
-    "nasdaq_100", "sp500_top_50", "russell_2000_top_50", "other",
+    "lotto_high_vol", "nasdaq_100", "sp500_top_50", "russell_2000_top_50",
+    "other",
   ];
 
   const renderCard = (s: LottoSetup) => (
@@ -484,7 +486,7 @@ function LottoSetupScanSection({
           disabled={loading}
         >
           {loading
-            ? "Scanning ~200 tickers (1-2 min)…"
+            ? "Scanning 36-name watchlist (~20s)…"
             : scan === null
             ? "Run lotto universe scan"
             : "Re-scan universe"}
@@ -492,8 +494,8 @@ function LottoSetupScanSection({
       </div>
       {loading && scan === null ? (
         <div className="panel p-3 text-sm text-text-secondary">
-          Scanning the lotto universe (~200 tickers × daily + 2H reads).
-          Typical run: 60-90 seconds.
+          Scanning the curated lotto high-vol watchlist (36 tickers ×
+          daily + 2H reads). Typical run: 15-25 seconds.
         </div>
       ) : scan === null ? (
         <div className="panel p-3 text-sm text-text-secondary">
@@ -584,10 +586,10 @@ export function LottoView() {
   }, []);
 
   useEffect(() => {
-    // NOTE: the lotto setup scan is no longer auto-triggered on mount —
-    // it now hits ~200 tickers (NASDAQ 100 + S&P 500 Top 50 + Russell
-    // 2000 Top 50) and takes 60-90s. The user runs it explicitly via
-    // the section's "Run lotto universe scan" button.
+    // NOTE: the lotto setup scan is not auto-triggered on mount — it
+    // scans the 36-name curated high-vol watchlist (~15-25s). The user
+    // runs it explicitly via the section's "Run lotto universe scan"
+    // button.
     void refresh();
     void runBaselineScan();
   }, [refresh, runBaselineScan]);

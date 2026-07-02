@@ -29,3 +29,5 @@ scripts/*.json
 # Frontend build artifacts
 frontend/dist/
 frontend/node_modules/
+result.json
+scan_err.log
