@@ -1,0 +1,33 @@
+name: yf-burst-probe
+
+# TEMP diagnostic — DELETE this file + scripts/yf_burst_probe.py once the
+# yfinance-on-cloud-IP burst question is answered. Runs the full 50-ticker
+# daily-bar fetch on a runner IP to measure throttling, independent of the
+# scan's market-hours guard (so it works any day, including weekends).
+on:
+  workflow_dispatch:
+  push:
+    branches: [lotto-cloud-scan-routine]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: pip install -e . "yfinance==1.3.0"
+      - name: Burst probe
+        run: |
+          {
+            echo '## yfinance 50-ticker burst probe'
+            echo '```'
+            PYTHONPATH=src python scripts/yf_burst_probe.py
+            echo '```'
+          } | tee "$GITHUB_STEP_SUMMARY"

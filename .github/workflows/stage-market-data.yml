@@ -1,0 +1,105 @@
+name: publish-results
+
+# Durable cloud-routine fix. The scheduled routine sandbox can reach NEITHER
+# Yahoo NOR GitHub (egress proxy blocks both; the claude.ai allowlist setting
+# does not propagate to containers). GitHub Actions has full egress, so this
+# job runs BOTH scans live and publishes small result files to the cloud-data
+# branch. The routines then just WebFetch their result + draft via Gmail MCP
+# (channels that bypass the sandbox proxy — capex proves it). No staged CSVs,
+# no in-sandbox git/python. See project-cloud-routine-egress-allowlist.
+
+on:
+  workflow_dispatch:
+
+  # Test trigger off the PR branch (schedule only fires from main).
+  push:
+    branches: [enable-publish-results]
+    paths:
+      - scripts/publish_results.py
+      - .github/workflows/stage-market-data.yml
+
+  # INERT until on main.
+  #
+  # PUNCTUALITY: GitHub cron is best-effort — measured 1.5-3.3h late on this
+  # repo (2026-06/07). Each cron fires ~3h (PDT; ~4h PST) BEFORE its publish
+  # target and the job sleeps to the exact PT time via
+  # scripts/sleep_until_pt.py. Targets are PT wall times, so NO PDT/PST cron
+  # swap is needed. Keep the cron→target map in the "Resolve publish target"
+  # step in sync with these entries.
+  #
+  # Lotto targets are :31 — ~1 min AFTER each 2H bar close (08:30/10:30/12:30
+  # PT) — so the 08:35/10:35/12:35 routine windows read a result computed on
+  # the just-closed bar. The old ":15 before the window" timing meant a
+  # punctual publish could only ever see the PREVIOUS bar.
+  schedule:
+    - cron: "40 9 * * 1-5"    # target 05:40 PT — before beat-market (06:00 PT)
+    - cron: "31 12 * * 1-5"   # target 08:31 PT — lotto window 1 (08:35 PT)
+    - cron: "31 14 * * 1-5"   # target 10:31 PT — lotto window 2 (10:35 PT)
+    - cron: "31 16 * * 1-5"   # target 12:31 PT — lotto window 3 (12:35 PT)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-results
+  # NOT cancel-in-progress: a run sleeping toward its window must survive the
+  # next cron's run starting early — later runs queue behind it instead.
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Scheduled runs sleep up to ~4h waiting for their publish target (see
+    # cron comments above), then the scans need a few minutes.
+    timeout-minutes: 320
+    steps:
+      - name: Checkout (triggering branch — holds scripts + src)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install -e . "yfinance==1.3.0"
+
+      # Map the firing cron to its PT target, then hold until that wall time.
+      # Deps install BEFORE the sleep so the scans start fetching at the
+      # target, not minutes after. Push / manual runs skip both steps.
+      - name: Resolve publish target
+        id: window
+        if: github.event_name == 'schedule'
+        run: |
+          case "${{ github.event.schedule }}" in
+            "40 9 * * 1-5")  echo "target=05:40" >> "$GITHUB_OUTPUT" ;;
+            "31 12 * * 1-5") echo "target=08:31" >> "$GITHUB_OUTPUT" ;;
+            "31 14 * * 1-5") echo "target=10:31" >> "$GITHUB_OUTPUT" ;;
+            "31 16 * * 1-5") echo "target=12:31" >> "$GITHUB_OUTPUT" ;;
+            *) echo "unknown cron '${{ github.event.schedule }}'" >&2; exit 1 ;;
+          esac
+
+      - name: Sleep until target (PT)
+        if: github.event_name == 'schedule'
+        run: python3 scripts/sleep_until_pt.py "${{ steps.window.outputs.target }}"
+
+      - name: Run both scans live + write results
+        run: |
+          python scripts/publish_results.py \
+            --out results_out \
+            --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Publish results to cloud-data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd results_out
+          git init -q
+          git checkout -q -b cloud-data
+          git add -A
+          git -c user.email='github-actions[bot]@users.noreply.github.com' \
+              -c user.name='github-actions[bot]' \
+              commit -qm "publish results (run ${GITHUB_RUN_ID})"
+          git push -f \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            cloud-data
