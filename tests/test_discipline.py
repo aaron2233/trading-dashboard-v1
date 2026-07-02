@@ -165,9 +165,9 @@ def test_score_includes_all_rules():
 
 def test_rule_15_trend_pyramid_stays_retired():
     # Rule 15 (trend-pyramid double-up) was retired with the trend-pyramid skill
-    # (2026-05-07). Lock the engine at 14 rules and ensure no pyramid/double-up
-    # rule creeps back in — the doc/skill side is kept in sync manually.
-    assert len(RULE_IDS) == 14
+    # (2026-05-07); exit_per_plan took the 15th slot on 2026-07-01. Ensure no
+    # pyramid/double-up rule creeps back in — doc/skill side kept in sync manually.
+    assert len(RULE_IDS) == 15
     assert all("pyramid" not in r and "double" not in r for r in RULE_IDS)
 
 
@@ -550,7 +550,7 @@ def test_store_save_load_roundtrip(tmp_path: Path):
     assert loaded.score_numerator == score.score_numerator
     assert loaded.score_denominator == score.score_denominator
     assert loaded.profitable_violation == score.profitable_violation
-    assert len(loaded.rules) == 14
+    assert len(loaded.rules) == 15
 
 
 def test_store_load_missing_raises(tmp_path: Path):
@@ -775,3 +775,66 @@ def test_builder_entry_authorized_requires_attestation_when_iv_high():
         attestation_user_inputs={"explicit_post_earnings_crush_thesis": True},
     )
     assert ks2.discipline_attestation.entry_authorized is True
+
+
+# ── exit_per_plan (win-side exit discipline, added 2026-07-01) ──────────────
+
+
+def _lotto_ks(**overrides):
+    return _make_kill_sheet(account_key="lotto", **overrides)
+
+
+def _exit_per_plan(score):
+    return next(r for r in score.rules if r.rule_id == "exit_per_plan")
+
+
+def test_exit_per_plan_n_lotto_winner_cut_early():
+    # +16% winner, 2 days into a 10-DTE contract: no target, no time stop,
+    # nowhere near expiry — the premature-profit-take leak this rule exists for.
+    p = _make_position(pnl_usd=160.0, entry_date="2026-05-02T12:00:00+00:00",
+                       closed_date="2026-05-04T12:00:00+00:00", expiry="2026-05-12")
+    rule = _exit_per_plan(score_trade(p, kill_sheet=_lotto_ks()))
+    assert rule.score == "N"
+
+
+def test_exit_per_plan_y_lotto_winner_at_target():
+    p = _make_position(pnl_usd=2500.0)
+    rule = _exit_per_plan(score_trade(p, kill_sheet=_lotto_ks()))
+    assert rule.score == "Y" and rule.auto_evaluated
+
+
+def test_exit_per_plan_y_lotto_time_stop():
+    # +50% but held 6 of 10 DTE — past the DTE/2 time stop, exit is per plan.
+    p = _make_position(pnl_usd=500.0, entry_date="2026-05-02T12:00:00+00:00",
+                       closed_date="2026-05-08T12:00:00+00:00", expiry="2026-05-12")
+    rule = _exit_per_plan(score_trade(p, kill_sheet=_lotto_ks()))
+    assert rule.score == "Y" and rule.auto_evaluated
+
+
+def test_exit_per_plan_manual_in_ladder_band():
+    # +150% blended is consistent with a taken target-1 leg + trailed remainder;
+    # can't auto-distinguish → Y with manual provenance.
+    p = _make_position(pnl_usd=1500.0, entry_date="2026-05-02T12:00:00+00:00",
+                       closed_date="2026-05-04T12:00:00+00:00", expiry="2026-05-12")
+    rule = _exit_per_plan(score_trade(p, kill_sheet=_lotto_ks()))
+    assert rule.score == "Y" and not rule.auto_evaluated
+
+
+def test_exit_per_plan_na_for_losers():
+    p = _make_position(pnl_usd=-400.0)
+    rule = _exit_per_plan(score_trade(p, kill_sheet=_lotto_ks()))
+    assert rule.score == "N/A"
+
+
+def test_exit_per_plan_na_shares_and_portfolio():
+    shares = _make_position(instrument="shares", pnl_usd=300.0)
+    assert _exit_per_plan(score_trade(shares, kill_sheet=_make_kill_sheet())).score == "N/A"
+    port = _make_position(account_key="portfolio", pnl_usd=300.0)
+    assert _exit_per_plan(score_trade(port, kill_sheet=None)).score == "N/A"
+
+
+def test_exit_per_plan_manual_for_non_lotto_winner():
+    # main/weekly +3R/+10R trim schedule isn't derivable from premium P&L.
+    p = _make_position(pnl_usd=800.0)
+    rule = _exit_per_plan(score_trade(p, kill_sheet=_make_kill_sheet()))
+    assert rule.score == "Y" and not rule.auto_evaluated
