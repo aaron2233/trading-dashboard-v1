@@ -212,3 +212,59 @@ class TestScanRegimeLevered:
             bars_fn=lambda t: self._bull_bars(),
         )
         assert "R1/R2" in result.deployment_note
+
+
+class TestKillSheetDeploymentGate:
+    """R1/R2 gate: skill='regime-levered-trend' is hard-blocked on main/lotto."""
+
+    @staticmethod
+    def _scan_row() -> dict:
+        return {
+            "ticker": "MU",
+            "timeframe": "1d",
+            "bar_date": "2026-06-26",
+            "close": 1132.0,
+            "ma_ribbon": {
+                "ma_10": 1100.0, "ma_20": 1000.0, "ma_50": 800.0,
+                "ma_200": 400.0, "stack_state": "full_bull",
+            },
+            "stochastic": {"k": 55.0, "d": 50.0, "zone": "mid", "signal": None},
+            "sqn": {"sqn_value": 1.7, "regime": "strong_bull",
+                    "sqn_20_value": 0.5, "regime_20": "bull"},
+        }
+
+    @staticmethod
+    def _options():
+        from kill_sheet.options import OptionsStructure
+        return OptionsStructure(
+            strike=900.0, contract_type="call", expiry="2027-09-17",
+            dte=440, premium=280.0, delta=0.82, iv_rank=35.0,
+        )
+
+    def _build(self, account_key: str, skill: str | None):
+        from kill_sheet.builder import build_standard
+        from config import load_config
+        cfg = load_config()
+        return build_standard(
+            self._scan_row(), "long", cfg.account("main"),
+            account_key=account_key, intent="POSITION", trigger_tf="Weekly",
+            options=self._options(), skill=skill,
+        )
+
+    def test_blocked_on_main(self):
+        sheet = self._build("main", "regime-levered-trend")
+        att = sheet.discipline_attestation
+        assert att.regime_levered_deployment_blocked is True
+        assert att.entry_authorized is False
+
+    def test_blocked_on_lotto(self):
+        sheet = self._build("lotto", "regime-levered-trend")
+        assert sheet.discipline_attestation.regime_levered_deployment_blocked is True
+
+    def test_allowed_on_dedicated_sleeve(self):
+        sheet = self._build("leaps_sleeve", "regime-levered-trend")
+        assert sheet.discipline_attestation.regime_levered_deployment_blocked is False
+
+    def test_other_skills_on_main_unaffected(self):
+        sheet = self._build("main", "weekly-trend-trader")
+        assert sheet.discipline_attestation.regime_levered_deployment_blocked is False
