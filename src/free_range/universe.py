@@ -81,12 +81,42 @@ RUSSELL_2000_TOP_50: tuple[str, ...] = (
 )
 
 
-UniverseName = Literal["nasdaq_100", "sp500_top_50", "russell_2000_top_50"]
+# Curated high-vol single-stock + leveraged-ETF watchlist for lotto.
+# Derived from three backtests (2026-05-16, 2,803 trades, 168 tickers):
+#   - 14 v2 single stocks: PF 1.48 (G4 lift to 2.63)
+#   - 19 NDX-100 high-beta subset: PF 1.39 (G4 lift to 1.64)
+#   - 8 high-vol ETFs: PF 1.39
+#   - Broad-ETF universe: PF 0.75 (skip)
+#   - Full NDX-100 broad: PF 0.89 (skip — mega-cap-stable + biotech drag)
+# Lotto edge is a high-vol-single-stock effect. Adding diversified or
+# mean-reverting names dilutes the asymmetric payoff. Keep this list
+# tight and refresh from forward results, not from "more tickers".
+# See [[project-lotto-g4-trigger-bar]] memory for the underlying analysis.
+# Lives here (not lotto/scanner.py) so it can be a named universe without
+# an import cycle (lotto.scanner -> free_range.filters -> this module);
+# lotto re-exports it, so `from lotto import LOTTO_HIGH_VOL_WATCHLIST`
+# still works for the cloud scripts.
+LOTTO_HIGH_VOL_WATCHLIST: tuple[str, ...] = (
+    # v2 single stocks (in-system, G4-validated)
+    "AAPL", "AMD", "AMZN", "AVGO", "COIN", "GOOGL", "IONQ",
+    "META", "MSFT", "MSTR", "NVDA", "PLTR", "TSLA",
+    # NDX-100 high-beta additions (2026-05-16 backtest)
+    "ARM", "ASML", "CRWD", "DDOG", "LULU", "MDB", "MELI",
+    "MRVL", "MU", "PANW", "PDD", "PYPL", "SMCI", "TTD", "ZS",
+    # Leveraged / high-vol ETFs (preserve lotto edge, G4 no-op)
+    "TQQQ", "SQQQ", "SOXL", "SOXS", "TNA", "UPRO", "ARKK", "BITO",
+)
+
+
+UniverseName = Literal[
+    "nasdaq_100", "sp500_top_50", "russell_2000_top_50", "lotto_high_vol",
+]
 
 UNIVERSES: dict[str, tuple[str, ...]] = {
     "nasdaq_100": NASDAQ_100,
     "sp500_top_50": SP500_TOP_50,
     "russell_2000_top_50": RUSSELL_2000_TOP_50,
+    "lotto_high_vol": LOTTO_HIGH_VOL_WATCHLIST,
 }
 
 
@@ -110,6 +140,8 @@ KNOWN_ETFS: frozenset[str] = frozenset({
     "EEM", "EFA", "FXI", "EWZ", "INDA",
     # Tech subsector (often used Tier 4 satellite)
     "SMH", "SOXX", "ARKK", "TQQQ", "SQQQ",
+    # Leveraged index (lotto high-vol watchlist; band-exempt like all ETFs)
+    "SOXL", "SOXS", "TNA", "UPRO",
 })
 
 

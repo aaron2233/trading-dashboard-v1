@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
 from free_range.filters import price_band_violation
+from free_range.universe import LOTTO_HIGH_VOL_WATCHLIST  # re-exported below
 from scan_verdict import TradeVerdict, lotto_verdict
 
 
@@ -34,27 +35,11 @@ LOTTO_MAG7_PRICE_EXEMPT: frozenset[str] = frozenset({
 })
 
 
-# Curated high-vol single-stock + leveraged-ETF watchlist for lotto.
-# Derived from three backtests (2026-05-16, 2,803 trades, 168 tickers):
-#   - 14 v2 single stocks: PF 1.48 (G4 lift to 2.63)
-#   - 19 NDX-100 high-beta subset: PF 1.39 (G4 lift to 1.64)
-#   - 8 high-vol ETFs: PF 1.39
-#   - Broad-ETF universe: PF 0.75 (skip)
-#   - Full NDX-100 broad: PF 0.89 (skip — mega-cap-stable + biotech drag)
-# Lotto edge is a high-vol-single-stock effect. Adding diversified or
-# mean-reverting names dilutes the asymmetric payoff. Keep this list
-# tight and refresh from forward results, not from "more tickers".
-# See [[project-lotto-g4-trigger-bar]] memory for the underlying analysis.
-LOTTO_HIGH_VOL_WATCHLIST: tuple[str, ...] = (
-    # v2 single stocks (in-system, G4-validated)
-    "AAPL", "AMD", "AMZN", "AVGO", "COIN", "GOOGL", "IONQ",
-    "META", "MSFT", "MSTR", "NVDA", "PLTR", "TSLA",
-    # NDX-100 high-beta additions (2026-05-16 backtest)
-    "ARM", "ASML", "CRWD", "DDOG", "LULU", "MDB", "MELI",
-    "MRVL", "MU", "PANW", "PDD", "PYPL", "SMCI", "TTD", "ZS",
-    # Leveraged / high-vol ETFs (preserve lotto edge, G4 no-op)
-    "TQQQ", "SQQQ", "SOXL", "SOXS", "TNA", "UPRO", "ARKK", "BITO",
-)
+# LOTTO_HIGH_VOL_WATCHLIST (imported above, re-exported via __all__) lives
+# in free_range/universe.py so it can double as the "lotto_high_vol" named
+# universe without an import cycle. Full backtest rationale is documented
+# there; this module keeps the historical import path working
+# (`from lotto import LOTTO_HIGH_VOL_WATCHLIST` — used by the cloud scripts).
 
 
 Direction = Literal["long", "short"]
