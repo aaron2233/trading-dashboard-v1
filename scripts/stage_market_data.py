@@ -22,17 +22,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from data.yfinance_loader import load_bars  # noqa: E402
+from lotto import LOTTO_HIGH_VOL_WATCHLIST  # noqa: E402
 
-# Daily bars: lotto universe (NASDAQ top 50) + guard + beat-market tickers.
-# Kept in sync with scripts/lotto_cloud_scan.py NASDAQ_50 and the beat-market
-# monitor's TICKERS list.
-LOTTO_UNIVERSE = [
-    "AAPL", "ADBE", "ADI", "ADP", "AMAT", "AMD", "AMGN", "AMZN", "ARM", "ASML",
-    "AVGO", "AZN", "BKNG", "CDNS", "CEG", "CMCSA", "COST", "CRWD", "CSCO", "CSX",
-    "FTNT", "GILD", "GOOG", "GOOGL", "HON", "INTC", "INTU", "ISRG", "KLAC", "LIN",
-    "LRCX", "MAR", "MELI", "META", "MNST", "MRVL", "MSFT", "MU", "NFLX", "NVDA",
-    "PANW", "PDD", "PEP", "QCOM", "SBUX", "SNPS", "TMUS", "TSLA", "TXN", "VRTX",
-]
+# Daily bars: lotto universe (curated high-vol watchlist — same source as
+# scripts/lotto_cloud_scan.py UNIVERSE) + guard + beat-market tickers.
+LOTTO_UNIVERSE = list(LOTTO_HIGH_VOL_WATCHLIST)
 GUARD = ["QQQ"]  # lotto fresh-bar guard ticker
 BEAT_MARKET = ["QQQ", "SPY", "QQQM", "GLD", "NVDA", "MP", "QLD"]
 
