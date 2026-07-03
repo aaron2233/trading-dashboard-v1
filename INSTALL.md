@@ -13,7 +13,7 @@ Estimated setup time: 5–10 minutes if your prereqs are in place, 20–30 minut
 | Tool | Version | Check | Install |
 |---|---|---|---|
 | Python | 3.11+ | `python3 --version` | macOS: `brew install python@3.12` · Linux: package manager · Windows: python.org installer |
-| Node.js | 20+ (Vite 6 needs ≥18; 20 LTS recommended) | `node --version` | `brew install node` or [nodejs.org](https://nodejs.org/) |
+| Node.js | 20+ (Vite 8 supports 18/20/22+; 20 LTS or newer recommended) | `node --version` | `brew install node` or [nodejs.org](https://nodejs.org/) |
 | git | any recent | `git --version` | usually preinstalled |
 
 If `python3 --version` shows 3.10 or older, install 3.12 alongside the system Python — don't replace it. On macOS, `brew install python@3.12` puts a `python3.12` on your PATH that you can use explicitly.
@@ -47,7 +47,7 @@ cd ..
 
 The `pip install` pulls pandas, yfinance, FastAPI, uvicorn, pydantic, pyyaml, plus pytest + httpx for the test suite. About 60 MB of dependencies; takes 1–3 minutes on a normal connection.
 
-`npm install` pulls React 19, Vite 6, Tailwind, lightweight-charts, and types. About 200 MB of `node_modules`; takes 1–2 minutes.
+`npm install` pulls React 19, Vite 8, Tailwind, lightweight-charts, and types. About 200 MB of `node_modules`; takes 1–2 minutes.
 
 ---
 
@@ -104,7 +104,7 @@ cd frontend
 npm run dev
 ```
 
-Open http://localhost:5173. You should see the dark-themed dashboard with a regime header (SPY/QQQ/IWM) up top and a left-side nav with Scan, Free-Range, Weekly, Lotto, Crypto, Focus, Kill Sheet, Pyramid, Positions, Journal, Weekly Review.
+Open http://localhost:5173. You should see the dark-themed dashboard with a regime header (SPY/QQQ/IWM) up top and a nav with a Scan group (Scan ticker, Weekly trend, Index swing, Regime-levered trend, Lotto) plus Regime, Kill Sheet, Positions, Journal, Weekly Review.
 
 Click **Scan**, type a ticker, hit scan. If you get an indicator panel back, you're done.
 
@@ -116,7 +116,7 @@ Click **Scan**, type a ticker, hit scan. If you get an indicator panel back, you
 pytest
 ```
 
-You should see ~740 tests passing in 30–60 seconds. If any fail, that's worth flagging back — they all pass on the author's machine.
+You should see ~1,260 tests collected, with ~28 skipping (TradingView-fixture accuracy tests skip until the truth CSVs are hand-labeled), in 3–5 minutes. If tests fail, that's worth flagging back.
 
 ---
 
@@ -125,11 +125,13 @@ You should see ~740 tests passing in 30–60 seconds. If any fail, that's worth 
 Everything the dashboard writes goes to `~/.trading-dashboard/`:
 
 - `scans/YYYY-MM-DD.json` — raw scan output, one per day
-- `kill_sheets/<timestamp>-<ticker>-<direction>.{md,json}` — every kill sheet you generate
+- `kill_sheets/<id>.json` — every kill sheet you generate
 - `positions.json` — your open + closed positions
-- `discipline/<position_id>.json` — discipline scorecard per closed trade
-- `pyramids/<id>.json` — active pyramid trades
+- `discipline/<position_id>.json` — discipline scorecard per closed trade (weekly reviews under `discipline/weekly/`)
+- `regime_health/` — regime-health snapshot history
+- `sunday_scans/` — QQQ/GLD focus Sunday-scan output
 - `events.jsonl` — instrumentation log (useful for self-audit)
+- `cache.sqlite` — market-data cache (safe to delete; rebuilt on demand)
 - `config.yaml` — your account overrides
 - `plugins/*.py` — your indicator plugins (optional)
 
@@ -146,7 +148,7 @@ Backing up `~/.trading-dashboard/` backs up your trading history. Deleting it re
 | API server says "address already in use" | Port 8000 taken by something else | `python -m api --port 8001` and set `VITE_API_URL=http://127.0.0.1:8001` in `frontend/.env.local` |
 | Frontend loads but shows "API unreachable" | API server not running, or wrong port | Check terminal 1, check `VITE_API_URL` |
 | yfinance returns empty data | Yahoo rate-limiting, or ticker malformed | Wait 60 seconds, retry; check ticker spelling |
-| Crypto view shows "fetch failed" | Crypto.com REST is region-blocked in some countries | Stocks/ETFs still work; crypto is optional |
+| Scanning a crypto symbol fails | Crypto.com REST is region-blocked in some countries | Stocks/ETFs still work; crypto is optional |
 | `import yfinance` slow on first scan | yfinance lazy-loads its own deps | One-time delay; subsequent scans are fast |
 
 ---
@@ -170,6 +172,6 @@ If something here annoys you in a way that feels like a bug rather than a design
 
 - `README.md` — high-level project description, full feature inventory, CLI reference
 - `src/config/loader.py` — full account schema (every field you can override)
-- `tests/` — 740 examples of how the API and modules behave
+- `tests/` — ~1,260 examples of how the API and modules behave
 
 Questions, weirdness, or things the README doesn't cover — open an issue on the repo. If a doc gap is real, it's worth patching.

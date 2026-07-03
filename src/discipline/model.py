@@ -8,7 +8,7 @@ exit discipline) was added 2026-07-01. Template, skill, and engine are all on
 15 as of 2026-07.
 
 A `DisciplineScore` records:
-- 14 rule results (Y / N / N/A) with auto/manual provenance
+- 15 rule results (Y / N / N/A) with auto/manual provenance
 - Numerator (Y count) and denominator (non-N/A count) for the discipline score
 - P&L (separate axis — never blended with discipline score per stage-1 rule)
 - Profitable-violation flag (score < 1.0 AND P&L > 0) — highest-risk pattern

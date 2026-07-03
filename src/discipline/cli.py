@@ -199,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="discipline",
         description=(
-            "Discipline scorecard CLI — score closed trades against the 14-rule "
+            "Discipline scorecard CLI — score closed trades against the 15-rule "
             "checklist and run weekly reviews. Stage 1 (account < $100K): "
             "discipline score is the primary KPI, P&L is secondary."
         ),
