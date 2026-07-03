@@ -57,7 +57,7 @@ warnings.filterwarnings("ignore")  # silence yfinance / pandas chatter on stdout
 from config import load_config  # noqa: E402
 from kill_sheet.builder import build_standard  # noqa: E402
 from lotto import LOTTO_HIGH_VOL_WATCHLIST, scan_lotto_watchlist, suggest_strikes  # noqa: E402
-from scan import populate_trigger_bar, scan_ticker  # noqa: E402
+from scan import compute_multi_tf, populate_trigger_bar, scan_ticker  # noqa: E402
 
 PT = ZoneInfo("America/Los_Angeles")
 ET = ZoneInfo("America/New_York")
@@ -115,10 +115,18 @@ def _f(x) -> float | None:
     return None if x is None else float(x)
 
 
-def build_trade(setup, account) -> dict | None:
+def build_trade(setup, account) -> dict | str | None:
     """Structured, actionable trade dict — the single source of truth that both
     renderers consume. Returns None if the discipline gate REJECTS the trade
     (counter-regime without a divergence thesis): not actionable, so dropped.
+    Returns "gate_error" when the kill-sheet gate itself errored (yfinance
+    hiccup mid-run): the gate FAILS CLOSED — a trade the builder might have
+    rejected must not be emailed just because the check couldn't run. The
+    caller surfaces the dropped tickers in the result.
+
+    multi_tf (Weekly + 4H) is passed so the counter-Weekly REJECT gate is
+    live here, matching the dashboard kill-sheet flow — without it that gate
+    is structurally dead and counter-weekly lottos email as actionable.
 
     Numbers are native floats (JSON-serializable). Strike is either a
     `suggested_strike` object (0.20Δ BS-derived) or a `strike_ladder`
@@ -127,11 +135,13 @@ def build_trade(setup, account) -> dict | None:
     try:
         scan_row = populate_trigger_bar(scan_ticker(setup.ticker, timeframe="1d"),
                                         setup.ticker, "2H")
+        multi_tf = compute_multi_tf(setup.ticker, timeframes=("1wk", "4h"))
         ks = build_standard(scan_row, direction=setup.direction, account=account,
                             account_key="lotto", intent="SCALP", trigger_tf="2H",
-                            risk_conviction="default", skill="lotto-options")
+                            risk_conviction="default", skill="lotto-options",
+                            multi_tf=multi_tf)
     except Exception:
-        ks = None  # fall through to scan-only fields rather than drop the trade
+        return "gate_error"  # fail closed — see docstring
 
     if ks is not None and ks.status == "REJECTED":
         return None  # discipline gate rejects → not actionable
@@ -154,6 +164,10 @@ def build_trade(setup, account) -> dict | None:
         "direction": setup.direction,
         "kind": kind,
         "spot": _f(setup.close) if setup.close else None,
+        # Per-ticker anchor bar — each ticker's 2H data is fetched
+        # independently, so one ticker can be anchored to an older bar than
+        # the header's window; the email must make that visible per trade.
+        "bar_date": setup.bar_date,
         "suggested_strike": suggested_strike,
         "strike_ladder": strike_ladder,
         "stock_target": _f(setup.target_price),
@@ -174,7 +188,7 @@ def run_scan() -> dict:
         "generated_at": now_pt.isoformat(),
         "timestamp_label": now_pt.strftime("%Y-%m-%d %H:%M %Z"),
         "trigger_tf": "2H",
-        "dte_band": "0-14 DTE",
+        "dte_band": "5-14 DTE",  # matches the scanner's suggested band
         "universe": UNIVERSE_LABEL,
         "universe_count": len(UNIVERSE),
     }
@@ -197,28 +211,51 @@ def run_scan() -> dict:
                            f"(latest 2H bar: {bar_str}), skipping."}
     base["window_close"] = bar_time.astimezone(PT).strftime("%H:%M %Z")
 
-    # 2. Scan the NASDAQ-100 top 50. Scanner applies v2 gates (G2/G3) + price
-    #    band internally; actionable = verdict "buy".
+    # Intra-day staleness: same-session but the guard bar isn't the bucket
+    # that closed most recently (Yahoo's 1h feed lagging a whole bucket at
+    # the :31 publish). Visible in window_close either way; flag it loudly
+    # so the email header says STALE instead of looking routine.
+    bar_age = now_et - bar_time.astimezone(EXCHANGE_TZ)
+    base["stale_bar"] = bar_age.total_seconds() > (2 * 3600 + 45 * 60)
+
+    # 2. Scan the curated high-vol watchlist (UNIVERSE above). Scanner
+    #    applies v2 gates (G2/G3) + price band internally; actionable =
+    #    verdict "buy".
     result = scan_lotto_watchlist(tickers=UNIVERSE)
 
     # 3. Distinguish a data blackout from a genuine no-setups result, so a
     #    yfinance rate-limit is never silently mistaken for "no trades".
+    #    Threshold: >25% of the universe erroring means coverage is too
+    #    holey to trust — fail loud rather than email a "full" scan that
+    #    silently skipped a third of its names.
     scanned_tickers = {s.ticker for s in result.setups}
-    if not scanned_tickers or len(result.errors) > len(scanned_tickers):
+    error_count = len(result.errors)
+    if not scanned_tickers or error_count > len(UNIVERSE) // 4:
         return {"status": "data_failed", **base, "trades": [],
-                "message": f"DATA FETCH FAILED ({len(result.errors)} tickers errored, "
+                "message": f"DATA FETCH FAILED ({error_count} tickers errored, "
                            f"{len(scanned_tickers)} ok) — likely datacenter "
                            f"rate-limit; no scan produced."}
+    base["error_tickers"] = sorted(result.errors)  # [] when coverage is full
 
     config = load_config()              # baked-in defaults when no config.yaml
     account = config.account("lotto")
 
-    # 4. Build a structured trade per actionable setup; drop discipline-rejected.
-    trades = [t for s in result.actionable_setups
-              if (t := build_trade(s, account)) is not None]
+    # 4. Build a structured trade per actionable setup. Discipline-REJECTED
+    #    setups drop silently (working as designed); gate ERRORS drop the
+    #    trade too (fail closed) but are surfaced so a broken gate is
+    #    visible, not mistaken for a quiet window.
+    built = [(s, build_trade(s, account)) for s in result.actionable_setups]
+    trades = [t for _, t in built if isinstance(t, dict)]
+    gate_errors = sorted({s.ticker for s, t in built if t == "gate_error"})
+    base["gate_error_tickers"] = gate_errors
     if not trades:
-        return {"status": "no_setups", **base, "trades": [],
-                "message": "no actionable setups this window."}
+        msg = "no actionable setups this window."
+        if gate_errors:
+            msg = (f"no actionable setups this window — but "
+                   f"{len(gate_errors)} setup(s) were dropped because the "
+                   f"kill-sheet gate errored (fail closed): "
+                   f"{', '.join(gate_errors)}.")
+        return {"status": "no_setups", **base, "trades": [], "message": msg}
 
     return {"status": "ok", **base,
             "actionable_count": len(trades), "trades": trades}
@@ -246,9 +283,10 @@ def trade_to_markdown(t: dict) -> str:
     tgt = f"${t['stock_target']:g}" if t["stock_target"] is not None else "n/a"
     stop = f"${t['stock_stop']:g}" if t["stock_stop"] is not None else "n/a"
     spot = f"${t['spot']:g}" if t["spot"] else "n/a"
+    bar = f"  ·  bar {t['bar_date']}" if t.get("bar_date") else ""
 
     return "\n".join([
-        f"### {t['ticker']} — {t['kind'].upper()}  ·  spot {spot}",
+        f"### {t['ticker']} — {t['kind'].upper()}  ·  spot {spot}{bar}",
         f"- **Recommended strike:** {_strike_md(t)}",
         f"- **Stock target:** {tgt}  ·  **stock invalidation (stop):** {stop}",
         f"- **Options target:** +{t['options_target_pct']}% "
@@ -277,6 +315,20 @@ def render_markdown(res: dict) -> str:
         "balance. Verify against your book before entering.",
         "",
     ]
+    if res.get("stale_bar"):
+        out.insert(2, "> 🚨 **STALE BAR** — the latest 2H bar is older than the "
+                      "just-closed window (data feed lagging). Levels below are "
+                      "anchored to an old bar; verify spot before acting.")
+    if res.get("error_tickers"):
+        et = res["error_tickers"]
+        out.append(f"> ⚠️ Coverage incomplete: {len(et)} ticker(s) errored and "
+                   f"were not scanned — {', '.join(et)}.")
+        out.append("")
+    if res.get("gate_error_tickers"):
+        ge = res["gate_error_tickers"]
+        out.append(f"> ⚠️ {len(ge)} setup(s) dropped — kill-sheet gate errored "
+                   f"(fail closed): {', '.join(ge)}.")
+        out.append("")
     out.extend(trade_to_markdown(t) for t in res["trades"])
     return "\n".join(out)
 
