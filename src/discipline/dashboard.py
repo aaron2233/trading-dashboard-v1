@@ -3,6 +3,8 @@
 Composes:
 - current_stage based on live account balance
 - account_balance from config baseline + realized P&L on closed positions
+  (or, when config.yaml carries a `balance:` anchor, from that user-maintained
+  broker true-up + realized P&L closed after the anchor date)
 - list of unreviewed weeks (closed trades present, no saved WeeklyReview)
 
 Used by the new GET /api/v1/dashboard/state endpoint to drive the dynamic
@@ -50,21 +52,75 @@ class DashboardState:
         return d
 
 
+def _balance_anchor(config: Config) -> tuple[float, date] | None:
+    """Read the optional user-maintained balance anchor from config.
+
+    ~/.trading-dashboard/config.yaml::
+
+        balance:
+          anchor_usd: 10903.70     # authoritative combined balance...
+          anchor_date: 2026-06-09  # ...as of this date (broker true-up)
+
+    Returns (anchor_usd, anchor_date) or None when absent/incomplete.
+    PyYAML parses an unquoted ISO date as datetime.date; quoted strings are
+    parsed here.
+    """
+    raw = config.raw.get("balance")
+    if not isinstance(raw, dict):
+        return None
+    anchor_usd = raw.get("anchor_usd")
+    anchor_date = raw.get("anchor_date")
+    if anchor_usd is None or anchor_date is None:
+        return None
+    if isinstance(anchor_date, datetime):
+        anchor_date = anchor_date.date()
+    elif isinstance(anchor_date, str):
+        anchor_date = date.fromisoformat(anchor_date)
+    if not isinstance(anchor_date, date):
+        return None
+    return float(anchor_usd), anchor_date
+
+
+def _closed_on(p: Position) -> date | None:
+    if not p.closed_date:
+        return None
+    try:
+        return datetime.fromisoformat(p.closed_date.replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return datetime.strptime(p.closed_date, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+
 def compute_account_balance(
     config: Config,
     closed_positions: Iterable[Position],
 ) -> tuple[float, float, float]:
     """Return (base_balance, realized_pnl, total).
 
-    `base_balance` sums config account balances, deduplicating by pool
-    (accounts with pool_member_of set don't contribute their own balance).
-    `realized_pnl` is the sum of pnl_usd across non-legacy closed positions.
+    Default: `base_balance` sums config account balances, deduplicating by
+    pool (accounts with pool_member_of set don't contribute their own
+    balance), and `realized_pnl` sums pnl_usd across non-legacy closed
+    positions.
+
+    When the user config carries a `balance:` anchor (see _balance_anchor),
+    the anchor is authoritative: base = anchor_usd, and realized only counts
+    positions closed strictly AFTER anchor_date — the anchor already embodies
+    everything up to and including that date (deposits, withdrawals, prior
+    P&L). True up by re-stamping the two config lines from the broker.
     """
-    base = 0.0
-    for acct in config.accounts.values():
-        if acct.pool_member_of is not None:
-            continue
-        base += acct.balance_usd
+    anchor = _balance_anchor(config)
+
+    if anchor is not None:
+        base, anchor_date = anchor
+    else:
+        base = 0.0
+        for acct in config.accounts.values():
+            if acct.pool_member_of is not None:
+                continue
+            base += acct.balance_usd
+        anchor_date = None
 
     realized = 0.0
     for p in closed_positions:
@@ -76,6 +132,10 @@ def compute_account_balance(
         # discipline scoring rules.
         if is_legacy_position(p.closed_date):
             continue
+        if anchor_date is not None:
+            closed_d = _closed_on(p)
+            if closed_d is None or closed_d <= anchor_date:
+                continue
         realized += float(p.pnl_usd)
 
     return base, realized, base + realized

@@ -168,10 +168,14 @@ function StageBanner() {
   const subtext = isStage1
     ? `${balance} / ${threshold}`
     : `${balance} · floor`;
+  const pnl = state.realized_pnl_usd;
+  const pnlCls = pnl >= 0 ? "text-signal-bull" : "text-signal-bear";
+  const pnlText = `${pnl >= 0 ? "+" : "−"}${fmtUsd(Math.abs(pnl))}`;
   return (
     <span className={`ml-auto sticker ${cls}`}>
       <span>{isStage1 ? "STAGE_1" : "STAGE_2"}</span>
-      <span className="opacity-80">· {subtext}</span>
+      <span className="opacity-80">· {subtext} ·</span>
+      <span className={pnlCls}>{pnlText}</span>
     </span>
   );
 }
