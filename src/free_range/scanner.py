@@ -184,12 +184,11 @@ def run_free_range_scan(
 
     `universe` picks the Phase 3 candidate list(s). May be a single name
     ("nasdaq_100" | "sp500_top_50" | "russell_2000_top_50") or a list of
-    names. When a list is provided, Phase 3 runs ONCE PER universe and
-    `free_range_cap` is applied PER universe — so passing all three names
-    with cap=5 yields up to 15 candidates (5 per index), each tagged with
-    its `source_universe`. Default = all three indexes. Each free-range
+    names. All universes' passers are ranked TOGETHER by score and
+    `free_range_cap` is applied GLOBALLY (orchestrator rule 11: hard cap 5
+    candidates total, quality-ranked — not 5 per index). Each free-range
     snapshot carries a `source_universe` attribute so the frontend can
-    group them by index.
+    group them by index; the tag is display metadata, not a quota.
 
     `universe_override` (legacy / tests) takes precedence: when supplied,
     Phase 3 scans only that tuple, tagged with source_universe="custom".
@@ -242,8 +241,8 @@ def run_free_range_scan(
                 for name in universe_names
             ]
 
+        all_passers: list[CandidateSnapshot] = []
         for uni_name, candidate_list in scan_groups:
-            per_universe: list[CandidateSnapshot] = []
             for tkr in candidate_list:
                 snap = _scan_one(
                     tkr, "free_range", scan_fn, errors, enforce_price_band=True,
@@ -251,22 +250,32 @@ def run_free_range_scan(
                 if snap is None:
                     continue
                 snap.source_universe = uni_name
-                per_universe.append(snap)
+                all_passers.append(snap)
             universe_size += len(candidate_list)
 
-            # Per-universe ranking + cap. Padding still forbidden — if a
-            # given index produces fewer than `free_range_cap` passers, the
-            # note flags it by index name so the user knows which sleeve
-            # was thin (vs. assuming a bug).
-            per_universe.sort(key=lambda s: s.score, reverse=True)
-            if len(per_universe) < free_range_cap:
-                notes.append(
-                    f"{uni_name}: only {len(per_universe)} candidate(s) "
-                    f"passed filters (cap {free_range_cap}). Padding "
-                    "the slot count is forbidden — the scan does not "
-                    "invent setups."
-                )
-            free_range.extend(per_universe[:free_range_cap])
+        # GLOBAL ranking + cap across all universes — orchestrator rule 11:
+        # hard cap `free_range_cap` candidates TOTAL, ranked by setup
+        # quality (was per-universe, which allowed cap×3 with the default
+        # three indexes). Padding still forbidden — if fewer pass, the note
+        # says so; the scan does not invent setups.
+        all_passers.sort(key=lambda s: s.score, reverse=True)
+        if len(all_passers) < free_range_cap:
+            notes.append(
+                f"only {len(all_passers)} candidate(s) passed filters "
+                f"across all universes (cap {free_range_cap}). Padding "
+                "the slot count is forbidden — the scan does not "
+                "invent setups."
+            )
+        free_range = all_passers[:free_range_cap]
+        if free_range:
+            # IVR is NOT auto-checked at scan time (no reliable free IV
+            # source — see module docstring). The IVR>70 anti-pattern gate
+            # fires at the kill-sheet layer from pasted broker data; until
+            # then it is the user's manual check.
+            notes.append(
+                "⚠️ IVR not auto-checked — verify IV Rank < 70% "
+                "(MarketChameleon) before kill-sheeting any candidate."
+            )
     else:
         notes.append("Free-range Phase 3 skipped (baseline + user-submitted only)")
 

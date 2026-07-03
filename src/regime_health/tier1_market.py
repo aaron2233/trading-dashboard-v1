@@ -41,17 +41,23 @@ def _default_load_fn() -> Callable[..., Any]:
     return load_bars
 
 
-# Diagnostic substrings that flip SQN(20)-vs-SQN(100) reading to amber.
-# diagnose_sqn_pair() returns descriptive prose like "regime aligned",
-# "divergence — early shift signal", "extreme — chase risk", etc.
-# Keep this list narrow — false-amber here adds noise to the panel.
-_SQN20_AMBER_TOKENS = (
-    "diverg",       # diverging / divergence
-    "extreme",      # extreme reading on SQN(20)
-    "capitul",      # capitulation reset
-    "chase",        # chasing premium warning
-    "caution",
-)
+# diagnose_sqn_pair() diagnostics that flip the SQN(20)-vs-SQN(100)
+# reading to amber. The function returns snake_case TOKENS (see
+# indicators/sqn_regime.py:diagnose_sqn_pair), not prose — the previous
+# substring list ("diverg", "extreme", "caution") matched strings the
+# function never produces, so every early-regime-shift state rendered
+# green. Amber = the tactical-attention states per the SQN-regime guide:
+# divergences (early shift signals), counter-trend bounces, dip/capitulation
+# resets, and chase extremes. Aligned/chop states stay green.
+_SQN20_AMBER_DIAGNOSTICS = frozenset({
+    "early_bull_signal",             # SQN(20) strong_bull inside Neutral(100)
+    "early_bear_signal",             # SQN(20) bear inside Neutral(100)
+    "buy_the_dip",                   # capitulation reset inside Bull(100)
+    "counter_trend_bounce",          # SQN(20) bull inside Bear(100) — don't flip
+    "bear_weakening",                # SQN(20) neutral inside Bear(100)
+    "confluence_chase_warning",      # > +2.5 — trim/wait, no fresh longs
+    "confluence_capitulation_watch", # < -2.0 deep capitulation
+})
 
 
 # ── Readers ──────────────────────────────────────────────────────────────────
@@ -151,8 +157,7 @@ def read_sqn20_diagnostic(
         status = "unknown"
         formatted = "—"
     else:
-        diag_lower = diagnostic.lower()
-        if any(tok in diag_lower for tok in _SQN20_AMBER_TOKENS):
+        if diagnostic.lower() in _SQN20_AMBER_DIAGNOSTICS:
             status = "amber"
         else:
             status = "green"

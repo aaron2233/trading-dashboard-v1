@@ -318,11 +318,28 @@ def build_standard(
     # Neutral is authorized (at half size, applied above) — only a regime that
     # actively OPPOSES the direction (long in bear, short in bull) is rejected
     # without a divergence thesis. (Decision 2026-06.)
-    if not sqn_authorizes and regime != "neutral" and not divergence_thesis:
+    #
+    # EXCEPTION — rule 17 hard gate: index shorts (QQQ/IWM/SPY puts) require
+    # SQN(100) <= -0.7 (Bear/Strong Bear). Neutral does NOT authorize them —
+    # shorts on these names are net-unprofitable outside Bear regimes (19/39
+    # Track A 2014-2026: shorts -50R; index-swing 1999-2022: zero shorts in
+    # the 370-trade design). A documented divergence thesis is the only
+    # override, and the rule-17 speculative clamp above then caps its size.
+    is_index_short = (
+        direction == "short"
+        and (scan_row.get("ticker") or "").upper() in INDEX_SWING_ALLOWED_TICKERS
+    )
+    if not sqn_authorizes and not divergence_thesis and (
+        regime != "neutral" or is_index_short
+    ):
         status = "REJECTED"
         rejection_reason = (
-            f"SQN(100) regime '{regime}' opposes {direction.upper()} "
-            f"direction. Document a divergence thesis to override."
+            f"Rule 17: index short requires SQN(100) Bear/Strong Bear — "
+            f"regime is '{regime}'. Document a divergence thesis to override "
+            f"(speculative size only)."
+            if is_index_short and regime == "neutral"
+            else f"SQN(100) regime '{regime}' opposes {direction.upper()} "
+                 f"direction. Document a divergence thesis to override."
         )
 
     # ── Counter-Weekly / 4H-opposing lotto gate ───────────────────────────

@@ -245,6 +245,50 @@ def test_opposing_regime_still_rejected_without_thesis():
     assert sheet.status == "REJECTED"
 
 
+def _index_short_row(regime: str, ticker: str = "QQQ") -> dict:
+    row = _row("full_bear", "bear_cross_overbought", regime)
+    row["ticker"] = ticker
+    return row
+
+
+def test_rule17_neutral_index_short_rejected_without_thesis():
+    """Rule 17 hard gate: QQQ/IWM/SPY shorts require SQN(100) Bear/Strong
+    Bear. Neutral does NOT authorize them — the general neutral-half-size
+    carve-out must not apply to index shorts."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_index_short_row("neutral"),
+                           direction="short", account=cfg.account("main"))
+    assert sheet.status == "REJECTED"
+    assert "Rule 17" in (sheet.rejection_reason or "")
+
+
+def test_rule17_neutral_index_short_with_thesis_clamped_to_speculative():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    account = cfg.account("main")
+    sheet = build_standard(
+        _index_short_row("neutral"), direction="short", account=account,
+        divergence_thesis="SQN(20) rolled over hard while breadth diverges",
+    )
+    assert sheet.status == "AUTHORIZED"
+    assert sheet.risk_pct <= account.risk_pct("speculative")
+
+
+def test_rule17_bear_regime_index_short_authorized_normally():
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_index_short_row("bear"),
+                           direction="short", account=cfg.account("main"))
+    assert sheet.status == "AUTHORIZED"
+
+
+def test_neutral_non_index_short_keeps_half_size_authorization():
+    """The 2026-06 neutral-half-size decision still governs non-index
+    tickers — rule 17 narrows only QQQ/IWM/SPY shorts."""
+    cfg = load_config(Path("/nonexistent.yaml"))
+    sheet = build_standard(_index_short_row("neutral", ticker="FAKE"),
+                           direction="short", account=cfg.account("main"))
+    assert sheet.status == "AUTHORIZED"
+
+
 def test_kill_sheet_persists_rules_blocked_and_violations():
     # Decision 2026-06 (journal-first): the rule-engine outcome is persisted on
     # the sheet so a breach stays visible when the scorer loads it at close.
