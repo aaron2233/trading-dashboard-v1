@@ -261,6 +261,34 @@ def test_lotto_chop_is_no_go():
     assert v.verdict == "no_go"
 
 
+def test_lotto_compression_is_no_go_both_directions():
+    """The ribbon's squeezed-MAs state is "compression" (it never emits
+    "tangled") — trendless, hard no-trade per the anti-patterns."""
+    long_v = lotto_verdict(
+        "compression", "bull", 1.6, "bull_cross_oversold", "oversold", "long",
+    )
+    short_v = lotto_verdict(
+        "compression", "bear", -1.0, "bear_cross_overbought", "overbought", "short",
+    )
+    assert long_v.verdict == "no_go"
+    assert short_v.verdict == "no_go"
+
+
+def test_lotto_missing_sqn100_fails_closed():
+    """No SQN(100) regime → regime gates can't evaluate → WAIT, never BUY."""
+    v = lotto_verdict("full_bull", None, 1.6, "bull_cross_oversold", "oversold", "long")
+    assert v.verdict == "wait"
+    assert "unavailable" in v.reason.lower()
+
+
+def test_lotto_missing_sqn20_fails_closed():
+    """No SQN(20) value → chase gate / rule-18 / v2 gates can't evaluate →
+    WAIT, never BUY (previously this fell through to BUY)."""
+    v = lotto_verdict("full_bull", "bull", None, "bull_cross_oversold", "oversold", "long")
+    assert v.verdict == "wait"
+    assert "unavailable" in v.reason.lower()
+
+
 def test_lotto_long_in_strong_bear_no_go():
     v = lotto_verdict("full_bull", "strong_bear", 0.0, "bull_cross_oversold", "oversold", "long")
     assert v.verdict == "no_go"
@@ -360,13 +388,15 @@ def test_lotto_v2_full_bull_with_neutral_sqn20_still_buys():
     assert v.verdict == "buy"
 
 
-def test_lotto_v2_bull_developing_with_no_sqn20_no_go():
-    """v2: missing SQN(20) on bull_developing is treated as insufficient
-    momentum confirmation → no_go (fail-safe)."""
+def test_lotto_v2_bull_developing_with_no_sqn20_fails_closed():
+    """Missing SQN(20) now fails closed globally (WAIT) before the v2 gates
+    are reached — still no entry, consistent with every other missing-SQN
+    case (was a per-gate no_go fail-safe)."""
     v = lotto_verdict(
         "bull_developing", "neutral", None, "bull_cross_oversold", "oversold", "long",
     )
-    assert v.verdict == "no_go"
+    assert v.verdict == "wait"
+    assert "unavailable" in v.reason.lower()
 
 
 # ─── Lotto scanner (uses fake scan_fn so no yfinance) ────────────────
