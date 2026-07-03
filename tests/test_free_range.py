@@ -368,6 +368,41 @@ def test_scanner_free_range_top_n_hard_cap():
     assert scores == sorted(scores, reverse=True)
 
 
+def test_scanner_free_range_cap_is_global_across_universes(monkeypatch):
+    """Orchestrator rule 11: hard cap 5 candidates TOTAL, quality-ranked —
+    not 5 per universe (which allowed 15 with the default three indexes)."""
+    import free_range.scanner as fr_scanner
+
+    groups = {
+        "uni_a": ("A1", "A2", "A3", "A4"),
+        "uni_b": ("B1", "B2", "B3", "B4"),
+    }
+    monkeypatch.setattr(
+        fr_scanner, "free_range_universe",
+        lambda excluded, universe: groups[universe],
+    )
+    rows = {
+        "QQQ": make_row("QQQ", close=480.0, stack="full_bull", sqn_regime="bull"),
+        "GLD": make_row("GLD", close=180.0, stack="full_bull", sqn_regime="bull"),
+    }
+    for i, t in enumerate(groups["uni_a"] + groups["uni_b"]):
+        rows[t] = make_row(
+            t, close=20.0 + i, stack="full_bull",
+            stoch_signal="bull_cross_oversold", sqn_regime="bull",
+        )
+    scan = run_free_range_scan(
+        scan_fn=make_scan_fn(rows),
+        universe=["uni_a", "uni_b"],
+        free_range_cap=5,
+    )
+    # 8 passers across 2 universes → exactly 5 survive, ranked globally.
+    assert len(scan.free_range) == 5
+    scores = [s.score for s in scan.free_range]
+    assert scores == sorted(scores, reverse=True)
+    # source_universe tags are preserved as display metadata.
+    assert all(s.source_universe in groups for s in scan.free_range)
+
+
 def test_scanner_free_range_no_padding_when_fewer_pass():
     """Only 2 candidates pass — return 2, with explicit note saying so."""
     universe = ("T1", "T2", "T3")

@@ -113,26 +113,58 @@ def test_read_weekly_ma_unknown_state_is_unknown():
 # ── SQN(20) diagnostic reader ────────────────────────────────────────────────
 
 
+# Fixtures use the ACTUAL snake_case tokens diagnose_sqn_pair() returns
+# (indicators/sqn_regime.py). The previous fixtures passed invented prose
+# ("diverging — early shift signal") that production never produces, so the
+# suite passed while every real divergence token classified green.
+
+
 def test_sqn20_diagnostic_aligned_is_green():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, **kw: _scan_row(diagnostic="regime aligned, healthy trend"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="healthy_trend"),
     )
     assert r.status == "green"
 
 
-def test_sqn20_diagnostic_divergence_is_amber():
+def test_sqn20_diagnostic_chop_is_green():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, **kw: _scan_row(diagnostic="diverging — early shift signal"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="true_chop"),
+    )
+    assert r.status == "green"
+
+
+def test_sqn20_diagnostic_early_bear_signal_is_amber():
+    """The 2024-08-05 yen-carry pattern: SQN(20) cracks while SQN(100) is
+    still Neutral — must render amber, not green."""
+    r = read_sqn20_diagnostic(
+        "SPY",
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="early_bear_signal"),
     )
     assert r.status == "amber"
 
 
-def test_sqn20_diagnostic_extreme_is_amber():
+def test_sqn20_diagnostic_early_bull_signal_is_amber():
+    r = read_sqn20_diagnostic(
+        "SPY",
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="early_bull_signal"),
+    )
+    assert r.status == "amber"
+
+
+def test_sqn20_diagnostic_chase_warning_is_amber():
     r = read_sqn20_diagnostic(
         "QQQ",
-        scan_fn=lambda t, **kw: _scan_row(diagnostic="extreme reading — chase risk"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="confluence_chase_warning"),
+    )
+    assert r.status == "amber"
+
+
+def test_sqn20_diagnostic_buy_the_dip_is_amber():
+    r = read_sqn20_diagnostic(
+        "SPY",
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="buy_the_dip"),
     )
     assert r.status == "amber"
 
@@ -140,7 +172,7 @@ def test_sqn20_diagnostic_extreme_is_amber():
 def test_sqn20_diagnostic_capitulation_is_amber():
     r = read_sqn20_diagnostic(
         "SPY",
-        scan_fn=lambda t, **kw: _scan_row(diagnostic="capitulation reset inside Bull"),
+        scan_fn=lambda t, **kw: _scan_row(diagnostic="confluence_capitulation_watch"),
     )
     assert r.status == "amber"
 
