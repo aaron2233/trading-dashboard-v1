@@ -66,8 +66,9 @@ from indicators.stochastic import Stochastic
 
 SCANS_DIR = Path.home() / ".trading-dashboard" / "scans"
 
-# qqq-gld-focus skill: SPY for regime context + QQQ + GLD for setups.
-# Per ~/.claude/skills/user/qqq-gld-focus/SKILL.md "Sunday Scan Workflow".
+# qqq-gld-focus playbook: SPY for regime context + QQQ + GLD for setups.
+# (Retired as a standalone skill 2026-05-07; the Sunday Scan workflow lives
+# on here and in src/focus/.)
 FOCUS_SCAN_TICKERS: tuple[str, ...] = ("SPY", "QQQ", "GLD")
 FOCUS_ALLOWED: frozenset[str] = frozenset(FOCUS_SCAN_TICKERS)
 
@@ -339,7 +340,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "qqq-gld-focus mode: with no tickers, scans "
             f"{', '.join(FOCUS_SCAN_TICKERS)}. With explicit tickers, only "
-            "those three are allowed. See ~/.claude/skills/user/qqq-gld-focus/."
+            "those three are allowed."
         ),
     )
     return p
