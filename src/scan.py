@@ -127,7 +127,13 @@ def scan_ticker(
     return {
         "ticker": ticker,
         "timeframe": timeframe,
-        "bar_date": latest.strftime("%Y-%m-%d"),
+        # Intraday bars carry their close time — date alone is ambiguous when
+        # multiple bars share a session (e.g. 2h lotto triggers).
+        "bar_date": latest.strftime(
+            "%Y-%m-%d %H:%M"
+            if timeframe.endswith(("h", "m")) and not timeframe.endswith("mo")
+            else "%Y-%m-%d"
+        ),
         "close": _safe(float(bars["close"].iloc[-1])),
         "open": _safe(float(bars["open"].iloc[-1])),
         "ma_ribbon": {
