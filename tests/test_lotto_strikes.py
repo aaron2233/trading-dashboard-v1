@@ -230,6 +230,58 @@ def test_api_strikes_endpoint_direction_filter(monkeypatch):
     assert len(body_put["puts"]) > 0
 
 
+def test_api_strikes_endpoint_prefers_2h_spot(monkeypatch):
+    """Spot anchors to the last completed 2H bar; the daily close is a full
+    session stale intraday (anti-repaint drops the in-progress daily bar)."""
+    from fastapi.testclient import TestClient
+    from api.app import create_app
+
+    def fake_scan_ticker(ticker, timeframe):
+        if timeframe == "2h":
+            return {
+                "ticker": ticker, "timeframe": timeframe,
+                "bar_date": "2026-07-02 13:30", "close": 440.0,
+                "ma_ribbon": {}, "stochastic": {}, "sqn": {},
+            }
+        return {
+            "ticker": ticker, "timeframe": timeframe,
+            "bar_date": "2026-07-01", "close": 480.0,
+            "ma_ribbon": {}, "stochastic": {}, "sqn": {},
+        }
+
+    monkeypatch.setattr("api.routes.lotto.scan_ticker", fake_scan_ticker)
+    with TestClient(create_app()) as client:
+        r = client.get("/api/v1/lotto/strikes/QQQ")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["spot"] == 440.0
+    assert body["bar_date"] == "2026-07-02 13:30"
+
+
+def test_api_strikes_endpoint_falls_back_to_daily_when_2h_fails(monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.app import create_app
+
+    def fake_scan_ticker(ticker, timeframe):
+        if timeframe == "2h":
+            raise RuntimeError("intraday unavailable")
+        return {
+            "ticker": ticker, "timeframe": timeframe,
+            "bar_date": "2026-07-01", "close": 480.0,
+            "ma_ribbon": {}, "stochastic": {}, "sqn": {},
+        }
+
+    monkeypatch.setattr("api.routes.lotto.scan_ticker", fake_scan_ticker)
+    with TestClient(create_app()) as client:
+        r = client.get("/api/v1/lotto/strikes/SPY")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["spot"] == 480.0
+    assert body["bar_date"] == "2026-07-01"
+
+
 def test_api_strikes_endpoint_502_on_scan_failure(monkeypatch):
     from fastapi.testclient import TestClient
     from api.app import create_app

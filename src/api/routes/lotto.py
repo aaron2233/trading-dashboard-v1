@@ -78,16 +78,27 @@ def make_lotto_router(store_factory, config_loader) -> APIRouter:
     ) -> dict[str, Any]:
         """Strike candidates around current spot for a Lotto setup. Returns
         ATM + 1/3/5/7/10% OTM by default. Premium / IV / delta NOT included
-        — those flow through the options-input layer at kill-sheet time."""
+        — those flow through the options-input layer at kill-sheet time.
+
+        Spot anchors to the last completed 2H bar, not the daily bar: the
+        daily loader drops the in-progress session (anti-repaint), so
+        intraday the daily close is yesterday's — up to a full session
+        stale. Daily remains the fallback when the 2H fetch fails."""
         from lotto import suggest_strikes
         ticker_u = ticker.upper()
+        row: dict[str, Any] | None
         try:
-            row = scan_ticker(ticker_u, timeframe="1d")
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Spot fetch failed for {ticker_u}: {exc}",
-            )
+            row = scan_ticker(ticker_u, timeframe="2h")
+        except Exception:
+            row = None
+        if row is None or row.get("close") is None:
+            try:
+                row = scan_ticker(ticker_u, timeframe="1d")
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Spot fetch failed for {ticker_u}: {exc}",
+                )
         spot = row.get("close")
         if spot is None or spot <= 0:
             raise HTTPException(

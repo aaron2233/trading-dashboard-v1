@@ -261,7 +261,7 @@ def lotto_verdict(
     """Classify a lotto setup. Direction is the proposed lotto direction.
 
     Hard NO-GO conditions:
-      - Daily stack chop
+      - Daily stack chop or compression (squeezed ribbon = tangled MAs)
       - SQN(100) opposes (Strong Bear + bullish lotto, Strong Bull + bearish lotto)
       - SQN(20) > +2.5 + bullish lotto (chase warning)
       - Structural Bear-Volatile (SQN-100 Strong Bear, or SQN-100 Bear + SQN-20 < -1.9)
@@ -271,15 +271,31 @@ def lotto_verdict(
       - Stack `full_bull` + SQN(20) in +0.5..+1.4 long (mid-momentum chop, v2)
 
     BUY: Daily stack supports + 2H Stoch cross from extreme + regime aligned
-    WAIT: Daily supports + no 2H trigger yet, or marginal 2H signal
+    WAIT: Daily supports + no 2H trigger yet, or marginal 2H signal, or SQN
+    data missing (regime gates fail CLOSED — a data gap can never yield BUY)
 
     Version 2 gates (the last three above) are empirically derived from a
     620-trade 2y backtest across 25 tickers (see scripts/lotto_options_backtest.py
     and scripts/lotto_cohort_analysis.py for the supporting analysis).
     """
-    # Hard NO-GO conditions first
-    if daily_stack in ("chop", "tangled", None):
-        return TradeVerdict("no_go", "Daily MA stack is chop — no trend, no trade")
+    # Hard NO-GO conditions first. The ribbon emits "compression" for the
+    # squeezed/tangled-MAs state (it never emits "tangled") — both trendless
+    # states are hard no-trades per the anti-patterns.
+    if daily_stack in ("chop", "compression", None):
+        return TradeVerdict(
+            "no_go",
+            f"Daily MA stack is {daily_stack or 'unknown'} — no trend, no trade",
+        )
+
+    # Regime gates fail CLOSED: the strong-bear block, rule-18 skip, chase
+    # gate, and v2 cohort gates all key on SQN. With either window missing
+    # (short history, staged-data gap) the gates cannot evaluate, so a data
+    # gap must never produce a BUY.
+    if sqn_100_regime is None or sqn_20_value is None:
+        return TradeVerdict(
+            "wait",
+            "SQN regime data unavailable — regime gates cannot evaluate",
+        )
 
     if direction == "long":
         if sqn_100_regime == "strong_bear":
