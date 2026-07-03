@@ -778,6 +778,77 @@ class IndexSwingScanResponse(BaseModel):
     errors: dict[str, str] = Field(default_factory=dict)
 
 
+# ─── Regime-levered trend scan ────────────────────────────────────────────────
+
+
+class RegimeLeveredScanRequest(BaseModel):
+    """Optional ticker override; default is the skill's 13-name backtest
+    universe (regime_levered.DEFAULT_UNIVERSE)."""
+    tickers: list[str] | None = None
+    benchmark: str = "SPY"
+
+
+class RegimeLeveredWeeklyStateResponse(BaseModel):
+    bar_date: str | None = None
+    close: float | None = None
+    ma_10: float | None = None
+    ma_20: float | None = None
+    ma_50: float | None = None
+    ma_200: float | None = None
+    ma_19: float | None = None
+    full_bull: bool
+    stoch_k: float | None = None
+    stoch_d: float | None = None
+    stoch_k_prev: float | None = None
+    stoch_turned_up: bool
+    close_above_20: bool
+
+
+class RegimeLeveredSetupResponse(BaseModel):
+    ticker: str
+    bar_date: str | None = None
+    close: float | None = None
+    own_sqn_100: float | None = None
+    own_regime: str | None = None
+    weekly: RegimeLeveredWeeklyStateResponse | None = None
+    confluence: Literal[
+        "core_entry", "overbought_watch", "bull_no_trigger",
+        "own_regime_blocked", "not_full_bull", "no_data",
+    ]
+    rank_score: float
+    why_now: str
+    blockers: list[str] = Field(default_factory=list)
+    # Unified scan-card fields
+    verdict: Verdict = "wait"
+    verdict_reason: str = ""
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    suggested_dte: str | None = None
+    suggested_delta: str | None = None
+    suggested_strike: float | None = None
+
+
+class DipBuySignalResponse(BaseModel):
+    ticker: str
+    daily_stoch_k: float | None = None
+    fired: bool
+    note: str
+
+
+class RegimeLeveredScanResponse(BaseModel):
+    scan_time_utc: str
+    benchmark: str
+    broad_sqn_100: float | None = None
+    broad_regime: str | None = None
+    layer1_live: bool
+    deployment_note: str
+    setups: list[RegimeLeveredSetupResponse] = Field(default_factory=list)
+    core_candidates: list[RegimeLeveredSetupResponse] = Field(default_factory=list)
+    dip_buy_signals: list[DipBuySignalResponse] = Field(default_factory=list)
+    errors: dict[str, str] = Field(default_factory=dict)
+
+
 # ─── Sparkline ───────────────────────────────────────────────────────────────
 
 
