@@ -57,7 +57,7 @@ def _strike_line(t: dict) -> str:
 def _trade_block(t: dict) -> str:
     """Plain-text block per trade, mirroring the scan's Markdown layout."""
     cut = t.get("options_cut_pct")
-    cut_label = f"{abs(cut) * 100:.0f}%" if cut is not None else "70%"
+    cut_label = f"{abs(cut) * 100:.0f}%" if cut is not None else "50%"
     tgt = f"${t['stock_target']:g}" if t.get("stock_target") is not None else "n/a"
     stop = f"${t['stock_stop']:g}" if t.get("stock_stop") is not None else "n/a"
     spot = f"${t['spot']:g}" if t.get("spot") else "n/a"

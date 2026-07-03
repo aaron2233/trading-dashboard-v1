@@ -55,10 +55,8 @@ _DEFAULT_ACCOUNTS: dict[str, dict[str, Any]] = {
         "dte_max": 14,
         # Lotto stop is -50% per the lotto-options skill and the v2-gate
         # backtest's R definition (HARD_STOP_FRAC=0.50); -0.70 broke those PF
-        # numbers. (Decision 2026-06.) NOTE: nothing in this branch consumes
-        # cut_rule_pct yet — the cloud-scan email reader lives on the
-        # lotto-cloud-scan-routine branch (apply -0.50 there too), and the
-        # discipline scorecard's cut check still uses a uniform 0.70 threshold.
+        # numbers. (Decision 2026-06.) The cloud-scan email/Telegram renderers
+        # and the discipline scorecard's lotto cut check all read this value.
         "cut_rule_pct": -0.50,
         "tempo_per_week": "2-4",
     },

@@ -128,8 +128,9 @@ def scan_ticker(
     return {
         "ticker": ticker,
         "timeframe": timeframe,
-        # Intraday bars carry their close time — date alone is ambiguous when
-        # multiple bars share a session (e.g. 2h lotto triggers).
+        # Intraday bars carry their bucket-open timestamp (charting
+        # convention) — date alone is ambiguous when multiple bars share a
+        # session (e.g. 2h lotto triggers).
         "bar_date": latest.strftime(
             "%Y-%m-%d %H:%M"
             if timeframe.endswith(("h", "m")) and not timeframe.endswith("mo")
