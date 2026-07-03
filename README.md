@@ -10,7 +10,7 @@ A localhost-first web app + Python CLI that runs an indicator stack (MA Ribbon, 
 
 The bundled reference implementation is single-user, cash account, long calls/puts only. The framework around it (data layer, indicator plugin system, kill-sheet builder, positions store, journal, regime dashboard, trade-devil gate) is strategy-agnostic. Read CUSTOMIZATION.md to see what's keep-as-is vs replace-with-your-own.
 
-**What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering regime header, scan, free-range scan, weekly trend, lotto, crypto (Crypto.com), focus (QQQ/GLD), kill sheet builder with options-input paste, trade-devil, 15-rule discipline scorecard, 3-tranche pyramid state machine, positions, journal (P&L + discipline tabs), weekly review. CLI mirrors every action. 740 pytest tests.
+**What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering a persistent regime header, regime health, scan, weekly trend, index swing, regime-levered trend, lotto, kill sheet builder with options-input paste, trade-devil, 15-rule discipline scorecard, positions, journal (P&L + discipline tabs), weekly review. Free-range scan and the QQQ/GLD focus Sunday scan run via CLI/API (no dedicated views). CLIs cover scan, kill sheets, positions, journal, discipline, and free-range. ~1,260 pytest tests.
 
 **Data sources:** stocks/ETFs via yfinance (no key); crypto via Crypto.com public REST (no key); options via manual paste from your broker. No API keys required.
 
@@ -86,6 +86,17 @@ python -m positions list
 python -m positions list --all                    # include closed positions
 python -m positions close <id> --pnl 87.50 --notes "took profits at 50%"
 python -m positions show <id>
+python -m positions alerts                        # evaluate alert rules vs fresh scans
+
+# Discipline scorecard + weekly review
+python -m discipline score <position_id>
+python -m discipline weekly-review
+
+# P&L analytics over closed positions
+python -m journal stats
+
+# Free-range scan: QQQ+GLD baseline → your tickers → top-5 free-range candidates
+python -m free_range --user-tickers AAPL AMD
 
 # Kill sheets now hit the account-rules engine before rendering. They are
 # blocked (exit code 4) when opening would violate max_open_positions /
@@ -100,8 +111,11 @@ python -m positions --help
 
 **Persistence:**
 - Scans → `~/.trading-dashboard/scans/YYYY-MM-DD.json`
-- Kill sheets → `~/.trading-dashboard/kill_sheets/<timestamp>-<ticker>-<direction>.{md,json}`
+- Kill sheets → `~/.trading-dashboard/kill_sheets/<id>.json`
+- Positions → `~/.trading-dashboard/positions.json`
+- Discipline scorecards → `~/.trading-dashboard/discipline/<position_id>.json` (weekly reviews under `discipline/weekly/`)
 - Instrumentation events → `~/.trading-dashboard/events.jsonl`
+- Market-data cache → `~/.trading-dashboard/cache.sqlite`
 - User config → `~/.trading-dashboard/config.yaml` (optional; defaults baked in)
 - User-authored indicators → `~/.trading-dashboard/plugins/*.py`
 
@@ -125,12 +139,12 @@ npm install        # first time only
 npm run dev        # opens http://localhost:5173
 ```
 
-The frontend reads `VITE_API_URL` (default `http://127.0.0.1:8000`). Persistent regime header (SPY/QQQ/IWM SQN(100) + SQN(20) + MA stack) plus full nav: Scan, Free-Range Scan, Weekly Trend, Lotto, Crypto, Focus (QQQ/GLD), Kill Sheet, Pyramid, Positions, Journal, Weekly Review. Dark trading-terminal theme. Manual refresh — no WebSockets in V1.
+The frontend reads `VITE_API_URL` (default `http://127.0.0.1:8000`). Persistent regime header (SPY/QQQ/IWM SQN(100) + SQN(20) + MA stack) plus nav: a Scan group (Scan ticker, Weekly trend, Index swing, Regime-levered trend, Lotto) and top-level Regime, Kill Sheet, Positions, Journal, Weekly Review. Dark trading-terminal theme. Manual refresh — no WebSockets in V1.
 
 To build static assets: `cd frontend && npm run build` — outputs to `frontend/dist/`.
 
 ## Status
 
-Production-personal. Tag `v0.1.0` ships when MA Ribbon and Stochastic match TradingView at >95% accuracy across 10 tickers — populate `tests/fixtures/truth/<TICKER>_ma_ribbon.csv` and `<TICKER>_stochastic.csv` with hand-sourced TradingView values (see `tests/fixtures/truth/README.md`); accuracy tests skip until fixtures exist, then fire automatically. SQN is excluded from the gate (regime-context indicator, no canonical external reference; covered by unit tests).
+Production-personal. Tag `v0.1.0` ships when MA Ribbon and Stochastic match TradingView at >95% accuracy across 10 tickers. Draft fixture CSVs for all 10 tickers are committed at `tests/fixtures/truth/` with numerics pre-filled from yfinance; the categorical truth columns (`stack_state`, `signal`) are still blank, so the accuracy tests skip until those are hand-labeled from TradingView (see `tests/fixtures/truth/README.md`), then fire automatically. SQN is excluded from the gate (regime-context indicator, no canonical external reference; covered by unit tests).
 
 See [CUSTOMIZATION.md](./CUSTOMIZATION.md) for how to adapt the scaffold to your own trading style.

@@ -1,7 +1,7 @@
-"""Auto-scoring engine for the 14-rule discipline checklist.
+"""Auto-scoring engine for the 15-rule discipline checklist.
 
 (The former rule 15 = trend-pyramid double-up, retired with that skill on
-2026-05-07. Template, skill, and engine are all on 14 as of 2026-06.)
+2026-05-07; `exit_per_plan` added as the new rule 15 in 2026-06.)
 
 Per DISCIPLINE-LAYER-ADDITION.md: 13 of 15 rules are auto-evaluable from
 KillSheet + Position data already captured. The two manual ones
