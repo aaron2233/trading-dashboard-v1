@@ -1,12 +1,13 @@
 """CLI for `python -m reconcile`.
 
 Usage:
-  python -m reconcile <robinhood-report.csv> [--json <out-path>]
+  python -m reconcile <robinhood-report.csv | statement.pdf> [--json <out>]
 
-Diffs the broker CSV against ~/.trading-dashboard/positions.json and
-prints discrepancies. Exit codes: 0 = clean (or medium/info only with
---strict off), 1 = high-severity findings (ghost trades, stale opens),
-2 = bad input. Never modifies positions.json.
+Accepts either the on-demand Robinhood CSV report or the automatic
+monthly-statement PDF (dispatch by file extension) and diffs it against
+~/.trading-dashboard/positions.json. Exit codes: 0 = clean or
+medium/info only, 1 = high-severity findings (ghost trades, stale
+opens), 2 = bad input. Never modifies positions.json.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from pathlib import Path
 from positions.store import PositionStore
 from reconcile.engine import HIGH, ReconcileReport, reconcile
 from reconcile.robinhood_csv import RobinhoodCsvError, parse_report_csv
+from reconcile.statement_pdf import parse_statement_pdf
 
 _SEVERITY_ORDER = {"high": 0, "medium": 1, "info": 2}
 
@@ -54,7 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="reconcile",
         description="Diff a Robinhood report CSV against the position journal.",
     )
-    p.add_argument("csv_path", help="Path to the Robinhood report CSV")
+    p.add_argument("csv_path", metavar="path",
+                   help="Robinhood report CSV or monthly-statement PDF")
     p.add_argument("--json", dest="json_path",
                    help="Also write the report as JSON to this path")
     return p
@@ -68,8 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {csv_path} does not exist", file=sys.stderr)
         return 2
     try:
-        parsed = parse_report_csv(csv_path)
-    except RobinhoodCsvError as exc:
+        if csv_path.suffix.lower() == ".pdf":
+            parsed = parse_statement_pdf(csv_path)
+        else:
+            parsed = parse_report_csv(csv_path)
+    except (RobinhoodCsvError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

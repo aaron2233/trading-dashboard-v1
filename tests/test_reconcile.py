@@ -267,3 +267,71 @@ def test_cli_bad_file_returns_2(tmp_path, capsys):
     from reconcile import cli
     rc = cli.main([str(tmp_path / "nope.csv")])
     assert rc == 2
+
+
+# ─── statement PDF parser ────────────────────────────────────────────────────
+# Fixture lines are verbatim pypdf extractions from a real 2026-05 statement.
+
+from reconcile.statement_pdf import parse_statement_lines
+
+
+def test_statement_option_row_parses():
+    result = parse_statement_lines([
+        "TLT 06/05/2026 Put $86.00 TLT Cash BTO 04/30/2026 2 $1.48000 $296.08",
+    ])
+    assert result.warnings == []
+    [f] = result.fills
+    assert (f.ticker, f.kind, f.strike, f.expiry) == ("TLT", "put", 86.0, "2026-06-05")
+    assert (f.action, f.code, f.quantity, f.date) == ("open", "BTO", 2, "2026-04-30")
+    assert f.price == 1.48 and f.amount == 296.08
+
+
+def test_statement_shares_row_parses_with_cusip_line():
+    result = parse_statement_lines([
+        "Lithium Americas",
+        "CUSIP: 53681J103 LAC Cash Buy 05/05/2026 182 $5.47760 $996.92",
+        "CUSIP: 53681J103 LAC Cash Buy 05/05/2026 0.561705 $5.47760 $3.08",
+    ])
+    assert result.warnings == []
+    assert [f.quantity for f in result.fills] == [182, 0.561705]
+    assert all(f.ticker == "LAC" and f.kind == "shares" for f in result.fills)
+
+
+def test_statement_pending_settlement_rows_parse():
+    # Pending option rows have no Symbol column and two dates; pending
+    # shares rows have no symbol at all — recovered via the CUSIP map.
+    result = parse_statement_lines([
+        "Merlin, Inc.",
+        "CUSIP: 590106100 MRLN Cash Buy 05/22/2026 70 $7.14000 $499.80",
+        "NVDA 06/08/2026 Call $232.50 Cash BTO 05/29/2026 06/01/2026 1 $0.96000 $96.04",
+        "Merlin, Inc.",
+        "CUSIP: 590106100 Cash Sell 05/29/2026 06/01/2026 70.028011 $7.86000 $550.39",
+    ])
+    assert result.warnings == []
+    nvda = next(f for f in result.fills if f.ticker == "NVDA")
+    assert (f"{nvda.strike}", nvda.expiry, nvda.date) == ("232.5", "2026-06-08", "2026-05-29")
+    mrln_sell = next(f for f in result.fills if f.code == "Sell")
+    assert mrln_sell.ticker == "MRLN" and mrln_sell.quantity == 70.028011
+
+
+def test_statement_pending_shares_unknown_cusip_warns():
+    result = parse_statement_lines([
+        "Mystery Corp.",
+        "CUSIP: 999999999 Cash Sell 05/29/2026 06/01/2026 5 $10.00000 $50.00",
+    ])
+    assert result.fills == []
+    assert len(result.warnings) == 1
+    assert "unknown CUSIP 999999999" in result.warnings[0]
+
+
+def test_statement_skips_summary_and_cash_rows():
+    result = parse_statement_lines([
+        "Portfolio Summary",
+        "XLE 06/30/2026 Call $60.00",
+        "Estimated Yield: 0.00% XLE Cash 2 $0.51000 $102.00 $0.00 0.95%",
+        "ACH Deposit Cash ACH 05/08/2026 $187.50",
+        "Event Contracts Inter-Entity Cash Transfer Cash FUTSWP 05/08/2026 $39.72",
+        "Total Funds Paid and Received $12,802.64 $12,195.84",
+    ])
+    assert result.fills == []
+    assert result.warnings == []
