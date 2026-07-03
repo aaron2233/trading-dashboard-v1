@@ -156,6 +156,39 @@ def test_scanner_classifies_each_ticker_and_ranks():
     assert "CHOP" not in top_tickers
 
 
+def test_scanner_blocks_iwm_for_weekly_trend():
+    """IWM is on the weekly-trend blocked list (backtest 2026-05-07) — a
+    full BUY setup on it must surface as no_go AT SCAN TIME, not only at
+    kill-sheet time (previously the scan card could show BUY on IWM)."""
+    rows = {
+        ("SPY", "1d"): make_row("SPY", regime="bull"),
+        ("IWM", "1wk"): make_row("IWM", close=220, stack="full_bull",
+                                  k=25, d=22, signal="bull_cross_oversold"),
+    }
+    result = scan_weekly_watchlist(
+        ["IWM"], benchmark="SPY", scan_fn=make_scan_fn(rows),
+    )
+    setup = result.setups[0]
+    assert setup.verdict == "no_go"
+    assert any("blocked" in b.lower() for b in setup.blockers)
+
+
+def test_scanner_marks_spy_marginal_but_not_blocked():
+    """SPY is marginal (warn-only) for weekly-trend — BUY stands, with a
+    warning blocker attached."""
+    rows = {
+        ("SPY", "1d"): make_row("SPY", regime="bull"),
+        ("SPY", "1wk"): make_row("SPY", close=560, stack="full_bull",
+                                  k=25, d=22, signal="bull_cross_oversold"),
+    }
+    result = scan_weekly_watchlist(
+        ["SPY"], benchmark="SPY", scan_fn=make_scan_fn(rows),
+    )
+    setup = result.setups[0]
+    assert setup.verdict == "buy"
+    assert any("marginal" in b.lower() for b in setup.blockers)
+
+
 def test_scanner_penny_stock_suggests_shares():
     """Close < $5 → suggested_vehicle == 'shares'."""
     rows = {
