@@ -231,7 +231,14 @@ def scan_lotto_watchlist(
         h2_signal = h2_stoch.get("signal")
         h2_zone = h2_stoch.get("zone")
         h2_stack = h2_ma.get("stack_state")
-        close = daily.get("close")
+        # Anchor pricing to the 2H trigger bar, not the daily bar: the daily
+        # loader drops the in-progress session (anti-repaint), so on an
+        # intraday scan daily close is yesterday's — up to a full session
+        # stale, while the trigger itself fired on a completed 2H bar from
+        # today. Entry/stop/target and strike spot must match the trigger
+        # bar. Daily close remains the fallback when the 2H fetch failed.
+        close = h2.get("close") if h2.get("close") is not None else daily.get("close")
+        bar_date = h2.get("bar_date") if h2.get("close") is not None else daily.get("bar_date")
         hv20 = daily.get("hv20")
 
         # Hard universe gate — single-stock price band per CLAUDE.md account
@@ -282,7 +289,7 @@ def scan_lotto_watchlist(
             setup = LottoSetup(
                 ticker=ticker,
                 direction=direction,  # type: ignore[arg-type]
-                bar_date=daily.get("bar_date"),
+                bar_date=bar_date,
                 close=close,
                 daily_stack=daily_stack,
                 daily_stoch_k=stoch_d_data.get("k"),
