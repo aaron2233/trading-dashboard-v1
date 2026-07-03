@@ -128,6 +128,31 @@ def test_breakout_detected_above_prior_swing_high():
     assert breakout.breakout_close == 112.0
 
 
+def test_stale_breakout_does_not_refire():
+    """Once a bar has closed above the swing high, later bars must NOT
+    re-present the same breakout with re-anchored entry/stop/target —
+    only the bar that actually broke the level fires."""
+    closes = _breakout_setup_closes() + [113.0]  # one bar AFTER the breakout
+    volumes = [1_000_000.0] * (len(closes) - 1) + [1_500_000.0]
+    bars = _make_bars(closes, volumes=volumes)
+    confluence, breakout, blockers = detect_swing_high_breakout(bars)
+    assert confluence == "no_breakout"
+    assert breakout is None
+    assert any("stale" in b.lower() for b in blockers)
+
+
+def test_pullback_reclaim_counts_as_new_breakout():
+    """Break above, close back below, then reclaim — the reclaim bar is a
+    fresh breakout, not a stale one."""
+    closes = _breakout_setup_closes() + [109.0, 112.5]  # dip below 110.55, reclaim
+    volumes = [1_000_000.0] * (len(closes) - 1) + [1_500_000.0]
+    bars = _make_bars(closes, volumes=volumes)
+    confluence, breakout, _ = detect_swing_high_breakout(bars)
+    assert confluence in ("breakout_high_conviction", "breakout_standard")
+    assert breakout is not None
+    assert breakout.breakout_close == 112.5
+
+
 def test_low_volume_disqualifier():
     closes = _breakout_setup_closes()
     # 30-day window covers indices 47-77; need final-bar volume < 0.7× of that mean
