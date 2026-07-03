@@ -557,6 +557,35 @@ def scan_weekly_watchlist(
             track_a_stretch_pct=track_a_stretch,
         )
 
+        # Weekly-trend asset gates (backtest 2026-05-07): IWM is hard-blocked
+        # for this skill, SPY is marginal (warn-only). Previously enforced
+        # only at kill-sheet time (and only when the caller tagged
+        # skill="weekly-trend-trader") — the scan card itself could show BUY
+        # on IWM. Mirror the gate at scan time; constants live in
+        # kill_sheet.builder so forward-data revisions edit one place.
+        from kill_sheet.builder import (
+            WEEKLY_TREND_BLOCKED_TICKERS,
+            WEEKLY_TREND_MARGINAL_TICKERS,
+        )
+        from scan_verdict import TradeVerdict
+        ticker_upper = ticker.upper()
+        if ticker_upper in WEEKLY_TREND_BLOCKED_TICKERS:
+            blockers = blockers + [
+                f"{ticker_upper} is on the weekly-trend blocked list "
+                f"(backtest net-negative for this skill) — no entry"
+            ]
+            if verdict_obj.verdict == "buy":
+                verdict_obj = TradeVerdict(
+                    "no_go",
+                    f"{ticker_upper} is blocked for weekly-trend "
+                    f"(backtest 2026-05-07: net-negative) — no entry",
+                )
+        elif ticker_upper in WEEKLY_TREND_MARGINAL_TICKERS:
+            blockers = blockers + [
+                f"{ticker_upper} is marginal for weekly-trend (backtest) — "
+                f"reduced conviction, prefer QQQ/GLD"
+            ]
+
         # Entry / stop / target derivation
         ma_50 = float(ma.get("ma_50") or 0.0) or None
         ma_20 = float(ma.get("ma_20") or 0.0) or None

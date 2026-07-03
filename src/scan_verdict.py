@@ -291,6 +291,17 @@ def lotto_verdict(
                 "no_go",
                 "SQN(100) Bear + SQN(20) < -1.9 — structural Bear-Volatile, hard skip",
             )
+        # Rule 6 parity: plain-Bear SQN(100) opposes a long lotto the same
+        # way Bull/Neutral opposes a short (blocked below). The scanner has
+        # no divergence-thesis input, so counter-regime longs surface as
+        # WAIT, never BUY — document a thesis at the kill-sheet layer to
+        # proceed (mirrors weekly_verdict's counter-regime downgrade).
+        if sqn_100_regime == "bear":
+            return TradeVerdict(
+                "wait",
+                "SQN(100) Bear opposes long lotto — counter-regime, requires "
+                "documented divergence thesis",
+            )
         if sqn_20_value is not None and sqn_20_value > 2.5:
             return TradeVerdict(
                 "no_go",

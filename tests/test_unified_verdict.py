@@ -280,6 +280,15 @@ def test_lotto_bear_with_capitulation_long_no_go():
     assert "bear-volatile" in v.reason.lower() or "bear volatile" in v.reason.lower()
 
 
+def test_lotto_long_in_plain_bear_downgrades_to_wait():
+    """Rule 6 parity: plain-Bear SQN(100) opposes a long lotto — WAIT, never
+    BUY (the scanner has no divergence-thesis input). Previously this fell
+    through to a clean BUY while shorts were blocked in bull AND neutral."""
+    v = lotto_verdict("full_bull", "bear", -0.5, "bull_cross_oversold", "oversold", "long")
+    assert v.verdict == "wait"
+    assert "counter-regime" in v.reason.lower() or "divergence" in v.reason.lower()
+
+
 def test_lotto_long_with_2h_trigger_buys():
     # SQN(20)=1.6 → strong_bull band, productive cohort (full_bull + strong_bull,
     # avgR +1.04 in backtest). Must pass v2 gates.
