@@ -289,6 +289,30 @@ def test_lotto_missing_sqn20_fails_closed():
     assert "unavailable" in v.reason.lower()
 
 
+def test_lotto_divergence_no_longer_triggers_buy():
+    """Divergence removed from lotto triggers (backtest 2026-07-02,
+    scripts/divergence_pivot_backtest.py: removal PF 1.50 vs production
+    1.40; bearish_divergence short cohort was PF 0.57). The rolling-extreme
+    label is trend-persistence, not divergence — a supportive stack with
+    only a divergence label must WAIT for a real cross/continuation."""
+    long_v = lotto_verdict(
+        "full_bull", "bull", 1.6, "bullish_divergence", "mid", "long",
+    )
+    short_v = lotto_verdict(
+        "full_bear", "bear", -1.0, "bearish_divergence", "overbought", "short",
+    )
+    assert long_v.verdict == "wait"
+    assert short_v.verdict == "wait"
+
+
+def test_action_gate_lotto_triggers_exclude_divergence():
+    """The action-gate whitelist mirrors lotto_verdict — keep them in sync."""
+    from action_gate.classifiers import _lotto_trigger_fired
+    assert _lotto_trigger_fired("bull_cross_oversold", "long") is True
+    assert _lotto_trigger_fired("bullish_divergence", "long") is False
+    assert _lotto_trigger_fired("bearish_divergence", "short") is False
+
+
 def test_lotto_long_in_strong_bear_no_go():
     v = lotto_verdict("full_bull", "strong_bear", 0.0, "bull_cross_oversold", "oversold", "long")
     assert v.verdict == "no_go"

@@ -98,13 +98,15 @@ def _trigger_fired(
 
 # Lotto trigger whitelist — matches scan_verdict.lotto_verdict so the
 # setup scan and the per-candidate action verdict agree on what fires.
-# Broader than `_trigger_fired` because 2H bars give continuation +
-# divergence signals enough sample to be tradeable; weekly bars don't.
+# Broader than `_trigger_fired` because 2H bars give continuation signals
+# enough sample to be tradeable; weekly bars don't. Divergence removed
+# 2026-07-02 in sync with lotto_verdict (backtest: removal PF 1.50 vs
+# 1.40 — see scripts/divergence_pivot_backtest.py).
 _LOTTO_LONG_TRIGGERS = frozenset({
-    "bull_cross_oversold", "bull_continuation", "bullish_divergence",
+    "bull_cross_oversold", "bull_continuation",
 })
 _LOTTO_SHORT_TRIGGERS = frozenset({
-    "bear_cross_overbought", "bear_continuation", "bearish_divergence",
+    "bear_cross_overbought", "bear_continuation",
 })
 
 
@@ -112,9 +114,9 @@ def _lotto_trigger_fired(
     stoch_signal: str | None,
     direction: Direction,
 ) -> bool:
-    """Lotto 2H trigger: cross_oversold, continuation, or divergence in
-    the matching direction. Mirrors the long_signals / short_signals
-    sets in `scan_verdict.lotto_verdict` so both code paths agree."""
+    """Lotto 2H trigger: cross_oversold or continuation in the matching
+    direction. Mirrors the long_signals / short_signals sets in
+    `scan_verdict.lotto_verdict` so both code paths agree."""
     if direction == "long":
         return stoch_signal in _LOTTO_LONG_TRIGGERS
     if direction == "short":
@@ -280,9 +282,9 @@ def classify_lotto_action(
         advance.append(f"2H stack must develop into {direction} (currently {two_h_stack})")
     if not _lotto_trigger_fired(two_h_stoch.get("signal"), direction):
         target = (
-            "bull_cross_oversold / bull_continuation / bullish_divergence"
+            "bull_cross_oversold / bull_continuation"
             if direction == "long"
-            else "bear_cross_overbought / bear_continuation / bearish_divergence"
+            else "bear_cross_overbought / bear_continuation"
         )
         advance.append(f"2H stoch must fire {target}; currently {two_h_stoch.get('signal') or '—'}")
 
