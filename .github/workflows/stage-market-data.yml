@@ -89,7 +89,30 @@ jobs:
             --out results_out \
             --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+      # Freshness contract: cloud-data must ALWAYS advance, even when the
+      # scan step crashed — otherwise the previous window's ACTIONABLE:YES
+      # file stays latest and the routine re-emails stale trades as fresh.
+      - name: Ensure result files exist (failure fallback)
+        if: always()
+        run: |
+          mkdir -p results_out
+          for f in lotto_result.md beat_market_result.md; do
+            if [ ! -f "results_out/$f" ]; then
+              {
+                echo "GENERATED: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                echo "ACTIONABLE: YES"
+                echo "STATUS: FAILED"
+                echo "SUBJECT: Scan pipeline FAILED — $f not produced"
+                echo "---"
+                echo "⚠️ The publish job failed before writing this result" \
+                     "(Actions run ${GITHUB_RUN_ID}). Do NOT trade off any" \
+                     "earlier scan email — its levels are stale."
+              } > "results_out/$f"
+            fi
+          done
+
       - name: Publish results to cloud-data branch
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
