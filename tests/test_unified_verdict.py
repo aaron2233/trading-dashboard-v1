@@ -405,6 +405,71 @@ def test_lotto_scanner_emits_two_setups_per_ticker():
     assert len(longs) == 1 and len(shorts) == 1
 
 
+def test_lotto_scanner_anchors_pricing_to_2h_trigger_bar():
+    """Entry/stop/target and bar label come from the 2H bar, not the stale
+    daily close: the daily loader drops the in-progress session, so on an
+    intraday scan the daily close can be a full session old while the 2H
+    trigger fired on a completed bar from today."""
+    fake_d = {
+        "QQQ": {
+            "ticker": "QQQ", "timeframe": "1d", "bar_date": "2026-07-01",
+            "close": 480.0,
+            "ma_ribbon": {
+                "ma_10": 478.0, "ma_20": 475.0, "ma_50": 470.0, "ma_200": 450.0,
+                "stack_state": "full_bull",
+            },
+            "stochastic": {"k": 60.0, "d": 55.0, "zone": "mid", "signal": "neutral"},
+            "sqn": {"sqn_value": 1.2, "regime": "bull",
+                    "sqn_20_value": 1.6, "regime_20": "strong_bull"},
+        },
+    }
+    fake_h2 = {
+        "QQQ": {
+            "ticker": "QQQ", "timeframe": "2h",
+            "bar_date": "2026-07-02 11:30", "close": 440.0,
+            "ma_ribbon": {"stack_state": "full_bull"},
+            "stochastic": {"k": 25.0, "d": 22.0, "zone": "oversold",
+                           "signal": "bull_cross_oversold"},
+        },
+    }
+    def fake_scan(ticker, timeframe="1d"):
+        return fake_d[ticker] if timeframe == "1d" else fake_h2[ticker]
+
+    result = scan_lotto_watchlist(["QQQ"], scan_fn=fake_scan)
+    long = next(s for s in result.setups if s.direction == "long")
+    assert long.close == 440.0
+    assert long.bar_date == "2026-07-02 11:30"
+    assert long.entry_price == 440.0
+    assert long.stop_price == pytest.approx(440.0 * 0.98)
+    assert long.target_price == pytest.approx(440.0 * 1.05)
+
+
+def test_lotto_scanner_falls_back_to_daily_close_when_2h_missing():
+    """2H fetch failure → daily close remains the pricing anchor."""
+    fake_d = {
+        "QQQ": {
+            "ticker": "QQQ", "timeframe": "1d", "bar_date": "2026-07-01",
+            "close": 480.0,
+            "ma_ribbon": {
+                "ma_10": 478.0, "ma_20": 475.0, "ma_50": 470.0, "ma_200": 450.0,
+                "stack_state": "full_bull",
+            },
+            "stochastic": {"k": 60.0, "d": 55.0, "zone": "mid", "signal": "neutral"},
+            "sqn": {"sqn_value": 1.2, "regime": "bull",
+                    "sqn_20_value": 1.6, "regime_20": "strong_bull"},
+        },
+    }
+    def fake_scan(ticker, timeframe="1d"):
+        if timeframe == "1d":
+            return fake_d[ticker]
+        raise RuntimeError("2h fetch failed")
+
+    result = scan_lotto_watchlist(["QQQ"], scan_fn=fake_scan)
+    long = next(s for s in result.setups if s.direction == "long")
+    assert long.close == 480.0
+    assert long.bar_date == "2026-07-01"
+
+
 def test_lotto_scanner_long_signal_yields_buy_in_supportive_regime():
     fake_d = {
         "QQQ": {
