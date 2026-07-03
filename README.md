@@ -42,6 +42,16 @@ accounts:
 
 Anything you don't override keeps its default. Full schema is in `src/config/loader.py` (`_DEFAULT_ACCOUNTS`). If you don't run a lotto book, leave the defaults alone — lotto views and rules only fire on `account=lotto` kill sheets and positions, so they stay dormant.
 
+The header stage banner shows a live balance: by default it sums your config account balances + realized P&L on closed positions, which drifts from reality as soon as you deposit, withdraw, or true up. To pin it to your real broker number, add a balance anchor:
+
+```yaml
+balance:
+  anchor_usd: 25310.50     # authoritative combined balance...
+  anchor_date: 2026-07-01  # ...as of this date (trades closed later adjust it live)
+```
+
+Re-stamp the two lines whenever cash moves or the number drifts; between true-ups the banner tracks every closed trade.
+
 ## Run
 
 ```bash

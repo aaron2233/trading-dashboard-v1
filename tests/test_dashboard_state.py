@@ -299,3 +299,56 @@ def test_api_dashboard_state_endpoint(tmp_path, monkeypatch):
     assert body["realized_pnl_usd"] == 0
     assert body["unreviewed_weeks"] == []
     assert "Stage 1" in body["stage_reminder"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Balance anchor (config `balance:` block — user-maintained broker true-up)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _anchored_config(anchor_usd: float, anchor_date) -> Config:
+    return Config(
+        accounts={"main": _account("main", 10_000.0)},
+        skills={},
+        raw={"balance": {"anchor_usd": anchor_usd, "anchor_date": anchor_date}},
+    )
+
+
+def test_anchor_overrides_config_base_and_filters_realized_by_date():
+    cfg = _anchored_config(10_903.70, date(2026, 6, 9))
+    positions = [
+        _closed_position(ticker="OLD", pnl=500.0, closed_date="2026-05-10"),
+        _closed_position(ticker="NEW", pnl=135.0, closed_date="2026-06-18"),
+    ]
+    base, realized, total = compute_account_balance(cfg, positions)
+    assert base == 10_903.70          # anchor wins over the $10K config seed
+    assert realized == 135.0          # only the post-anchor close counts
+    assert total == pytest.approx(11_038.70)
+
+
+def test_anchor_excludes_position_closed_on_anchor_date():
+    cfg = _anchored_config(5_000.0, date(2026, 6, 9))
+    positions = [_closed_position(pnl=200.0, closed_date="2026-06-09")]
+    _, realized, total = compute_account_balance(cfg, positions)
+    assert realized == 0.0            # anchor already embodies that day
+    assert total == 5_000.0
+
+
+def test_anchor_date_accepts_iso_string():
+    cfg = _anchored_config(5_000.0, "2026-06-09")
+    positions = [_closed_position(pnl=50.0, closed_date="2026-06-10")]
+    _, realized, total = compute_account_balance(cfg, positions)
+    assert realized == 50.0
+    assert total == 5_050.0
+
+
+def test_incomplete_anchor_falls_back_to_config_sums():
+    cfg = Config(
+        accounts={"main": _account("main", 10_000.0)},
+        skills={},
+        raw={"balance": {"anchor_usd": 5_000.0}},  # no anchor_date
+    )
+    positions = [_closed_position(pnl=100.0, closed_date="2026-05-10")]
+    base, realized, total = compute_account_balance(cfg, positions)
+    assert base == 10_000.0
+    assert total == 10_100.0
