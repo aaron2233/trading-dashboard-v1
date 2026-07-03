@@ -3,7 +3,7 @@
 Designed to run in a scheduled cloud environment with NO local
 ~/.trading-dashboard files. Config falls back to the baked-in defaults in
 config/loader.py (load_config() merges an absent config.yaml onto defaults),
-so the LOTTO account ($1K, $150/trade cap, -70% cut) is available with no
+so the LOTTO account ($1K, $150/trade cap, -50% cut) is available with no
 config file.
 
 All scan / kill-sheet / formatting logic lives here ("fat script, thin
@@ -173,7 +173,7 @@ def build_trade(setup, account) -> dict | str | None:
         "stock_target": _f(setup.target_price),
         "stock_stop": _f(setup.stop_price),
         "options_target_pct": LOTTO_TARGET_PCT,
-        "options_cut_pct": _f(account.raw.get("cut_rule_pct")),  # e.g. -0.70
+        "options_cut_pct": _f(account.raw.get("cut_rule_pct")),  # e.g. -0.50
         "why_now": setup.why_now,
     }
 
@@ -276,9 +276,9 @@ def _strike_md(t: dict) -> str:
 def trade_to_markdown(t: dict) -> str:
     """Compact, actionable SparkNotes block for one structured trade."""
     cut_pct = t["options_cut_pct"]
-    cut_label = f"{abs(cut_pct) * 100:.0f}%" if cut_pct is not None else "70%"
+    cut_label = f"{abs(cut_pct) * 100:.0f}%" if cut_pct is not None else "50%"
     opt_floor = (f"≈{1 + cut_pct:.2f}× entry premium"
-                 if cut_pct is not None else "≈0.30× entry")
+                 if cut_pct is not None else "≈0.50× entry")
 
     tgt = f"${t['stock_target']:g}" if t["stock_target"] is not None else "n/a"
     stop = f"${t['stock_stop']:g}" if t["stock_stop"] is not None else "n/a"
