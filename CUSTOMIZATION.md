@@ -40,7 +40,7 @@ accounts:
     max_per_trade_usd: 250
 ```
 
-Same file accepts overrides for `regime_health` thresholds, capex ticker lists, focus mode (qqq/gld vs your own pair), etc. — grep `_load_user_overrides` for the read sites.
+Same file accepts overrides for regime-health thresholds, capex ticker lists, and per-skill default watchlists (the `skills:` block), etc. — the merge happens in `src/config/loader.py::load_config` (deep merge, user YAML over defaults); grep `load_config` for the read sites.
 
 ### Tier 2 — Indicator plugins (30 minutes)
 
@@ -48,13 +48,16 @@ The indicator system is already plugin-loaded. Drop a `.py` file in `~/.trading-
 
 ```python
 # ~/.trading-dashboard/plugins/my_rsi.py
-from indicators.protocol import IndicatorProtocol
+import pandas as pd
 
-class RSI:
+# The loader looks for a module-level INDICATOR instance, or a class
+# named exactly `Indicator` with a no-arg constructor.
+class Indicator:
     name = "rsi_14"
+    inputs = ["close"]
 
-    def compute(self, bars):
-        # Return dict with at least: {"value": float, "signal": str | None}
+    def compute(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Return a DataFrame with your indicator's output columns
         ...
 ```
 
@@ -74,7 +77,7 @@ Scanners are the "find me a setup on this ticker" units — one per strategy. Pa
 1. Add a `your_strategy_verdict()` function in `src/scan_verdict.py` (or your own module). Input: indicator state. Output: `TradeVerdict(verdict, reason)`.
 2. Copy `src/lotto/scanner.py` → `src/your_strategy/scanner.py`. Swap the verdict call. Adjust the watchlist constants.
 3. Expose a CLI: copy any existing `src/<module>/__main__.py` (e.g., `src/free_range/__main__.py` or `src/kill_sheet/__main__.py`) → `src/your_strategy/__main__.py`. Then `python -m your_strategy ...` works.
-4. Wire an API route: add `@app.get("/api/v1/your-strategy/scan")` in `src/api/app.py` following the lotto-scan pattern.
+4. Wire an API route: add a router module in `src/api/routes/` (copy `src/api/routes/lotto.py`) and `include_router` it in `src/api/app.py`.
 5. Build the frontend view (Tier 5).
 
 If you only want one strategy, *delete the bundled ones first* — see Tier 4.
@@ -85,7 +88,9 @@ To strip out, say, lotto-options entirely:
 
 ```
 src/lotto/                                      # delete
+src/api/routes/lotto.py                         # delete
 frontend/src/views/LottoView.tsx                # delete
+frontend/src/components/lotto/                  # delete
 tests/test_lotto*.py                            # delete
 scripts/lotto_*.py + scripts/measure_lotto_*    # delete
 ```
@@ -94,7 +99,7 @@ Then grep `lotto` across `src/api/app.py`, `frontend/src/App.tsx`, and `frontend
 
 ### Tier 5 — Build a custom strategy view (3-8 hours)
 
-Copy `frontend/src/views/IndexSwingView.tsx` (or LottoView for a richer reference) → `YourStrategyView.tsx`. Components you'll reuse: `TradeCard`, `KillSheetButton`, scan-result rendering. Wire it in `frontend/src/App.tsx` (import, nav entry, route). The API client functions go in `frontend/src/api/client.ts`, types in `types.ts`. The shape is straightforward but it's React work, not just config.
+Copy `frontend/src/views/IndexSwingView.tsx` (or LottoView for a richer reference) → `YourStrategyView.tsx`. Components you'll reuse: `TradeCard`, `Verdict`, scan-result rendering. Wire it in `frontend/src/App.tsx` (import, nav entry, route). The API client functions go in `frontend/src/api/client.ts`, types in `types.ts`. The shape is straightforward but it's React work, not just config.
 
 ## The skill-file pattern (manual today, agent-assisted later)
 
