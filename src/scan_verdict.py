@@ -379,16 +379,21 @@ def lotto_verdict(
                 f"Daily stack {daily_stack} opposes short lotto direction",
             )
 
-    # Now BUY vs WAIT based on 2H trigger. Divergence is included on both
-    # sides for parity with src/free_range/filters.py::_stoch_score, which
-    # treats divergence as a full-strength bullish/bearish signal. Earlier
-    # omission was an oversight; measurement showed it doubled the live
-    # signal rate on QQQ + GLD without weakening any other gate.
+    # Now BUY vs WAIT based on 2H trigger. Divergence REMOVED from both
+    # sides (2026-07-02 backtest, scripts/divergence_pivot_backtest.py):
+    # the rolling-extreme "divergence" label fires on 42-64% of trend bars
+    # (trend-persistence, not divergence) and removing it beat production
+    # on the 36-name/2y cohort — PF 1.50 vs 1.40, avgR +0.430 vs +0.346,
+    # and fixed the short side (bearish_divergence short cohort PF 0.57;
+    # shorts overall 0.97 → 1.25). Pivot-confirmed divergence tested worse
+    # still (own cohort PF 0.77) — don't re-add either variant without a
+    # fresh backtest. free_range/filters scoring still counts divergence;
+    # that layer is score-ranking, not an entry trigger.
     long_signals = {
-        "bull_cross_oversold", "bull_continuation", "bullish_divergence",
+        "bull_cross_oversold", "bull_continuation",
     }
     short_signals = {
-        "bear_cross_overbought", "bear_continuation", "bearish_divergence",
+        "bear_cross_overbought", "bear_continuation",
     }
 
     if direction == "long" and h2_signal in long_signals and h2_zone in ("oversold", "mid"):
