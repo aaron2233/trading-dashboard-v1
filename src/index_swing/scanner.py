@@ -267,6 +267,19 @@ def detect_swing_high_breakout(
             f"latest close ${last_close:.2f} <= prior swing high ${swing_high:.2f}"
         ]
 
+    # Freshness: the breakout must have happened on THIS bar. Once price
+    # closes above the level, every later bar also satisfies close > swing
+    # high (in a steady climb no new swing high confirms for ~5+ bars), so
+    # without this check the same breakout re-fires scan after scan with
+    # entry/stop/target re-anchored to the current bar — a chase presented
+    # as a fresh signal. A pullback below the level that closes back above
+    # counts as a new breakout.
+    if prev_close > swing_high:
+        return "no_breakout", None, [
+            f"breakout is stale — prior close ${prev_close:.2f} already above "
+            f"swing high ${swing_high:.2f}; trigger fired on an earlier bar"
+        ]
+
     # ── Confluence / disqualifier checks ──────────────────────────────────
     avg_vol_30d = float(bars["volume"].iloc[-30:].mean())
     vol_ratio = last_volume / avg_vol_30d if avg_vol_30d > 0 else 0.0
