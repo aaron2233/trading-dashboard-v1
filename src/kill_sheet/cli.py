@@ -124,6 +124,20 @@ def build_parser() -> argparse.ArgumentParser:
     options.add_argument("--iv-rank", type=float, help="IV Rank percentile (0-100)")
     options.add_argument("--oi", type=int, help="Open interest")
     options.add_argument("--spread", type=float, help="Bid-ask spread (in dollars)")
+    options.add_argument(
+        "--options-json",
+        help=(
+            "Path to a robinhood-mcp option-quote snapshot JSON (shape documented "
+            "in src/options_input/robinhood.py). Fills strike/premium/expiry/type/"
+            "delta/oi/spread from the live quote; explicit flags win. Never fills "
+            "--iv-rank (the quote carries spot IV, not IV Rank)."
+        ),
+    )
+    options.add_argument(
+        "--allow-stale",
+        action="store_true",
+        help="Accept an --options-json snapshot older than the staleness cutoff.",
+    )
 
     manual = p.add_argument_group(
         "Manual fill (optional)",
@@ -261,9 +275,57 @@ def persist(sheet, scans_dir: Path | None = None,
     return json_path, md_path
 
 
+def apply_options_snapshot(args, parsed) -> list[str]:
+    """Fill unset options args from a ParsedOptions; explicit flags win.
+
+    Returns the list of arg names that were filled (for the CLI notice).
+    """
+    filled: list[str] = []
+    for arg_name, parsed_name in (
+        ("strike", "strike"),
+        ("premium", "premium"),
+        ("expiry", "expiry"),
+        ("contract_type", "contract_type"),
+        ("delta", "delta"),
+        ("oi", "open_interest"),
+        ("spread", "bid_ask_spread"),
+    ):
+        if getattr(args, arg_name) is None:
+            value = getattr(parsed, parsed_name)
+            if value is not None:
+                setattr(args, arg_name, value)
+                filled.append(arg_name)
+    return filled
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.options_json:
+        from options_input.robinhood import (
+            STALE_AFTER_MINUTES,
+            load_snapshot,
+            parse_robinhood_snapshot,
+            snapshot_age_minutes,
+        )
+        try:
+            raw = load_snapshot(args.options_json)
+        except ValueError as exc:
+            parser.error(str(exc))
+        age = snapshot_age_minutes(raw)
+        if (age is None or age > STALE_AFTER_MINUTES) and not args.allow_stale:
+            shown = "unknown age (no fetched_at)" if age is None else f"{age:.0f} min old"
+            parser.error(
+                f"options snapshot is {shown} (cutoff {STALE_AFTER_MINUTES:.0f} min) — "
+                "re-fetch the quote, or pass --allow-stale to use it anyway"
+            )
+        snapshot = parse_robinhood_snapshot(raw)
+        filled = apply_options_snapshot(args, snapshot)
+        if filled:
+            print(f"options-json filled: {', '.join(filled)}", file=sys.stderr)
+        for warning in snapshot.warnings:
+            print(f"⚠ options-json: {warning}", file=sys.stderr)
 
     config = load_config()
     try:
