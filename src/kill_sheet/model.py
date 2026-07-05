@@ -188,6 +188,11 @@ class KillSheet:
     # config so the discipline scorer can apply the per-account cut threshold
     # without re-reading config. None → scorer uses the 70% band outer bound.
     cut_rule_pct: float | None = None
+
+    # Broker balance audit line (--balance-json): broker total vs journal
+    # book model at generation time. Audit-only — sizing math is unchanged;
+    # persisted on the sheet so drift stays visible at scoring/review time.
+    balance_audit: str | None = None
     discipline_attestation: DisciplineAttestation | None = None
 
     # Skill / tier tagging (Sprint A of orchestrator-change 2026-05-02).
@@ -297,6 +302,8 @@ class KillSheet:
             lines.append("")
         lines.append("POSITION SIZING:")
         lines.append(f"  Account balance:   ${self.account_balance_usd:,.2f}")
+        if self.balance_audit:
+            lines.append(f"  Balance audit:     {self.balance_audit}")
         lines.append(
             f"  Risk %:            {self.risk_pct:.2%} ({self.risk_conviction})"
         )
