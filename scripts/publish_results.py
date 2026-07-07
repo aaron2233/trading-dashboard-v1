@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
-BM_TICKERS = ["QQQ", "SPY", "QQQM", "GLD", "NVDA", "MP", "QLD"]
+BM_TICKERS = ["QQQ", "SPY", "QQQM", "NVDA", "QLD", "MU", "META", "ETH-USD", "BTC-USD"]
 
 
 def capture(script: str, extra_env: dict) -> tuple[str, str, int]:
@@ -49,7 +49,7 @@ def capture(script: str, extra_env: dict) -> tuple[str, str, int]:
 
 
 def stage_beat_market(tmp: Path) -> list[str]:
-    """Stage the 7 beat-market 1d CSVs live so beat_market_monitor (which reads
+    """Stage the 9 beat-market 1d CSVs (incl. Track A 19/39 watch tickers) live so beat_market_monitor (which reads
     STAGED_DATA_DIR) can run in Actions without its own Yahoo fetch.
     Returns the tickers that FAILED to stage — the monitor treats a missing
     CSV as 'no data' and silently skips that ticker's triggers, so the caller
@@ -95,6 +95,24 @@ def classify_lotto(stdout: str, returncode: int) -> str:
     return "FAILED"
 
 
+def index_swing_section(stdout: str, returncode: int) -> tuple[str, bool, str | None]:
+    """Fold the index-swing monitor's stdout into the lotto email.
+
+    Returns (section_text, actionable, subject_override). Actionable only on a
+    HIGH-CONVICTION breakout (the PF 1.96 cohort) or a monitor failure (fail
+    loud — a crashed monitor must never read as a quiet day). Standard
+    breakouts ride along as info without drafting."""
+    sep = "=" * 60
+    if returncode != 0 or not stdout or not stdout.startswith("INDEX-SWING 2H:"):
+        section = (f"\n\n{sep}\nINDEX-SWING 2H: MONITOR FAILED -- breakout "
+                   f"state NOT evaluated this window.\n{stdout or '(no output)'}")
+        return section, True, "Index-swing 2H -- MONITOR FAILED (needs attention)"
+    section = f"\n\n{sep}\n{stdout}"
+    if stdout.startswith("INDEX-SWING 2H: HIGH-CONVICTION"):
+        return section, True, "Index-swing 2H -- HIGH-CONVICTION BREAKOUT"
+    return section, False, None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", required=True)
@@ -123,6 +141,19 @@ def main() -> int:
         l_subject = "Lotto 2H scan — no actionable setups"
         l_body = lo or le or "no output"
     l_actionable = l_status in ("OK", "FAILED")
+
+    # ---- INDEX-SWING: 2H breakout monitor rides the lotto email (same 3x/day
+    # cadence as the 2H trigger TF). High-conviction breakout or monitor
+    # failure flips the email actionable even on a quiet lotto window. ----
+    io_, ie, ic = capture("index_swing_monitor.py", {})
+    idx_section, idx_actionable, idx_subject = index_swing_section(
+        (io_ or "") + (f"\nErrors:\n{ie}" if ic != 0 and ie else ""), ic)
+    l_body += idx_section
+    if idx_actionable:
+        if not l_actionable and idx_subject:
+            l_subject = idx_subject
+        l_actionable = True
+
     write_result(out / "lotto_result.md", args.now, l_actionable, l_status,
                  l_subject, l_body)
 
