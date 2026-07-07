@@ -21,6 +21,7 @@ _spec.loader.exec_module(publish_results)
 
 classify_lotto = publish_results.classify_lotto
 write_result = publish_results.write_result
+index_swing_section = publish_results.index_swing_section
 
 
 def test_classify_ok():
@@ -52,6 +53,42 @@ def test_classify_empty_output_is_failed():
 
 def test_classify_nonzero_exit_is_failed_even_with_ok_header():
     assert classify_lotto("# Lotto Scan — partial then crashed", 1) == "FAILED"
+
+
+def test_index_swing_high_conviction_is_actionable():
+    out = "INDEX-SWING 2H: HIGH-CONVICTION BREAKOUT\n  QQQ: breakout_high_conviction close 722.82"
+    section, actionable, subject = index_swing_section(out, 0)
+    assert actionable is True
+    assert subject == "Index-swing 2H -- HIGH-CONVICTION BREAKOUT"
+    assert "breakout_high_conviction" in section
+
+
+def test_index_swing_quiet_is_not_actionable():
+    section, actionable, subject = index_swing_section(
+        "INDEX-SWING 2H: quiet\n  QQQ: no_breakout close 722.82", 0)
+    assert actionable is False
+    assert subject is None
+    assert "no_breakout" in section
+
+
+def test_index_swing_standard_breakout_is_info_only():
+    section, actionable, subject = index_swing_section(
+        "INDEX-SWING 2H: standard breakout (info only)\n  SPY: breakout_standard", 0)
+    assert actionable is False
+    assert subject is None
+
+
+def test_index_swing_crash_fails_loud():
+    section, actionable, subject = index_swing_section("Traceback ...", 1)
+    assert actionable is True
+    assert "MONITOR FAILED" in section
+    assert subject == "Index-swing 2H -- MONITOR FAILED (needs attention)"
+
+
+def test_index_swing_empty_output_fails_loud():
+    _, actionable, subject = index_swing_section("", 0)
+    assert actionable is True
+    assert subject is not None
 
 
 def test_write_result_contract(tmp_path):
