@@ -9,14 +9,7 @@ name: shadow-open-bar
 on:
   workflow_dispatch:
 
-  # Test trigger off the feature branch (schedule only fires from main).
-  push:
-    branches: [lotto-cloud-scan-routine]
-    paths:
-      - scripts/shadow_open_bar.py
-      - .github/workflows/shadow-open-bar.yml
-
-  # INERT until on the default branch (main). Post-close so all four 2h bars
+  # Post-close so all four 2h bars
   # exist. Cron is UTC, no DST awareness (manual swap twice a year).
   schedule:
     # -- EDT (UTC-4), in effect 2026-03-08 -> 2026-11-01 -- ACTIVE NOW --
@@ -36,10 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout (feature branch — holds the script + src)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: lotto-cloud-scan-routine
 
       - name: Set up Python
         uses: actions/setup-python@v5
