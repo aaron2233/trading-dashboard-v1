@@ -28,7 +28,7 @@ from lotto import LOTTO_HIGH_VOL_WATCHLIST  # noqa: E402
 # scripts/lotto_cloud_scan.py UNIVERSE) + guard + beat-market tickers.
 LOTTO_UNIVERSE = list(LOTTO_HIGH_VOL_WATCHLIST)
 GUARD = ["QQQ"]  # lotto fresh-bar guard ticker
-BEAT_MARKET = ["QQQ", "SPY", "QQQM", "NVDA", "QLD"]
+BEAT_MARKET = ["QQQ", "SPY", "QQQM", "NVDA", "QLD", "MU", "META", "ETH-USD", "BTC-USD"]
 
 DAILY_TICKERS = sorted(set(LOTTO_UNIVERSE) | set(GUARD) | set(BEAT_MARKET))
 H2_TICKERS = sorted(set(LOTTO_UNIVERSE) | set(GUARD))
