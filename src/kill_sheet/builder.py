@@ -277,7 +277,19 @@ def build_standard(
 
     # Lotto-style accounts cap a single trade in absolute dollars regardless of
     # risk_pct. main/weekly typically don't (max_per_trade_usd absent → no cap).
+    # R1 validated-cohort exemption (Trading Recovery Plan 2026, amended
+    # 2026-07-07): skills listed in accounts.<key>.max_per_trade_exempt_skills
+    # size per their own strategy rules — the dollar cap does not apply.
     max_per_trade_usd = account.raw.get("max_per_trade_usd")
+    _skill_name_for_cap: str | None = None
+    if isinstance(skill, SkillConfig):
+        _skill_name_for_cap = skill.name
+    elif isinstance(skill, str):
+        _skill_name_for_cap = skill
+    if _skill_name_for_cap and _skill_name_for_cap in (
+        account.raw.get("max_per_trade_exempt_skills") or []
+    ):
+        max_per_trade_usd = None
 
     sizing = calculate_position_size(
         account.balance_usd,

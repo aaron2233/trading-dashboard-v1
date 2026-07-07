@@ -97,6 +97,39 @@ def test_high_risk_pct_triggers_cap():
     assert "[capped by max_per_trade_usd]" in sheet.to_text()
 
 
+def test_validated_cohort_skill_exempt_from_cap():
+    # R1 amendment 2026-07-07: skills in max_per_trade_exempt_skills skip the
+    # dollar cap; the same trade without the skill tag stays capped.
+    from config.loader import AccountConfig
+    account = AccountConfig(
+        name="Test", type="cash", balance_usd=1_000.0,
+        raw={"risk_per_trade": {"high": 0.30},
+             "max_per_trade_usd": 150.0,
+             "max_per_trade_exempt_skills": ["index-swing"]},
+    )
+    scan_row = {
+        "ticker": "QQQ", "timeframe": "1d", "bar_date": "2026-04-22", "close": 25.0,
+        "ma_ribbon": {"ma_10": 25, "ma_20": 24, "ma_50": 22, "ma_200": 20,
+                      "stack_state": "full_bull"},
+        "stochastic": {"k": 25, "d": 22, "zone": "oversold",
+                       "signal": "bull_cross_oversold"},
+        "sqn": {"sqn_value": 1.2, "regime": "bull"},
+    }
+    exempt = build_standard(
+        scan_row=scan_row, direction="long", account=account,
+        account_key="test", risk_conviction="high", skill="index-swing",
+    )
+    assert exempt.max_risk_usd == 300.0
+    assert exempt.risk_capped_by_max_trade is False
+
+    capped = build_standard(
+        scan_row=scan_row, direction="long", account=account,
+        account_key="test", risk_conviction="high",
+    )
+    assert capped.max_risk_usd == 150.0
+    assert capped.risk_capped_by_max_trade is True
+
+
 # ─── Account-aware DTE band ───────────────────────────────────────────────────
 
 
