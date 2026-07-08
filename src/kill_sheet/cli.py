@@ -153,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
             "documented in src/kill_sheet/balance_audit.py). Compares "
             "portfolio.total_value against the journal book model (config "
             "balance.anchor + post-anchor realized P&L) and renders a drift "
-            "line in the sizing section; warns when |drift| ≥ 2%."
+            "line in the sizing section; warns when |drift| ≥ 2%%."
         ),
     )
 
