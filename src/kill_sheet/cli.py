@@ -136,7 +136,25 @@ def build_parser() -> argparse.ArgumentParser:
     options.add_argument(
         "--allow-stale",
         action="store_true",
-        help="Accept an --options-json snapshot older than the staleness cutoff.",
+        help="Accept an --options-json or --balance-json snapshot older than "
+             "its staleness cutoff.",
+    )
+
+    balance = p.add_argument_group(
+        "Balance audit",
+        "Pass --balance-json to audit the sizing base against broker truth. "
+        "Sizing itself stays on the configured sleeve balance — the audit "
+        "proves the book those balances live in still matches the broker.",
+    )
+    balance.add_argument(
+        "--balance-json",
+        help=(
+            "Path to a robinhood-mcp get_portfolio snapshot JSON (shape "
+            "documented in src/kill_sheet/balance_audit.py). Compares "
+            "portfolio.total_value against the journal book model (config "
+            "balance.anchor + post-anchor realized P&L) and renders a drift "
+            "line in the sizing section; warns when |drift| ≥ 2%."
+        ),
     )
 
     manual = p.add_argument_group(
@@ -334,6 +352,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"⚠ {exc}", file=sys.stderr)
         return 2
 
+    balance_audit_line: str | None = None
+    if args.balance_json:
+        from kill_sheet.balance_audit import (
+            STALE_AFTER_MINUTES as BALANCE_STALE_AFTER_MINUTES,
+            audit_balance,
+            load_balance_snapshot,
+        )
+        from options_input.robinhood import snapshot_age_minutes
+        try:
+            raw_balance = load_balance_snapshot(args.balance_json)
+        except ValueError as exc:
+            parser.error(str(exc))
+        bal_age = snapshot_age_minutes(raw_balance)
+        if ((bal_age is None or bal_age > BALANCE_STALE_AFTER_MINUTES)
+                and not args.allow_stale):
+            shown = ("unknown age (no fetched_at)" if bal_age is None
+                     else f"{bal_age:.0f} min old")
+            parser.error(
+                f"balance snapshot is {shown} (cutoff "
+                f"{BALANCE_STALE_AFTER_MINUTES:.0f} min) — re-fetch "
+                "get_portfolio, or pass --allow-stale to use it anyway"
+            )
+        try:
+            audit = audit_balance(
+                raw_balance, config, PositionStore().list_all())
+        except ValueError as exc:
+            parser.error(str(exc))
+        balance_audit_line = audit.line()
+        for warning in audit.warnings:
+            print(f"⚠ balance-json: {warning}", file=sys.stderr)
+
     if args.focus and args.ticker.upper() not in FOCUS_TICKERS:
         print(
             f"⚠ --focus restricts tickers to {', '.join(sorted(FOCUS_TICKERS))}; "
@@ -384,6 +433,7 @@ def main(argv: list[str] | None = None) -> int:
         trigger_description=args.trigger_desc,
         notes=args.notes,
     )
+    sheet.balance_audit = balance_audit_line
 
     # ─ Pre-check: account rules ─
     rules_blocked = False
