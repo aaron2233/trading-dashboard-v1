@@ -172,20 +172,3 @@ def test_history_endpoint_validates_days_range(client: TestClient):
     assert r.status_code == 422
 
 
-def test_agent_snapshot_includes_regime_health_after_assemble(client: TestClient):
-    """After a snapshot has been assembled + persisted, /agent/snapshot
-    returns it as `regime_health`."""
-    from datetime import date
-    fake = _fake_snapshot(snapshot_date=date.today().isoformat())
-    from datetime import datetime, timezone
-    fake.fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-
-    with patch("regime_health.assemble_snapshot", return_value=fake):
-        client.get("/api/v1/regime-health/snapshot")  # populate cache
-
-    r = client.get("/api/v1/agent/snapshot")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["regime_health"] is not None
-    assert body["regime_health"]["overall_status"] == "green"
-    assert body["regime_health"]["snapshot_date"] == fake.snapshot_date

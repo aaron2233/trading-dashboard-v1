@@ -32,7 +32,7 @@ DEFAULT_CACHE_PATH = Path.home() / ".trading-dashboard" / "cache.sqlite"
 
 # Bump when DDL changes in a way old caches can't handle. On version
 # mismatch, the cache drops all tables and recreates with the new DDL —
-# data is recoverable via /api/v1/cache/rebuild since JSON is canonical.
+# data is recoverable via Cache.rebuild() since JSON is canonical.
 SCHEMA_VERSION = 6
 
 DDL = """
@@ -238,7 +238,7 @@ class Cache:
         if existing is not None and existing != SCHEMA_VERSION:
             logger.warning(
                 "cache schema mismatch (have v%d, want v%d) — dropping and "
-                "recreating tables. Hit /api/v1/cache/rebuild to repopulate.",
+                "recreating tables. Run Cache.rebuild() to repopulate.",
                 existing, SCHEMA_VERSION,
             )
             with self._tx() as cur:

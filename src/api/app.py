@@ -17,7 +17,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.models import HealthResponse
-from api.query_routes import make_query_router
 from api.routes.discipline import make_discipline_router
 from api.routes.indicators import make_indicators_router
 from api.routes.journal import make_journal_router
@@ -74,7 +73,6 @@ def create_app(
     app.include_router(make_positions_router(store_factory))
     app.include_router(make_journal_router(store_factory))
     app.include_router(make_discipline_router(store_factory))
-    app.include_router(make_query_router(cache_factory=cache_factory))
 
     return app
 
