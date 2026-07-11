@@ -319,14 +319,27 @@ def main():
         print(f"{k:6d} {len(s):3d} {(s>0).mean()*100:3.0f}% {s.mean():+9.1%} "
               f"{s.median():+8.1%} {s.min():+7.1%}")
 
-    print("\n=== SPY check (adopted D2 rules do NOT generalize) ===")
-    s = prep("SPY")
-    r = run(s, "D", "2")
-    sidx = s.index[s.index >= PORTFOLIO_START]
-    syrs = (sidx[-1] - sidx[0]).days / 365.25
-    sbh = s.close.loc[sidx[-1]] / s.close.loc[sidx[0]]
-    print(f"SPY D2: {r['mult']:.2f}x CAGR {r['cagr']:+.2%} MaxDD {r['maxdd']:+.0%} "
-          f"n={r['n']} WR {r['wr']*100:.0f}%   (SPY B&H {sbh:.2f}x CAGR {sbh**(1/syrs)-1:+.2%})")
+    print("\n=== 4. UNIVERSE SWEEP (adopted D2 rules per-ETF vs own B&H) ===")
+    # Run 2026-07-11 at Aaron's request (extend to QQQ/SPY/10 liquid ETFs?).
+    # Result: only the tech complex beats its own B&H — QQQ +11.5% vs +8.9%,
+    # XLK +10.3% vs +9.0%, SMH +12.4% vs +10.8% — and those are one trade
+    # (~0.9 correlated). The other 11 of 14 LAG, some badly (SLV -91% DD,
+    # 20% WR). Universe stays QQQM-only.
+    ETFS = ["QQQ", "SPY", "IWM", "DIA", "GLD", "SLV", "TLT", "EEM", "EFA",
+            "XLE", "XLF", "XLK", "SMH", "HYG"]
+    print(f"{'ETF':5s} {'mult':>7s} {'CAGR':>7s} {'MaxDD':>6s} {'n':>3s} {'WR':>4s} "
+          f"| {'B&H CAGR':>8s} {'B&H DD':>6s}  verdict")
+    for t in ETFS:
+        f = prep(t)
+        r = run(f, "D", "2")
+        fidx = f.index[f.index >= PORTFOLIO_START]
+        fyrs = (fidx[-1] - fidx[0]).days / 365.25
+        fbh = f.close.loc[fidx[-1]] / f.close.loc[fidx[0]]
+        fbh_cagr = fbh ** (1 / fyrs) - 1
+        fbh_dd = float((f.close.loc[fidx] / f.close.loc[fidx].cummax() - 1).min())
+        print(f"{t:5s} {r['mult']:6.2f}x {r['cagr']:+7.2%} {r['maxdd']:+5.0%} "
+              f"{r['n']:3d} {r['wr']*100:3.0f}% | {fbh_cagr:+8.2%} {fbh_dd:+5.0%}  "
+              f"{'BEATS B&H' if r['cagr'] > fbh_cagr else 'lags'}")
 
 
 if __name__ == "__main__":
