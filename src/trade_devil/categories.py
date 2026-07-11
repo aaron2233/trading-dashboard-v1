@@ -18,7 +18,7 @@ from trade_devil.verdict import CategoryResult, Verdict
 # [src: ~/CLAUDE.md account profile, "ETFs at any price"]. List is a heuristic;
 # user can extend via config in a later story.
 _ETF_TICKERS = {
-    "SPY", "QQQ", "IWM", "DIA", "GLD", "SLV", "TLT", "HYG", "LQD",
+    "SPY", "QQQ", "QQQM", "IWM", "DIA", "GLD", "SLV", "TLT", "HYG", "LQD",
     "XLF", "XLE", "XLK", "XLV", "XLY", "XLP", "XLI", "XLU", "XLB", "XLRE", "XLC",
     "VOO", "VTI", "VEA", "VWO", "EEM", "EFA", "AGG", "BND",
     "USO", "UNG", "GDX", "GDXJ", "ARKK", "ARKW", "ARKG", "ARKF",
@@ -82,6 +82,11 @@ def check_regime_mismatch(sheet: KillSheet) -> CategoryResult:
 def check_technical_invalidation(sheet: KillSheet) -> CategoryResult:
     direction = sheet.direction.lower()
     stack = (sheet.ma_stack or "").lower()
+    # Weekly-trigger sheets (qqqm-core, Track A) trade the weekly ribbon — a
+    # tangled daily stack inside an intact weekly trend is consolidation, not
+    # chop. Mirrors the kill-sheet builder's trigger-TF chop evaluation.
+    if sheet.trigger_tf == "Weekly" and sheet.weekly_stack:
+        stack = sheet.weekly_stack.lower()
     signal = (sheet.stoch_signal or "").lower()
 
     if stack in {"chop", "n/a", ""}:
