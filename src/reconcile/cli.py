@@ -57,10 +57,31 @@ def build_parser() -> argparse.ArgumentParser:
         description="Diff a Robinhood report CSV against the position journal.",
     )
     p.add_argument("csv_path", metavar="path",
-                   help="Robinhood report CSV or monthly-statement PDF")
+                   help="Robinhood report CSV, monthly-statement PDF, or "
+                        "live MCP snapshot JSON")
     p.add_argument("--json", dest="json_path",
                    help="Also write the report as JSON to this path")
     return p
+
+
+def _main_live(snapshot_path: Path, json_path: str | None) -> int:
+    """Live-snapshot mode: state-vs-state compare of broker opens vs journal."""
+    from reconcile.live import LiveSnapshotError, format_live_report, live_reconcile
+
+    try:
+        snapshot = json.loads(snapshot_path.read_text())
+        report = live_reconcile(snapshot, PositionStore().list_all())
+    except (LiveSnapshotError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    print(format_live_report(report))
+    if json_path:
+        out = Path(json_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report.to_dict(), indent=2))
+        print(f"Wrote JSON report to {out}")
+    return 1 if report.has_high_severity else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
     if not csv_path.exists():
         print(f"error: {csv_path} does not exist", file=sys.stderr)
         return 2
+    if csv_path.suffix.lower() == ".json":
+        return _main_live(csv_path, args.json_path)
     try:
         if csv_path.suffix.lower() == ".pdf":
             parsed = parse_statement_pdf(csv_path)
