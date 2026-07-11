@@ -511,7 +511,6 @@ function readInitialForm(params: URLSearchParams): KillSheetRequest {
   const conviction = params.get("conviction");
   const account = params.get("account");
   const ticker = params.get("ticker") ?? "";
-  const focus = params.get("focus") === "true";
   const trigger_tf_raw = params.get("trigger_tf");
 
   // Numeric params — pre-filled from the position-open form.
@@ -539,7 +538,6 @@ function readInitialForm(params: URLSearchParams): KillSheetRequest {
     conviction: CONVICTIONS.includes(conviction as (typeof CONVICTIONS)[number])
       ? (conviction as KillSheetRequest["conviction"])
       : "high",
-    focus,
     trigger_tf: TRIGGER_TFS.includes(trigger_tf_raw as (typeof TRIGGER_TFS)[number])
       ? (trigger_tf_raw as KillSheetRequest["trigger_tf"])
       : undefined,
@@ -627,7 +625,7 @@ export function KillSheetView() {
       },
     }));
   }
-  // If the URL changes (e.g. user clicks a different focus deep-link), reseed.
+  // If the URL changes (e.g. user clicks a different deep-link), reseed.
   useEffect(() => {
     setForm(readInitialForm(searchParams));
     setResponse(null);
@@ -677,23 +675,6 @@ export function KillSheetView() {
       <div className="page-header-row">
         <h2 className="page-title">Kill Sheet</h2>
       </div>
-
-      {form.focus && (
-        <div className="panel p-3 mb-4 border-signal-info/40 bg-signal-info/5 flex items-center justify-between gap-3 flex-wrap">
-          <span className="text-signal-info text-sm">
-            qqq-gld-focus mode {form.ticker ? `— ${form.ticker} ${form.direction}` : ""}.
-            Account-rule + DTE-band + $200 risk-cap gates apply on submit.
-          </span>
-          <button
-            type="button"
-            className="btn text-xs"
-            onClick={() => update("focus", false)}
-            title="Generate without focus gates"
-          >
-            disable focus mode
-          </button>
-        </div>
-      )}
 
       <form onSubmit={handleSubmit} className="panel mb-4">
         <div className="panel-header">Input</div>

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from action_gate import (
     ActionVerdict,
-    classify_focus_action,
     classify_lotto_action,
     classify_weekly_trend_action,
 )
@@ -283,33 +282,6 @@ def test_weekly_tolerates_sustained_overbought_without_divergence():
 # ═════════════════════════════════════════════════════════════════════════════
 # Focus classifier (Tier 4 specialty: same as lotto, longer DTE)
 # ═════════════════════════════════════════════════════════════════════════════
-
-
-def test_focus_reuses_lotto_rules_with_different_skill_label():
-    """Focus shares lotto's chop/chase/trigger logic; only skill label
-    + DTE band differ."""
-    reads = {
-        "1d":  _read(timeframe="1d",  stack="full_bull"),
-        "2h":  _read(timeframe="2h", close=100.0, stack="full_bull",
-                     stoch_k=28, stoch_d=22, stoch_zone="oversold",
-                     stoch_signal="bull_cross_oversold"),
-    }
-    v = classify_focus_action(reads, "long")
-    assert v.state == "enter_now"
-    assert v.skill == "qqq-gld-focus"
-    # Adds the focus-specific DTE band citation
-    assert any("21-60 DTE" in c for c in v.rule_citations)
-
-
-def test_focus_chase_zone_when_lotto_would_be_chase():
-    reads = {
-        "1d":  _read(timeframe="1d", stack="full_bull",
-                     stoch_zone="overbought", sqn_20_regime="strong_bull"),
-        "2h":  _read(timeframe="2h", stack="full_bull"),
-    }
-    v = classify_focus_action(reads, "long")
-    assert v.state == "chase_zone"
-    assert v.skill == "qqq-gld-focus"
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -9,13 +9,7 @@ from pathlib import Path
 from config import load_config
 from kill_sheet.builder import build_standard
 from kill_sheet.options import OptionsStructure, compute_dte
-from positions import (
-    FOCUS_TICKERS,
-    PositionStore,
-    check_focus_options_structure,
-    check_focus_trade,
-    check_proposed_trade,
-)
+from positions import PositionStore, check_proposed_trade
 from trade_devil import AGGREGATE_KILL, run_devil
 
 
@@ -92,16 +86,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run the rules check but allow the kill sheet to render even on a "
              "violation (logged to stderr).",
-    )
-    p.add_argument(
-        "--focus",
-        action="store_true",
-        help=(
-            "qqq-gld-focus mode: ticker must be QQQ or GLD; applies focus rules "
-            "(one open position per asset, no same-direction QQQ+GLD pair, "
-            "3-trading-day cool-off after a stop). See "
-            "~/.claude/skills/user/qqq-gld-focus/."
-        ),
     )
     p.add_argument(
         "--period",
@@ -383,14 +367,6 @@ def main(argv: list[str] | None = None) -> int:
         for warning in audit.warnings:
             print(f"⚠ balance-json: {warning}", file=sys.stderr)
 
-    if args.focus and args.ticker.upper() not in FOCUS_TICKERS:
-        print(
-            f"⚠ --focus restricts tickers to {', '.join(sorted(FOCUS_TICKERS))}; "
-            f"got {args.ticker.upper()}",
-            file=sys.stderr,
-        )
-        return 2
-
     # Lazy import to keep import-time light when only --help is run
     from scan import compute_multi_tf, populate_trigger_bar, scan_ticker
 
@@ -448,21 +424,6 @@ def main(argv: list[str] | None = None) -> int:
             open_positions=open_positions,
             pool_account_keys=config.pool_account_keys(args.account),
         )
-        if args.focus:
-            all_positions = store.list_all()
-            closed_positions = [p for p in all_positions if p.status == "closed"]
-            violations.extend(check_focus_trade(
-                ticker=args.ticker,
-                direction=args.direction,
-                open_positions=open_positions,
-                closed_positions=closed_positions,
-            ))
-            violations.extend(check_focus_options_structure(
-                ticker=args.ticker,
-                direction=args.direction,
-                max_loss_usd=sheet.max_risk_usd,
-                dte=sheet.options.dte if sheet.options else None,
-            ))
         if violations:
             print(
                 "\n⚠ Account-rules violations:",

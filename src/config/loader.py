@@ -86,7 +86,7 @@ _DEFAULT_ACCOUNTS: dict[str, dict[str, Any]] = {
 # Tiers:
 #   1 — anchor (weekly-trend-trader)
 #   2 — secondary (lotto-options)
-#   4 — explicit-trigger only (index-swing, trading-edge, qqq-gld-focus)
+#   4 — explicit-trigger only (index-swing, trading-edge)
 # Default watchlist drives Tier 1/Tier 2 baseline scans (empty list = asset-agnostic).
 # Gates (trade-devil, discipline) intentionally absent — they're orthogonal to
 # tiered routing.
@@ -102,10 +102,6 @@ _DEFAULT_SKILLS: dict[str, dict[str, Any]] = {
     "index-swing": {
         "tier": 4,
         "default_watchlist": ["QQQ", "IWM", "SPY"],
-    },
-    "qqq-gld-focus": {
-        "tier": 4,
-        "default_watchlist": ["QQQ", "GLD"],
     },
     "trading-edge": {
         "tier": 4,

@@ -17,13 +17,7 @@ from kill_sheet.builder import build_standard
 from kill_sheet.options import OptionsStructure, compute_dte
 from lotto import LOTTO_ACCOUNT_KEY, check_lotto_cooldown
 from options_input import parse_options_text
-from positions import (
-    FOCUS_TICKERS,
-    check_focus_options_structure,
-    check_focus_trade,
-    check_proposed_trade,
-    check_tier_portfolio_trade,
-)
+from positions import check_proposed_trade, check_tier_portfolio_trade
 from scan import compute_multi_tf, populate_trigger_bar, scan_ticker
 from trade_devil import run_devil
 
@@ -55,15 +49,6 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
             account = config.account(req.account)
         except KeyError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-
-        if req.focus and req.ticker.upper() not in FOCUS_TICKERS:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"focus mode restricts tickers to "
-                    f"{', '.join(sorted(FOCUS_TICKERS))}; got {req.ticker.upper()}"
-                ),
-            )
 
         try:
             scan_row = scan_ticker(req.ticker.upper(), period=req.period)
@@ -147,25 +132,8 @@ def make_kill_sheet_router(store_factory, config_loader) -> APIRouter:
                 open_positions=open_positions,
                 pool_account_keys=config.pool_account_keys(req.account),
             )
-            if req.focus:
-                closed_positions = [
-                    p for p in store.list_all() if p.status == "closed"
-                ]
-                raw = list(raw) + check_focus_trade(
-                    ticker=req.ticker,
-                    direction=req.direction,
-                    open_positions=open_positions,
-                    closed_positions=closed_positions,
-                )
-                raw = list(raw) + check_focus_options_structure(
-                    ticker=req.ticker,
-                    direction=req.direction,
-                    max_loss_usd=sheet.max_risk_usd,
-                    dte=sheet.options.dte if sheet.options else None,
-                )
-
             # ─ Tier 1+2 portfolio rule (orchestrator rule 11) ─
-            # Fires whenever ticker is QQQ/GLD, independent of --focus.
+            # Fires whenever ticker is QQQ/GLD.
             # Applies the 2-concurrent / no-same-direction-pair / 3-day cool-off
             # check across all open QQQ/GLD positions. The check_tier_portfolio_trade
             # helper short-circuits to [] for non-QQQ/GLD tickers.

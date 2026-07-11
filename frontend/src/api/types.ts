@@ -59,7 +59,6 @@ export interface KillSheetRequest {
   skip_rules?: boolean;
   bypass_rules?: boolean;
   include_multi_tf?: boolean;
-  focus?: boolean;
   // Discipline-layer extensions
   divergence_thesis?: string | null;
   counter_weekly_thesis?: string | null;

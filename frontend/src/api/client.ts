@@ -87,7 +87,7 @@ export const api = {
 
   actionGateVerdict: (
     ticker: string,
-    skill: "lotto" | "weekly" | "focus",
+    skill: "lotto" | "weekly",
     direction: "long" | "short",
   ) =>
     request<ActionVerdict>(

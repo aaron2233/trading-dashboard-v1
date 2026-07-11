@@ -469,58 +469,6 @@ def test_journal_recent_orders_by_close_date(client):
     assert body[1]["ticker"] == "SPY"
 
 
-# ─── Focus kill sheet (request flag) ──────────────────────────────────────────
-
-
-@patch("api.routes.kill_sheet.compute_multi_tf",
-       return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
-def test_kill_sheet_focus_rejects_non_focus_ticker(mock_scan, mock_multi, client):
-    c, _ = client
-    r = c.post("/api/v1/kill_sheet", json={
-        "ticker": "SPY", "direction": "long", "account": "main",
-        "focus": True, "skip_devil": True,
-    })
-    assert r.status_code == 400
-    assert "focus" in r.json()["detail"].lower()
-
-
-@patch("api.routes.kill_sheet.compute_multi_tf",
-       return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
-def test_kill_sheet_focus_blocks_high_conviction_over_cap(
-    mock_scan, mock_multi, client,
-):
-    c, _ = client
-    # high conviction × $10K main = $250 → focus_max_risk fires
-    r = c.post("/api/v1/kill_sheet", json={
-        "ticker": "QQQ", "direction": "long", "account": "main",
-        "conviction": "high",
-        "focus": True, "skip_devil": True,
-    })
-    assert r.status_code == 200
-    body = r.json()
-    rules = {v["rule"] for v in body["rule_violations"]}
-    assert "focus_max_risk" in rules
-    assert body["rules_blocked"] is True
-
-
-@patch("api.routes.kill_sheet.compute_multi_tf",
-       return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
-@patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_DAILY)
-def test_kill_sheet_focus_speculative_passes(mock_scan, mock_multi, client):
-    c, _ = client
-    r = c.post("/api/v1/kill_sheet", json={
-        "ticker": "QQQ", "direction": "long", "account": "main",
-        "conviction": "speculative",   # $75 risk → under cap
-        "focus": True, "skip_devil": True,
-    })
-    assert r.status_code == 200
-    body = r.json()
-    assert body["rules_blocked"] is False
-    assert body["rule_violations"] == []
-
-
 # ─── Discipline-loop closure (Tier 3 Story 35-39) ────────────────────────────
 
 
@@ -677,8 +625,8 @@ _FAKE_QQQ_DAILY = {
 @patch("api.routes.kill_sheet.compute_multi_tf",
        return_value={"1wk": {"error": "skip"}, "4h": {"error": "skip"}})
 @patch("api.routes.kill_sheet.scan_ticker", return_value=_FAKE_QQQ_DAILY)
-def test_tier_portfolio_blocks_second_qqq_without_focus_flag(mock_scan, mock_multi, client):
-    """Orchestrator rule 11 fires whenever ticker is QQQ/GLD — no --focus needed."""
+def test_tier_portfolio_blocks_second_qqq(mock_scan, mock_multi, client):
+    """Orchestrator rule 11 fires whenever ticker is QQQ/GLD, regardless of skill."""
     c, store_factory = client
     store = store_factory()
     # Open one QQQ long
@@ -692,7 +640,6 @@ def test_tier_portfolio_blocks_second_qqq_without_focus_flag(mock_scan, mock_mul
     r = c.post("/api/v1/kill_sheet", json={
         "ticker": "QQQ", "direction": "long", "account": "main",
         "skip_devil": True,
-        # NOTE: no "focus": true — tier rules apply regardless
     })
     assert r.status_code == 200
     body = r.json()

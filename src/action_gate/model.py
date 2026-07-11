@@ -46,7 +46,7 @@ class ActionVerdict:
 
     state: ActionState
     direction: Literal["long", "short", "none"]
-    skill: str                          # "lotto-options" / "weekly-trend-trader" / "qqq-gld-focus"
+    skill: str                          # "lotto-options" / "weekly-trend-trader"
     headline: str
     suggested_entry_price: float | None = None
     blockers: list[str] = field(default_factory=list)

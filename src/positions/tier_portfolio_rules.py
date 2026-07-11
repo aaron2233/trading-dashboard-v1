@@ -7,11 +7,9 @@ Implements orchestration rule 11 from `~/CLAUDE.md`:
     — pick the stronger setup. Cool-off 3 trading days after a stop on
     either asset before re-entering on the same name.
 
-This is distinct from `focus_rules.py` (Tier 4 qqq-gld-focus workflow gates):
-- focus_rules fires only when `--focus` flag is set; this fires whenever the
-  ticker is QQQ or GLD on a Tier 1 or Tier 2 skill.
-- focus_rules also enforces the $200 per-trade cap and DTE bands; those are
-  qqq-gld-focus specialty rules, NOT in orchestrator rule 11.
+Fires whenever the ticker is QQQ or GLD, regardless of skill. (The Tier 4
+qqq-gld-focus workflow and its opt-in `focus_rules.py` gates were removed
+2026-07-11 — QQQ/GLD coverage now rides the standard strategy scans.)
 
 V1 limitation: Position model does not yet carry a skill/tier field. We
 therefore count ALL open QQQ/GLD positions regardless of skill. This is
@@ -48,9 +46,8 @@ def _weekdays_elapsed(since: datetime, now: datetime) -> int:
     (Decision 2026-06: "after N full trading days".) Both args are assumed to
     be in the same timezone frame (ET) so `.date()` yields ET calendar days.
 
-    Mirrors focus_rules._weekdays_elapsed (intentionally duplicated rather
-    than imported to keep the two modules independent — focus_rules can be
-    deleted/folded later without breaking this one).
+    (Formerly mirrored in focus_rules._weekdays_elapsed; that module was
+    removed 2026-07-11 — this is now the only copy.)
     """
     if now <= since:
         return 0

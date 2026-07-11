@@ -66,12 +66,6 @@ from indicators.stochastic import Stochastic
 
 SCANS_DIR = Path.home() / ".trading-dashboard" / "scans"
 
-# qqq-gld-focus playbook: SPY for regime context + QQQ + GLD for setups.
-# (Retired as a standalone skill 2026-05-07; the Sunday Scan workflow lives
-# on here and in src/focus/.)
-FOCUS_SCAN_TICKERS: tuple[str, ...] = ("SPY", "QQQ", "GLD")
-FOCUS_ALLOWED: frozenset[str] = frozenset(FOCUS_SCAN_TICKERS)
-
 # Signals that are "actionable" enough to be worth flagging for later resolution
 ACTIONABLE_SIGNALS = {
     "bull_cross_oversold",
@@ -335,15 +329,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=f"List indicator plugins discovered in {DEFAULT_PLUGINS_DIR} and exit.",
     )
-    p.add_argument(
-        "--focus",
-        action="store_true",
-        help=(
-            "qqq-gld-focus mode: with no tickers, scans "
-            f"{', '.join(FOCUS_SCAN_TICKERS)}. With explicit tickers, only "
-            "those three are allowed."
-        ),
-    )
     return p
 
 
@@ -393,24 +378,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Logged resolved for {event['ticker']} at {event['ts']}")
         return 0
 
-    if args.focus:
-        if not args.tickers:
-            tickers = list(FOCUS_SCAN_TICKERS)
-        else:
-            tickers = [t.upper() for t in args.tickers]
-            foreign = [t for t in tickers if t not in FOCUS_ALLOWED]
-            if foreign:
-                parser.error(
-                    f"--focus restricts tickers to {', '.join(FOCUS_SCAN_TICKERS)}; "
-                    f"got {', '.join(foreign)}"
-                )
-    else:
-        if not args.tickers:
-            parser.error(
-                "must specify one or more tickers, or use --shadow-trade / "
-                "--mark-resolved / --focus"
-            )
-        tickers = list(args.tickers)
+    if not args.tickers:
+        parser.error(
+            "must specify one or more tickers, or use --shadow-trade / "
+            "--mark-resolved"
+        )
+    tickers = list(args.tickers)
 
     rows: list[dict[str, Any]] = []
     any_error = False

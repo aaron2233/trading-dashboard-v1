@@ -331,7 +331,7 @@ def test_tier_3_position_does_not_count_in_cap():
 
 
 def test_tier_4_position_does_not_count_in_cap():
-    """qqq-gld-focus (Tier 4) workflow position → not counted in rule 11."""
+    """Tier 4 workflow position (e.g. index-swing) → not counted in rule 11."""
     violations = check_tier_portfolio_trade(
         ticker="QQQ", direction="long",
         open_positions=[_open_with_tier("QQQ", "long", tier=4)],

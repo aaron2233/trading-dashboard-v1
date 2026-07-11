@@ -76,7 +76,6 @@ class KillSheetRequest(BaseModel):
     bypass_rules: bool = False
     include_multi_tf: bool = True
     period: str | None = None
-    focus: bool = False
 
     # Discipline-layer extensions (Tier 3 closure, 2026-05-02).
     # When supplied, override the regime gate and feed §8 attestation.

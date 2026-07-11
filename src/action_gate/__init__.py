@@ -13,7 +13,6 @@ multi-month tolerance) that a single config-parameterized function
 would obscure the differences.
 """
 from action_gate.classifiers import (
-    classify_focus_action,
     classify_lotto_action,
     classify_weekly_trend_action,
 )
@@ -25,7 +24,6 @@ from action_gate.model import (
 __all__ = [
     "ActionState",
     "ActionVerdict",
-    "classify_focus_action",
     "classify_lotto_action",
     "classify_weekly_trend_action",
 ]

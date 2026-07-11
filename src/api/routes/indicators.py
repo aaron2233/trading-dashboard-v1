@@ -77,20 +77,19 @@ def make_indicators_router() -> APIRouter:
     @router.get("/api/v1/action-gate/verdict/{ticker}")
     def action_gate_verdict(
         ticker: str,
-        skill: str = Query(..., pattern="^(lotto|weekly|focus)$"),
+        skill: str = Query(..., pattern="^(lotto|weekly)$"),
         direction: str = Query(..., pattern="^(long|short)$"),
     ) -> dict[str, Any]:
         """Compute an action verdict for a single ticker against a chosen
         skill context. Used by ScanView's opt-in verdict feature — user
-        picks a tier (lotto/weekly/focus) + direction; backend fetches
+        picks a tier (lotto/weekly) + direction; backend fetches
         the right TFs and runs the matching classifier.
 
         Skill → required reads:
-          lotto, focus → 1d + 2h
-          weekly       → 1wk
+          lotto  → 1d + 2h
+          weekly → 1wk
         """
         from action_gate import (
-            classify_focus_action,
             classify_lotto_action,
             classify_weekly_trend_action,
         )
@@ -103,10 +102,7 @@ def make_indicators_router() -> APIRouter:
                 daily = scan_ticker(ticker_u, timeframe="1d")
                 two_h = scan_ticker(ticker_u, timeframe="2h")
                 reads = {"1d": daily, "2h": two_h}
-                if skill == "focus":
-                    verdict = classify_focus_action(reads, direction)
-                else:
-                    verdict = classify_lotto_action(reads, direction)
+                verdict = classify_lotto_action(reads, direction)
         except Exception as exc:
             raise HTTPException(
                 status_code=502,

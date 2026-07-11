@@ -394,35 +394,3 @@ def classify_weekly_trend_action(
         advance_conditions=advance,
         rule_citations=["~/CLAUDE.md Tier 1 trigger frame"],
     )
-
-
-# ── Sunday focus (Tier 4 specialty): Daily filter / 2H trigger / 21-60 DTE ──
-
-
-def classify_focus_action(
-    reads: dict[str, dict[str, Any]],
-    direction: Direction,
-) -> ActionVerdict:
-    """qqq-gld-focus verdict. Same TF mechanics as lotto (daily filter,
-    2H trigger) but longer DTE band (21-60). Chase guard is identical
-    to lotto since the trigger TF is the same.
-
-    Implementation reuses classify_lotto_action and rebrands the skill
-    + rule citations — the underlying rules are the same per
-    ~/CLAUDE.md row mapping.
-    """
-    verdict = classify_lotto_action(reads, direction)
-    # Re-skin for focus context — same rule set, different DTE.
-    return ActionVerdict(
-        state=verdict.state,
-        direction=verdict.direction,
-        skill="qqq-gld-focus",
-        headline=verdict.headline,
-        suggested_entry_price=verdict.suggested_entry_price,
-        blockers=list(verdict.blockers),
-        advance_conditions=list(verdict.advance_conditions),
-        rule_citations=[
-            *verdict.rule_citations,
-            "~/CLAUDE.md Tier 4 focus: 21-60 DTE band",
-        ],
-    )
