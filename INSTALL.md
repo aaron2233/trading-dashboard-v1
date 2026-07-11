@@ -129,7 +129,6 @@ Everything the dashboard writes goes to `~/.trading-dashboard/`:
 - `positions.json` — your open + closed positions
 - `discipline/<position_id>.json` — discipline scorecard per closed trade (weekly reviews under `discipline/weekly/`)
 - `regime_health/` — regime-health snapshot history
-- `sunday_scans/` — QQQ/GLD focus Sunday-scan output
 - `events.jsonl` — instrumentation log (useful for self-audit)
 - `cache.sqlite` — market-data cache (safe to delete; rebuilt on demand)
 - `config.yaml` — your account overrides

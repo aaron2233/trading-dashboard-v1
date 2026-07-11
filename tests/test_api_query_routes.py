@@ -243,7 +243,6 @@ def test_agent_snapshot_empty_cache(client: TestClient):
     assert body["open_positions"] == []
     assert body["recent_discipline_scores"] == []
     assert body["weekly_reviews"] == []
-    assert body["recent_sunday_scans"] == []
     # regime_health is null when no snapshot has been cached yet
     assert body["regime_health"] is None
     assert body["summary"]["discipline"]["scored"] == 0

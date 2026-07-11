@@ -5,22 +5,17 @@ from fastapi import APIRouter, HTTPException
 
 from api.models import (
     CandidateSnapshotResponse,
-    DipBuySignalResponse,
     FreeRangeScanRequest,
     FreeRangeScanResponse,
     IndexSwingScanRequest,
     IndexSwingScanResponse,
     IndexSwingSetupResponse,
-    RegimeLeveredScanRequest,
-    RegimeLeveredScanResponse,
-    RegimeLeveredSetupResponse,
     WeeklyScanRequest,
     WeeklyScanResponse,
     WeeklySetupResponse,
 )
 from free_range import run_free_range_scan
 from index_swing import scan_index_swing_watchlist
-from regime_levered import scan_regime_levered
 from weekly_trend import scan_weekly_watchlist
 
 
@@ -90,45 +85,6 @@ def make_tier_scans_router() -> APIRouter:
             scan_time_utc=result.scan_time_utc,
             setups=[_to_response(s) for s in result.setups],
             actionable_setups=[_to_response(s) for s in result.actionable_setups],
-            errors=result.errors,
-        )
-
-    @router.post("/api/v1/regime-levered/scan", response_model=RegimeLeveredScanResponse)
-    def regime_levered_scan(req: RegimeLeveredScanRequest):
-        """Regime-levered-trend Layer 1 core scan + rule-19 dip-buy check.
-
-        Weekly Full Bull ribbon + own SQN(100) >= +0.7 + Stoch reset-turn,
-        gated by broad SQN(100) Bull. BUY verdicts capped at 2 (Layer 1
-        concurrent-slot limit). FORWARD-TEST cohort; deployment blocked in
-        the main account while R1/R2 recovery rules are active — the
-        response carries the gate note.
-        """
-        try:
-            result = scan_regime_levered(
-                tickers=req.tickers,
-                benchmark=req.benchmark,
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Regime-levered scan failed: {exc}",
-            )
-
-        def _to_response(s) -> RegimeLeveredSetupResponse:
-            return RegimeLeveredSetupResponse(**s.to_dict())
-
-        return RegimeLeveredScanResponse(
-            scan_time_utc=result.scan_time_utc,
-            benchmark=result.benchmark,
-            broad_sqn_100=result.broad_sqn_100,
-            broad_regime=result.broad_regime,
-            layer1_live=result.layer1_live,
-            deployment_note=result.deployment_note,
-            setups=[_to_response(s) for s in result.setups],
-            core_candidates=[_to_response(s) for s in result.core_candidates],
-            dip_buy_signals=[
-                DipBuySignalResponse(**d.to_dict()) for d in result.dip_buy_signals
-            ],
             errors=result.errors,
         )
 

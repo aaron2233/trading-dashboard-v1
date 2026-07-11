@@ -2,7 +2,7 @@
 
 JSON canonical at ~/.trading-dashboard/regime_health/<YYYY-MM-DD>.json.
 Optional SQLite cache write-through (mirrors the V1.5 pattern in
-PositionStore / DisciplineStore / sunday_scan persist).
+PositionStore / DisciplineStore persist).
 
 Daily key — one snapshot per day. A force-refresh during the day
 overwrites the same file. History queries (Sprint 3) read across files

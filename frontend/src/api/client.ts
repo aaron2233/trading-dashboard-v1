@@ -16,8 +16,6 @@ import type {
   WeeklyScanResponse,
   IndexSwingScanRequest,
   IndexSwingScanResponse,
-  RegimeLeveredScanRequest,
-  RegimeLeveredScanResponse,
   LottoScanRequest,
   LottoScanResponse,
   ActionVerdict,
@@ -64,12 +62,6 @@ export const api = {
 
   indexSwingScan: (req: IndexSwingScanRequest = {}) =>
     request<IndexSwingScanResponse>("/api/v1/index-swing/scan", {
-      method: "POST",
-      body: JSON.stringify(req),
-    }),
-
-  regimeLeveredScan: (req: RegimeLeveredScanRequest = {}) =>
-    request<RegimeLeveredScanResponse>("/api/v1/regime-levered/scan", {
       method: "POST",
       body: JSON.stringify(req),
     }),
