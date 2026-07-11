@@ -61,6 +61,11 @@ class DisciplineAttestation:
     # is the OPPOSITE — buy-the-dip zone per orchestrator rule 12.
     # Hard block, no override.
     bear_volatile_block: bool = False  # rule 18: index-swing + lotto longs
+    # Index-swing options gate (sizing ruling 2026-07-11): below a $30K
+    # account, ONE contract's 2%-stop risk runs 3-10% of account on
+    # QQQ/IWM/SPY — over the strategy's own 1-2% ceiling. Forward-test via
+    # SHARES until $30K; option structures are hard-blocked below it.
+    index_swing_options_below_threshold: bool = False
     # Track A (19/39 weekly cross) per-asset gate for weekly-trend-trader.
     # Backtest 2026-05-09: QQQ/GLD/SPY/AMZN/NFLX/AMD/TSLA had net-negative
     # avg R on the 19/39 cross signal in recent data. These tickers should
@@ -392,6 +397,11 @@ class KillSheet:
                 )
             if a.spreads_or_margin:
                 flagged.append("⛔ Spreads/margin (HARD BLOCK — cash account)")
+            if a.index_swing_options_below_threshold:
+                flagged.append(
+                    "⛔ Index-swing options below $30K account (HARD BLOCK — "
+                    "1 contract exceeds the 2% risk ceiling; use shares)"
+                )
             if flagged:
                 for f in flagged:
                     lines.append(f"  - {f}")

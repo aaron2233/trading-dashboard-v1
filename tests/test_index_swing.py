@@ -355,13 +355,15 @@ def test_kill_sheet_blocks_index_swing_outside_universe():
 
 
 def test_kill_sheet_allows_index_swing_qqq():
-    """Building a kill sheet with skill='index-swing' on QQQ in Bull regime → authorized."""
+    """skill='index-swing' on QQQ in Bull regime, options-activated account
+    (>= $30K per the 2026-07-11 sizing ruling) → authorized."""
+    import dataclasses
     from kill_sheet.builder import build_standard
     from kill_sheet.options import OptionsStructure
     from config import load_config
 
     cfg = load_config()
-    main_account = cfg.account("main")
+    main_account = dataclasses.replace(cfg.account("main"), balance_usd=35_000.0)
     scan_row = {
         "ticker": "QQQ",
         "timeframe": "1d",
@@ -389,6 +391,77 @@ def test_kill_sheet_allows_index_swing_qqq():
     assert sheet.discipline_attestation.index_swing_universe_violation is False
     assert sheet.discipline_attestation.bear_volatile_block is False
     assert sheet.discipline_attestation.entry_authorized is True
+
+
+def test_index_swing_options_blocked_below_30k():
+    """Options structure + index-swing + sub-$30K account → hard block
+    (sizing ruling 2026-07-11: 1 contract exceeds the 2% risk ceiling)."""
+    from kill_sheet.builder import build_standard
+    from kill_sheet.options import OptionsStructure
+    from config import load_config
+
+    cfg = load_config()
+    main_account = cfg.account("main")  # $10K default
+    scan_row = {
+        "ticker": "QQQ",
+        "timeframe": "1d",
+        "bar_date": "2026-07-11",
+        "close": 725.0,
+        "ma_ribbon": {
+            "ma_10": 720.0, "ma_20": 715.0, "ma_50": 700.0, "ma_200": 640.0,
+            "stack_state": "full_bull",
+        },
+        "stochastic": {"k": 60.0, "d": 55.0, "zone": "mid", "signal": None},
+        "sqn": {"sqn_value": 1.2, "regime": "bull",
+                "sqn_20_value": 0.8, "regime_20": "bull"},
+    }
+    options = OptionsStructure(
+        strike=725.0, contract_type="call", expiry="2026-08-28",
+        dte=45, premium=15.0, delta=0.55, iv_rank=30.0,
+    )
+
+    sheet = build_standard(
+        scan_row, "long", main_account,
+        account_key="main", intent="SWING", trigger_tf="Daily",
+        options=options,
+        skill="index-swing",
+    )
+    att = sheet.discipline_attestation
+    assert att.index_swing_options_below_threshold is True
+    assert att.entry_authorized is False
+
+
+def test_index_swing_shares_allowed_below_30k():
+    """No options structure (shares forward-test) + sub-$30K account →
+    the options threshold gate does not fire."""
+    from kill_sheet.builder import build_standard
+    from config import load_config
+
+    cfg = load_config()
+    main_account = cfg.account("main")
+    scan_row = {
+        "ticker": "IWM",
+        "timeframe": "1d",
+        "bar_date": "2026-07-11",
+        "close": 296.0,
+        "ma_ribbon": {
+            "ma_10": 294.0, "ma_20": 292.0, "ma_50": 288.0, "ma_200": 270.0,
+            "stack_state": "full_bull",
+        },
+        "stochastic": {"k": 60.0, "d": 55.0, "zone": "mid", "signal": None},
+        "sqn": {"sqn_value": 1.2, "regime": "bull",
+                "sqn_20_value": 0.8, "regime_20": "bull"},
+    }
+
+    sheet = build_standard(
+        scan_row, "long", main_account,
+        account_key="main", intent="SWING", trigger_tf="Daily",
+        options=None,
+        skill="index-swing",
+    )
+    att = sheet.discipline_attestation
+    assert att.index_swing_options_below_threshold is False
+    assert att.entry_authorized is True
 
 
 def test_kill_sheet_blocks_index_swing_strong_bear_100():
@@ -435,14 +508,15 @@ def test_kill_sheet_does_not_block_index_swing_bull_with_sqn20_capitulation():
 
     This test guards against the SQN-100 vs SQN-20 conflation: an SQN(20)
     extreme low INSIDE a Bull SQN(100) regime is favorable per orchestrator
-    rule 12, not a hard block.
+    rule 12, not a hard block. (Options-activated account — >= $30K.)
     """
+    import dataclasses
     from kill_sheet.builder import build_standard
     from kill_sheet.options import OptionsStructure
     from config import load_config
 
     cfg = load_config()
-    main_account = cfg.account("main")
+    main_account = dataclasses.replace(cfg.account("main"), balance_usd=35_000.0)
     scan_row = {
         "ticker": "QQQ",
         "timeframe": "1d",

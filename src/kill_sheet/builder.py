@@ -47,6 +47,12 @@ WEEKLY_TREND_MARGINAL_TICKERS: frozenset[str] = frozenset({"SPY"})
 # (only net-negative regime in the backtest, n=24, WR 37.5%, avgR -0.06).
 INDEX_SWING_ALLOWED_TICKERS: frozenset[str] = frozenset({"QQQ", "IWM", "SPY"})
 
+# Index-swing options activation threshold (sizing ruling 2026-07-11): below
+# this account balance, one contract's 2%-stop risk exceeds the strategy's
+# own 1-2% ceiling on the index universe (3-10% at 2026 prices) — the
+# strategy forward-tests via SHARES; option structures are hard-blocked.
+INDEX_SWING_OPTIONS_MIN_BALANCE: float = 30_000.0
+
 # Track A (19/39 weekly cross) per-asset gate for weekly-trend-trader.
 # Backed by 2026-05-09 19/39 backtest (1968-2021 + 2014-2026 corroboration).
 # Track A is structurally distinct from Track B (10/20/50/200 ribbon) and has
@@ -163,8 +169,9 @@ def _compute_entry_authorized(att: DisciplineAttestation) -> bool:
     """Final gate per DISCIPLINE-LAYER-ADDITION.md.
 
     Hard blocks (no user override): spreads_or_margin, daily_chop,
-    index_swing_universe_violation, bear_volatile_block (rule 18 — index-swing
-    and lotto longs).
+    index_swing_universe_violation, index_swing_options_below_threshold
+    (sizing ruling 2026-07-11 — shares until $30K), bear_volatile_block
+    (rule 18 — index-swing and lotto longs).
 
     Conditional anti-patterns require their corresponding user attestation.
     """
@@ -172,6 +179,10 @@ def _compute_entry_authorized(att: DisciplineAttestation) -> bool:
         return False
     # Index-swing hard universe gate (no override path — universe-locked).
     if att.index_swing_universe_violation:
+        return False
+    # Index-swing options below the $30K activation threshold (sizing ruling
+    # 2026-07-11) — shares forward-test only; no override path.
+    if att.index_swing_options_below_threshold:
         return False
     # Rule 18 structural Bear-Volatile hard skip (tight-stop bullish entries).
     if att.bear_volatile_block:
@@ -450,6 +461,16 @@ def build_standard(
         is_index_swing and ticker_upper not in INDEX_SWING_ALLOWED_TICKERS
     )
 
+    # Index-swing options gate (sizing ruling 2026-07-11): below $30K, one
+    # contract's 2%-stop risk (100 × price × 2% × delta) is 3-10% of account
+    # on the index universe — over the strategy's own 1-2% ceiling. Shares
+    # forward-test until the account reaches the threshold.
+    index_swing_options_below_threshold = bool(
+        is_index_swing
+        and options is not None
+        and account.balance_usd < INDEX_SWING_OPTIONS_MIN_BALANCE
+    )
+
     # Index-swing structural Bear-Volatile block — only net-negative regime
     # in the backtest (n=24, WR 37.5%, avgR -0.06). The backtest's "Bear
     # Volatile" label is SQN(100) + realized-vol overlay, NOT SQN(20) alone.
@@ -496,6 +517,7 @@ def build_standard(
         weekly_trend_asset_marginal=weekly_trend_asset_marginal,
         weekly_trend_track_a_asset_blocked=weekly_trend_track_a_asset_blocked,
         index_swing_universe_violation=index_swing_universe_violation,
+        index_swing_options_below_threshold=index_swing_options_below_threshold,
         bear_volatile_block=bear_volatile_block,
         spreads_or_margin=user_inputs.get("spreads_or_margin", False),
         explicit_post_earnings_crush_thesis=user_inputs.get(
