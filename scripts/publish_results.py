@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
-BM_TICKERS = ["QQQ", "SPY", "QQQM", "NVDA", "QLD", "MU", "META", "ETH-USD", "BTC-USD"]
+BM_TICKERS = ["QQQ", "SPY", "QQQM", "MU", "META", "ETH-USD", "BTC-USD"]
 
 
 def capture(script: str, extra_env: dict) -> tuple[str, str, int]:
@@ -49,8 +49,9 @@ def capture(script: str, extra_env: dict) -> tuple[str, str, int]:
 
 
 def stage_beat_market(tmp: Path) -> list[str]:
-    """Stage the 9 beat-market 1d CSVs (incl. Track A 19/39 watch tickers) live so beat_market_monitor (which reads
-    STAGED_DATA_DIR) can run in Actions without its own Yahoo fetch.
+    """Stage the 7 qqqm-core monitor 1d CSVs (incl. Track A 19/39 watch tickers)
+    live so beat_market_monitor (which reads STAGED_DATA_DIR) can run in
+    Actions without its own Yahoo fetch.
     Returns the tickers that FAILED to stage — the monitor treats a missing
     CSV as 'no data' and silently skips that ticker's triggers, so the caller
     must surface partial staging instead of letting it read as a HOLD day."""
