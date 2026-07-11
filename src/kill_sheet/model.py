@@ -66,12 +66,6 @@ class DisciplineAttestation:
     # avg R on the 19/39 cross signal in recent data. These tickers should
     # use Track B (10/20/50/200 ribbon) instead.
     weekly_trend_track_a_asset_blocked: bool = False
-    # Regime-levered-trend deployment gate. R1/R2 recovery rules (2026-05-13,
-    # no override path) cap main-account premium at $300 — Layer 1 core
-    # positions ($1.5K-4K premium) cannot fit. The skill deploys only in a
-    # dedicated sleeve. Hard block on main/lotto, no override attestation.
-    # Remove when the recovery plan retires at $20K.
-    regime_levered_deployment_blocked: bool = False
 
     # User-attested (UI checkboxes)
     spreads_or_margin: bool = False  # MUST be False for cash-account compliance

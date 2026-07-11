@@ -33,7 +33,7 @@ DEFAULT_CACHE_PATH = Path.home() / ".trading-dashboard" / "cache.sqlite"
 # Bump when DDL changes in a way old caches can't handle. On version
 # mismatch, the cache drops all tables and recreates with the new DDL —
 # data is recoverable via /api/v1/cache/rebuild since JSON is canonical.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 DDL = """
 CREATE TABLE IF NOT EXISTS _cache_meta (
@@ -157,17 +157,6 @@ CREATE TABLE IF NOT EXISTS weekly_reviews (
     lockdown_behavior TEXT
 );
 
-CREATE TABLE IF NOT EXISTS sunday_scans (
-    scan_date TEXT PRIMARY KEY,
-    scan_time_utc TEXT NOT NULL,
-    recommendation TEXT NOT NULL,
-    headline TEXT NOT NULL,
-    top_setup_asset TEXT,
-    top_setup_direction TEXT,
-    top_setup_score INTEGER,
-    top_setup_status TEXT
-);
-
 CREATE TABLE IF NOT EXISTS regime_health_snapshots (
     snapshot_date TEXT PRIMARY KEY,
     fetched_at TEXT NOT NULL,
@@ -258,7 +247,6 @@ class Cache:
                     "discipline_rules",
                     "discipline_scores",
                     "weekly_reviews",
-                    "sunday_scans",
                     "regime_health_snapshots",
                     "kill_sheets",
                     "positions",
@@ -288,7 +276,6 @@ class Cache:
                 "discipline_rules",
                 "discipline_scores",
                 "weekly_reviews",
-                "sunday_scans",
                 "regime_health_snapshots",
                 "kill_sheets",
                 "positions",
@@ -476,33 +463,6 @@ class Cache:
                 ),
             )
 
-    def upsert_sunday_scan(self, payload: dict[str, Any]) -> None:
-        """Upsert a Sunday scan from the SundayScan.to_dict() shape."""
-        scan_time = payload.get("scan_time_utc", "")
-        scan_date = scan_time[:10] if scan_time else ""
-        setups = payload.get("setups") or []
-        top = setups[0] if setups else None
-        with self._tx() as cur:
-            cur.execute(
-                """
-                INSERT OR REPLACE INTO sunday_scans (
-                    scan_date, scan_time_utc, recommendation, headline,
-                    top_setup_asset, top_setup_direction, top_setup_score,
-                    top_setup_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    scan_date,
-                    scan_time,
-                    payload.get("recommendation", ""),
-                    payload.get("headline", ""),
-                    (top or {}).get("asset"),
-                    (top or {}).get("direction"),
-                    (top or {}).get("score"),
-                    (top or {}).get("status"),
-                ),
-            )
-
     # ── Read API ───────────────────────────────────────────────────────────
 
     def query_positions(
@@ -607,15 +567,6 @@ class Cache:
                 logger.exception("regime_health cache row has malformed JSON")
         return out
 
-    def query_recent_sunday_scans(
-        self, *, limit: int = 10,
-    ) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM sunday_scans ORDER BY scan_date DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
     # ── Aggregates ─────────────────────────────────────────────────────────
 
     def realized_pnl(
@@ -670,7 +621,6 @@ class Cache:
         positions: Iterable[dict[str, Any]] = (),
         discipline_scores: Iterable[dict[str, Any]] = (),
         weekly_reviews: Iterable[dict[str, Any]] = (),
-        sunday_scans: Iterable[dict[str, Any]] = (),
     ) -> dict[str, int]:
         """Wipe all cached data and re-populate from the JSON canonical store.
 
@@ -683,7 +633,6 @@ class Cache:
             "positions": 0,
             "discipline_scores": 0,
             "weekly_reviews": 0,
-            "sunday_scans": 0,
         }
         for p in positions:
             try:
@@ -703,12 +652,6 @@ class Cache:
                 counts["weekly_reviews"] += 1
             except Exception:
                 logger.exception("rebuild: skipping bad weekly review")
-        for sc in sunday_scans:
-            try:
-                self.upsert_sunday_scan(sc)
-                counts["sunday_scans"] += 1
-            except Exception:
-                logger.exception("rebuild: skipping bad sunday scan")
         return counts
 
 

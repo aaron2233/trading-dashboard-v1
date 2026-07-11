@@ -10,7 +10,7 @@ A localhost-first web app + Python CLI that runs an indicator stack (MA Ribbon, 
 
 The bundled reference implementation is single-user, cash account, long calls/puts only. The framework around it (data layer, indicator plugin system, kill-sheet builder, positions store, journal, regime dashboard, trade-devil gate) is strategy-agnostic. Read CUSTOMIZATION.md to see what's keep-as-is vs replace-with-your-own.
 
-**What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering a persistent regime header, regime health, scan, weekly trend, index swing, regime-levered trend, lotto, kill sheet builder with options-input paste, trade-devil, 15-rule discipline scorecard, positions, journal (P&L + discipline tabs), weekly review. Free-range scan and the QQQ/GLD focus Sunday scan run via CLI/API (no dedicated views). CLIs cover scan, kill sheets, positions, journal, discipline, and free-range. ~1,260 pytest tests.
+**What's here:** browser dashboard (React + Vite + Tailwind, dark theme) covering a persistent regime header, regime health, scan, weekly trend, index swing, lotto, kill sheet builder with options-input paste, trade-devil, 15-rule discipline scorecard, positions, journal (P&L + discipline tabs), weekly review. Free-range scan runs via CLI/API (no dedicated view). CLIs cover scan, kill sheets, positions, journal, discipline, and free-range. ~1,260 pytest tests.
 
 **Data sources:** stocks/ETFs via yfinance (no key); crypto via Crypto.com public REST (no key); options via manual paste from your broker. No API keys required.
 

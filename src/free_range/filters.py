@@ -79,7 +79,7 @@ def price_band_violation(ticker: str, current_price: float | None) -> str | None
 # Indicator alignment + scoring
 # ─────────────────────────────────────────────────────────────────────────
 #
-# Scoring mirrors focus.sunday_scan but is regime-direction-agnostic — we
+# Scoring is regime-direction-agnostic — we
 # evaluate both long and short setups and let the higher score win. The
 # direction of the winning side becomes the candidate's recommended bias.
 
@@ -165,9 +165,8 @@ def _stoch_score(zone: str | None, signal: str | None, direction: str) -> int:
 def _regime_score(sqn_100: str | None, direction: str) -> int:
     """SQN(100) regime alignment. Strong-aligned = bonus, opposed = penalty.
 
-    Same direction-long-in-bull / direction-short-in-bear logic as focus.sunday_scan,
-    but parameterized only on the direction (not asset) since free-range is
-    asset-agnostic.
+    Direction-long-in-bull / direction-short-in-bear, parameterized only on
+    the direction (not asset) since free-range is asset-agnostic.
     """
     if sqn_100 is None:
         return 0

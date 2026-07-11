@@ -133,20 +133,6 @@ def _weekly(**overrides) -> dict:
     return base
 
 
-def _sunday_scan(**overrides) -> dict:
-    base = {
-        "scan_time_utc": "2026-04-28T13:00:00+00:00",
-        "recommendation": "trade",
-        "headline": "QQQ long fires",
-        "setups": [
-            {"asset": "QQQ", "direction": "long", "score": 75, "status": "fires"},
-            {"asset": "GLD", "direction": "long", "score": 45, "status": "watch"},
-        ],
-    }
-    base.update(overrides)
-    return base
-
-
 # ── Position upserts and queries ───────────────────────────────────────────
 
 
@@ -277,28 +263,6 @@ def test_query_weekly_reviews_descending(cache: Cache) -> None:
     assert [r["week_start"] for r in rows] == ["2026-04-26", "2026-04-19"]
 
 
-# ── Sunday scans ───────────────────────────────────────────────────────────
-
-
-def test_upsert_sunday_scan(cache: Cache) -> None:
-    cache.upsert_sunday_scan(_sunday_scan())
-    rows = cache.query_recent_sunday_scans()
-    assert len(rows) == 1
-    assert rows[0]["scan_date"] == "2026-04-28"
-    assert rows[0]["top_setup_asset"] == "QQQ"
-
-
-def test_query_sunday_scans_descending(cache: Cache) -> None:
-    cache.upsert_sunday_scan(
-        _sunday_scan(scan_time_utc="2026-04-21T13:00:00+00:00")
-    )
-    cache.upsert_sunday_scan(
-        _sunday_scan(scan_time_utc="2026-04-28T13:00:00+00:00")
-    )
-    rows = cache.query_recent_sunday_scans()
-    assert [r["scan_date"] for r in rows] == ["2026-04-28", "2026-04-21"]
-
-
 # ── Aggregates ─────────────────────────────────────────────────────────────
 
 
@@ -361,13 +325,11 @@ def test_rebuild_from_json_wipes_and_reloads(cache: Cache) -> None:
         positions=[_pos(id="fresh1"), _pos(id="fresh2", ticker="QQQ")],
         discipline_scores=[_score(position_id="fresh1")],
         weekly_reviews=[_weekly()],
-        sunday_scans=[_sunday_scan()],
     )
     assert counts == {
         "positions": 2,
         "discipline_scores": 1,
         "weekly_reviews": 1,
-        "sunday_scans": 1,
     }
     assert {p["id"] for p in cache.query_positions()} == {"fresh1", "fresh2"}
 

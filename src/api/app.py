@@ -8,7 +8,7 @@ Persistence (positions.json, events.jsonl) and config (config.yaml) load from
 the same locations the CLIs use; a fresh user gets the baked-in defaults.
 
 Route handlers live under api/routes/ split by domain (lotto, tier_scans,
-regime, indicators, focus, kill_sheet, positions, journal, discipline).
+regime, indicators, kill_sheet, positions, journal, discipline).
 This file wires them onto the app along with the query/L0 agent router.
 """
 from __future__ import annotations
@@ -19,7 +19,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.models import HealthResponse
 from api.query_routes import make_query_router
 from api.routes.discipline import make_discipline_router
-from api.routes.focus import make_focus_router
 from api.routes.indicators import make_indicators_router
 from api.routes.journal import make_journal_router
 from api.routes.kill_sheet import make_kill_sheet_router
@@ -71,7 +70,6 @@ def create_app(
     app.include_router(make_tier_scans_router())
     app.include_router(make_regime_router(store_factory, config_loader, cache_factory))
     app.include_router(make_indicators_router())
-    app.include_router(make_focus_router(store_factory))
     app.include_router(make_kill_sheet_router(store_factory, config_loader))
     app.include_router(make_positions_router(store_factory))
     app.include_router(make_journal_router(store_factory))

@@ -3,7 +3,6 @@
 1. Track A 19/39 weekly cross detection in weekly_trend/scanner.py
 2. Index-swing 21-DTE position alert in positions/alerts.py
 3. Index-swing rule in discipline/score.py
-4. Sunday-scan + index-swing overlay in focus/sunday_scan.py
 """
 from __future__ import annotations
 
@@ -279,21 +278,3 @@ def test_discipline_index_swing_exit_within_dte_band_fail():
     rule = next((r for r in score.rules if r.rule_id == "exit_within_dte_band"), None)
     assert rule is not None
     assert rule.score == "N", f"Expected N for 10-DTE-remaining exit; got {rule.score}"
-
-
-# ─── 4. Sunday-scan + index-swing overlay ─────────────────────────────
-
-
-def test_sunday_scan_includes_index_swing_keys():
-    """SundayScan.to_dict() includes the new index_swing_setups / actionable keys."""
-    from focus.sunday_scan import SundayScan
-    scan = SundayScan(
-        spy=None, qqq=None, gld=None, setups=[],
-        recommendation="cash", headline="test", errors={},
-        scan_time_utc="2026-05-09T00:00:00+00:00",
-    )
-    d = scan.to_dict()
-    assert "index_swing_setups" in d
-    assert "index_swing_actionable" in d
-    assert d["index_swing_setups"] == []
-    assert d["index_swing_actionable"] == []

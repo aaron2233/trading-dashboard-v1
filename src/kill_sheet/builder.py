@@ -174,9 +174,6 @@ def _compute_entry_authorized(att: DisciplineAttestation) -> bool:
     # Rule 18 structural Bear-Volatile hard skip (tight-stop bullish entries).
     if att.bear_volatile_block:
         return False
-    # Regime-levered-trend R1/R2 deployment gate (no override path).
-    if att.regime_levered_deployment_blocked:
-        return False
     if att.iv_rank_over_70 and not att.explicit_post_earnings_crush_thesis:
         return False
     if att.dte_under_7 and not att.explicit_0dte_framing:
@@ -451,12 +448,6 @@ def build_standard(
         is_index_swing and ticker_upper not in INDEX_SWING_ALLOWED_TICKERS
     )
 
-    # Regime-levered-trend deployment gate — R1/R2 recovery rules (no
-    # override path) block the skill in main/lotto; dedicated sleeve only.
-    is_regime_levered = skill_name_for_gate == "regime-levered-trend"
-    regime_levered_deployment_blocked = bool(
-        is_regime_levered and account_key in ("main", "lotto")
-    )
     # Index-swing structural Bear-Volatile block — only net-negative regime
     # in the backtest (n=24, WR 37.5%, avgR -0.06). The backtest's "Bear
     # Volatile" label is SQN(100) + realized-vol overlay, NOT SQN(20) alone.
@@ -497,7 +488,6 @@ def build_standard(
         weekly_trend_track_a_asset_blocked=weekly_trend_track_a_asset_blocked,
         index_swing_universe_violation=index_swing_universe_violation,
         bear_volatile_block=bear_volatile_block,
-        regime_levered_deployment_blocked=regime_levered_deployment_blocked,
         spreads_or_margin=user_inputs.get("spreads_or_margin", False),
         explicit_post_earnings_crush_thesis=user_inputs.get(
             "explicit_post_earnings_crush_thesis", False
