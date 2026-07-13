@@ -10,7 +10,7 @@ Snapshot shape (written by the fetching agent)::
     {
       "source": "robinhood-mcp",
       "fetched_at": "2026-07-04T18:00:00Z",   # when get_portfolio was called
-      "account": "...4907",                    # masked — never the full number
+      "account": "...0000",                    # masked — never the full number
       "portfolio": { ...data object from get_portfolio... }
     }
 

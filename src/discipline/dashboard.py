@@ -58,7 +58,7 @@ def _balance_anchor(config: Config) -> tuple[float, date] | None:
     ~/.trading-dashboard/config.yaml::
 
         balance:
-          anchor_usd: 10903.70     # authoritative combined balance...
+          anchor_usd: 10000.00     # authoritative combined balance...
           anchor_date: 2026-06-09  # ...as of this date (broker true-up)
 
     Returns (anchor_usd, anchor_date) or None when absent/incomplete.

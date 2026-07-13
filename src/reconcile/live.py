@@ -6,7 +6,7 @@ calling the read-only robinhood-trading MCP), shape:
     {
       "source": "robinhood-mcp",
       "fetched_at": "2026-07-11T20:15:00Z",
-      "account": "…4907",                    # masked — never the full number
+      "account": "…0000",                    # masked — never the full number
       "option_positions":   [ raw get_option_positions rows ],
       "option_instruments": [ raw get_option_instruments rows ],
       "equity_positions":   [ raw get_equity_positions rows ]
