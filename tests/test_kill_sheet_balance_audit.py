@@ -46,7 +46,7 @@ def _snapshot(total_value: str = "10000.00",
     snap = {
         "source": "robinhood-mcp",
         "fetched_at": fetched_at,
-        "account": "…4907",
+        "account": "…0000",
         "portfolio": {"total_value": total_value, "cash": "9000.00"},
     }
     snap.update(overrides)
@@ -112,10 +112,10 @@ def test_non_numeric_total_raises():
 
 
 def test_account_is_masked_even_when_written_raw():
-    audit = audit_balance(_snapshot(account="5QS44907"), _config(),
+    audit = audit_balance(_snapshot(account="ZZ990000"), _config(),
                           [], now=_NOW)
-    assert audit.account_masked == "…4907"
-    assert "5QS4" not in audit.line()
+    assert audit.account_masked == "…0000"
+    assert "ZZ99" not in audit.line()
 
 
 # ─── load_balance_snapshot ───────────────────────────────────────────────
