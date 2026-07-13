@@ -149,7 +149,7 @@ npm install        # first time only
 npm run dev        # opens http://localhost:5173
 ```
 
-The frontend reads `VITE_API_URL` (default `http://127.0.0.1:8000`). Persistent regime header (SPY/QQQ/IWM SQN(100) + SQN(20) + MA stack) plus nav: a Scan group (Scan ticker, Weekly trend, Index swing, Regime-levered trend, Lotto) and top-level Regime, Kill Sheet, Positions, Journal, Weekly Review. Dark trading-terminal theme. Manual refresh — no WebSockets in V1.
+The frontend reads `VITE_API_URL` (default `http://127.0.0.1:8000`). Persistent regime header (SPY/QQQ/IWM SQN(100) + SQN(20) + MA stack) plus nav: a Scan group with one entry per strategy (Lotto, Index swing, Core · QQQM), a Regime group (Regime health, Weekly trend lens, Scan ticker), Book (Positions + Journal as tabs; the kill sheet is reached from the open-position flow), and Weekly Review. Home carries an optional broker-account breakout panel (see CUSTOMIZATION.md). Dark trading-terminal theme. Manual refresh — no WebSockets in V1.
 
 To build static assets: `cd frontend && npm run build` — outputs to `frontend/dist/`.
 

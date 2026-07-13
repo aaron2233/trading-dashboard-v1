@@ -47,6 +47,7 @@ def make_lotto_router(store_factory, config_loader) -> APIRouter:
             open_premium_usd=state.open_premium_usd,
             cash_available_usd=state.cash_available_usd,
             cash_reserve_status=state.cash_reserve_status,
+            cash_floor_usd=state.cash_floor_usd,
             growth_ladder_stage=state.growth_ladder_stage,
             cooldown=LottoCooldownResponse(
                 active=state.cooldown.active,

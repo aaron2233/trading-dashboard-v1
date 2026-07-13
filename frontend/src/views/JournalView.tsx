@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { fmtUsd } from "../lib/format";
 import { useDashboardState } from "../state/DashboardStateContext";
 import type {
   DisciplineScoreDTO,
@@ -17,16 +18,6 @@ import type {
 // discipline if state hasn't loaded yet (stage 1 is the safe default).
 type Tab = "discipline" | "pnl";
 
-
-function fmtUsd(n: number | null | undefined, sign = false): string {
-  if (n === null || n === undefined) return "—";
-  const opts: Intl.NumberFormatOptions = {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-    signDisplay: sign ? "exceptZero" : "auto",
-  };
-  return n.toLocaleString("en-US", opts);
-}
 
 function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;

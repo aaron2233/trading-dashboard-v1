@@ -5,6 +5,7 @@ import { StrikeSuggestionsPanel } from "../components/lotto/StrikeSuggestionsPan
 import { TradeCard, type TradeCardBadge } from "../components/TradeCard";
 import { VerdictHero } from "../components/Verdict";
 import type { Verdict } from "../lib/verdict";
+import { fmtUsd, fmtUsdWhole } from "../lib/format";
 import type {
   CandidateSnapshot,
   FreeRangeUniverse,
@@ -12,7 +13,6 @@ import type {
   LottoScanResponse,
   LottoSetup,
   LottoState,
-  LottoTradeSummary,
 } from "../api/types";
 
 const UNIVERSE_LABELS: Record<FreeRangeUniverse, string> = {
@@ -29,19 +29,6 @@ function isLottoActionable(c: CandidateSnapshot): boolean {
 }
 
 
-function fmtUsd(n: number | null | undefined, sign = false): string {
-  if (n === null || n === undefined) return "—";
-  return n.toLocaleString(undefined, {
-    style: "currency", currency: "USD",
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-    signDisplay: sign ? "exceptZero" : "auto",
-  });
-}
-
-function fmtPct(v: number | null): string {
-  if (v === null) return "—";
-  return `${(v * 100).toFixed(0)}%`;
-}
 
 function fmtHours(h: number | null): string {
   if (h === null) return "—";
@@ -151,69 +138,14 @@ function AccountHeader({ state }: { state: LottoState }) {
             {fmtUsd(state.cash_available_usd)}
           </div>
           <div className="text-xs text-text-muted">
-            $200 floor — {state.cash_reserve_status === "ok" ? "ok" : "BELOW FLOOR"}
+            {fmtUsdWhole(state.cash_floor_usd)} floor —{" "}
+            {state.cash_reserve_status === "ok" ? "ok" : "BELOW FLOOR"}
           </div>
         </div>
         <div>
           <div className="label">Growth ladder</div>
           <div className="text-xs leading-snug">{state.growth_ladder_stage}</div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function returnClass(t: LottoTradeSummary): string {
-  if (t.is_big_win) return "text-signal-bull font-semibold";
-  if (t.is_loss) return "text-signal-bear";
-  return "text-text-primary";
-}
-
-function RecentTrades({ trades }: { trades: LottoTradeSummary[] }) {
-  if (trades.length === 0) {
-    return (
-      <div className="panel p-3 text-sm text-text-secondary">
-        No closed lotto trades yet.
-      </div>
-    );
-  }
-  return (
-    <div className="panel">
-      <div className="panel-header">Recent lotto trades</div>
-      <div className="panel-body p-0">
-        <table className="w-full text-sm">
-          <thead className="text-xs text-text-secondary border-b border-bg-border">
-            <tr>
-              <th className="text-left px-3 py-2">Closed</th>
-              <th className="text-left px-3 py-2">Ticker</th>
-              <th className="text-left px-3 py-2">Dir</th>
-              <th className="text-right px-3 py-2">P&amp;L</th>
-              <th className="text-right px-3 py-2">Return</th>
-              <th className="text-left px-3 py-2">Flags</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trades.map((t) => (
-              <tr key={t.position_id} className="border-b border-bg-border/40">
-                <td className="px-3 py-2 text-text-secondary text-xs">
-                  {t.closed_date ? new Date(t.closed_date).toLocaleDateString() : "—"}
-                </td>
-                <td className="px-3 py-2 font-mono">{t.ticker}</td>
-                <td className="px-3 py-2 text-text-secondary text-xs uppercase">{t.direction}</td>
-                <td className="px-3 py-2 text-right font-mono">{fmtUsd(t.pnl_usd, true)}</td>
-                <td className={`px-3 py-2 text-right font-mono ${returnClass(t)}`}>
-                  {fmtPct(t.return_pct)}
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  {t.is_big_win && (
-                    <span className="badge badge-bull mr-1">300%+ winner</span>
-                  )}
-                  {t.is_loss && <span className="badge badge-bear">loss</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -257,7 +189,7 @@ function deriveVerdict(
     return {
       kind: "skip",
       confidence: 1,
-      rationale: `Cash $${state.cash_available_usd.toFixed(2)} below $200 floor. Close a position before opening a new lotto.`,
+      rationale: `Cash ${fmtUsd(state.cash_available_usd)} below the ${fmtUsdWhole(state.cash_floor_usd)} floor. Close a position before opening a new lotto.`,
     };
   }
 
@@ -640,7 +572,15 @@ export function LottoView() {
           <CooldownBanner state={state} />
           <SizeLockBanner state={state} />
           <OpenLottoPositions ids={state.open_position_ids} />
-          <RecentTrades trades={state.recent_trades} />
+          {/* Closed-trade history lives in the Journal — one table, one truth. */}
+          <p className="text-xs text-text-secondary">
+            {state.recent_trades.length > 0
+              ? `${state.recent_trades.length} recent closed lotto trade${state.recent_trades.length === 1 ? "" : "s"} — `
+              : "No closed lotto trades yet. "}
+            <Link to="/journal" className="underline">
+              full history in the Journal →
+            </Link>
+          </p>
         </>
       )}
     </div>

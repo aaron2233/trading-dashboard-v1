@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { useAccountKeys } from "../api/useAccountKeys";
 import { TradingViewChart } from "../components/TradingViewChart";
 import { DisciplineOverridesPanel } from "../components/kill_sheet/DisciplineOverridesPanel";
 import { KillSheetResponsePanel } from "../components/kill_sheet/KillSheetResponsePanel";
@@ -14,7 +15,6 @@ import type {
   ParsedOptionsResponse,
 } from "../api/types";
 
-const ACCOUNTS = ["main", "lotto", "weekly", "portfolio"];
 const INTENTS = ["SCALP", "SWING", "TREND CAPTURE", "POSITION"] as const;
 const CONVICTIONS = ["high", "medium", "speculative", "default"] as const;
 const DIRECTIONS = ["long", "short"] as const;
@@ -530,7 +530,9 @@ function readInitialForm(params: URLSearchParams): KillSheetRequest {
     direction: DIRECTIONS.includes(direction as (typeof DIRECTIONS)[number])
       ? (direction as "long" | "short")
       : "long",
-    account: account && ACCOUNTS.includes(account) ? account : "main",
+    // Account list is config-driven (GET /accounts/keys), so no client-side
+    // allowlist here — the backend rejects unknown accounts loudly.
+    account: account || "main",
     skill: params.get("skill") || null,  // forward skill so backend skill-keyed gates fire
     intent: INTENTS.includes(intent as (typeof INTENTS)[number])
       ? (intent as KillSheetRequest["intent"])
@@ -593,6 +595,7 @@ function applyParsedToForm(
 
 export function KillSheetView() {
   const [searchParams] = useSearchParams();
+  const accountKeys = useAccountKeys();
   const [form, setForm] = useState<KillSheetRequest>(() => readInitialForm(searchParams));
   const [response, setResponse] = useState<KillSheetResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -707,7 +710,7 @@ export function KillSheetView() {
               value={form.account}
               onChange={(e) => update("account", e.target.value)}
             >
-              {ACCOUNTS.map((a) => <option key={a} value={a}>{a}</option>)}
+              {accountKeys.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
           <div>

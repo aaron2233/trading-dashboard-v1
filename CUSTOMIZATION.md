@@ -42,6 +42,32 @@ accounts:
 
 Same file accepts overrides for regime-health thresholds, capex ticker lists, and per-skill default watchlists (the `skills:` block), etc. — the merge happens in `src/config/loader.py::load_config` (deep merge, user YAML over defaults); grep `load_config` for the read sites.
 
+The Home view can also break out your REAL broker accounts (vs. the journal-side
+sleeves above) with a `broker_accounts` block — see `src/broker_accounts.py` for
+the schema. Balances are read from local snapshot files at
+`~/.trading-dashboard/balance_snapshots/portfolio-<last4>.json` (same shape as
+the kill-sheet `--balance-json` snapshot: `{source, fetched_at, account,
+portfolio}` with `portfolio` being a broker `get_portfolio` payload), so no
+dollar amount or account number ever lives in this repo or your config:
+
+```yaml
+broker_accounts:
+  - key: individual
+    label: "Individual · Options Book"
+    account_mask: "1234"       # last-4 ONLY — never the full account number
+    sleeves: [main, lotto]     # journal sleeves funded by this account
+  - key: roth
+    label: "Roth IRA"
+    account_mask: "5678"
+    sleeves: []
+```
+
+Sleeves not claimed by any broker account render as an "off-broker" footnote
+row with their config base balance. Omit the block entirely and the panel
+stays hidden. The same config drives the account dropdowns in the Positions
+and Kill Sheet forms (`GET /api/v1/accounts/keys` — config accounts minus
+pool members).
+
 ### Tier 2 — Indicator plugins (30 minutes)
 
 The indicator system is already plugin-loaded. Drop a `.py` file in `~/.trading-dashboard/plugins/` that implements `IndicatorProtocol` (`src/indicators/protocol.py`) and it'll be discoverable by every scanner that asks for it by name.

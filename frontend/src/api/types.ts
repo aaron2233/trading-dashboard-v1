@@ -666,6 +666,7 @@ export interface LottoState {
   open_premium_usd: number;
   cash_available_usd: number;
   cash_reserve_status: LottoCashReserveStatus;
+  cash_floor_usd: number;
   growth_ladder_stage: string;
   cooldown: LottoCooldownDTO;
   size_lock_active: boolean;
@@ -694,6 +695,102 @@ export interface DashboardState {
   realized_pnl_usd: number;
   base_balance_usd: number;
   unreviewed_weeks: UnreviewedWeek[];
+}
+
+// ─── Accounts (broker breakout) ───────────────────────────────────────
+
+export interface BrokerAccount {
+  key: string;
+  label: string;
+  account_masked: string;
+  sleeves: string[];
+  total_value_usd: number | null;
+  cash_usd: number | null;
+  as_of: string | null;
+  age_hours: number | null;
+  stale: boolean;
+  error: string | null;
+}
+
+export interface UnmappedSleeve {
+  key: string;
+  name: string;
+  balance_usd: number;
+}
+
+export interface BrokerAccountsResponse {
+  accounts: BrokerAccount[];
+  unmapped_sleeves: UnmappedSleeve[];
+}
+
+export interface AccountKeysResponse {
+  keys: string[];
+}
+
+// ─── QQQM core ────────────────────────────────────────────────────────
+
+export interface CoreMonitorSignal {
+  on: boolean;
+  since: string;
+  completed_week: string;
+  close: number;
+  ma40: number;
+  sqn100: number;
+  provisional_on: boolean | null;
+}
+
+export interface CoreMonitorAction {
+  tag: string;
+  title: string;
+  detail: string;
+}
+
+export interface CoreMonitorLevel {
+  close: number;
+  date: string;
+  sqn100: number;
+  sqn20: number;
+  k: number;
+  ma200: number;
+  regime: string;
+}
+
+export interface CoreMonitorDoc {
+  generated: string;
+  as_of_close: string | null;
+  actionable: boolean;
+  headline: string;
+  core_held: boolean;
+  core_expiry: string | null;
+  core_state_note: string;
+  signal: CoreMonitorSignal | null;
+  actions: CoreMonitorAction[];
+  levels: Record<string, CoreMonitorLevel | null>;
+}
+
+export interface CorePositionSummary {
+  id: string;
+  ticker: string;
+  strike: number | null;
+  expiry: string | null;
+  dte: number | null;
+  roll_status: "roll_now" | "roll_window" | null;
+  total_cost_usd: number | null;
+}
+
+export interface CoreSleeve {
+  key: string;
+  name: string;
+  balance_usd: number;
+  premium_target_usd: number;
+}
+
+export interface CoreStateResponse {
+  monitor: CoreMonitorDoc | null;
+  monitor_error: string | null;
+  monitor_stale: boolean;
+  positions: CorePositionSummary[];
+  sleeve: CoreSleeve | null;
 }
 
 // ─── Options input (paste) ────────────────────────────────────────────

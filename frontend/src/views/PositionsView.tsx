@@ -1,23 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { useAccountKeys } from "../api/useAccountKeys";
 import { useDashboardState } from "../state/DashboardStateContext";
 import { Sparkline } from "../components/Sparkline";
+import { fmtUsd } from "../lib/format";
 import type { OpenPositionRequest, Position, PositionAlert } from "../api/types";
-
-const ACCOUNTS = ["main", "lotto", "weekly", "portfolio"];
 
 const SEVERITY_BADGE: Record<string, string> = {
   action: "badge-bear",
   warn: "badge-flag",
   info: "badge-info",
 };
-
-function fmtUsd(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD",
-    minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 function directionBadge(direction: string): string {
   if (direction === "long") return "badge-bull";
@@ -333,7 +327,7 @@ function PremiumLevelsHint({ premium }: { premium: number }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="marker-chip" style={{ background: "#ff3030", color: "#0a0a0a" }}>
+            <span className="marker-chip bg-signal-bear text-bg-base">
               Stop
             </span>
             <span className="text-text-muted">premium-cut levels</span>
@@ -351,7 +345,7 @@ function PremiumLevelsHint({ premium }: { premium: number }) {
         </div>
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="marker-chip" style={{ background: "#00ff66", color: "#0a0a0a" }}>
+            <span className="marker-chip bg-signal-bull text-bg-base">
               TP
             </span>
             <span className="text-text-muted">take-profit levels</span>
@@ -617,6 +611,7 @@ export function PositionsView() {
   // Refresh the shared dashboard banner (balance / stage / unreviewed weeks)
   // after a trade — otherwise the StatusBar shows app-load values all session.
   const { refresh: refreshDashboard } = useDashboardState();
+  const accountKeys = useAccountKeys();
   const [openPositions, setOpenPositions] = useState<Position[]>([]);
   const [closedPositions, setClosedPositions] = useState<Position[]>([]);
   const [alerts, setAlerts] = useState<PositionAlert[]>([]);
@@ -804,7 +799,7 @@ export function PositionsView() {
               <label className="label">Account</label>
               <select className="input w-full" value={form.account}
                 onChange={(e) => update("account", e.target.value)}>
-                {ACCOUNTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                {accountKeys.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
             <div>

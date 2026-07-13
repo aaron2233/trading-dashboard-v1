@@ -1,29 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type {
-  IndicatorStatus,
-  RegimeHealthSnapshot,
-} from "../api/types";
+import type { RegimeHealthSnapshot } from "../api/types";
+import { STATUS_BADGE_CLASS, STATUS_LABEL } from "../lib/glyphs";
 import { TierSection } from "./regime/TierSection";
 
 const STORAGE_KEY = "regimeHealthPanel.collapsed";
-
-const STATUS_BADGE_CLASS: Record<IndicatorStatus, string> = {
-  green: "badge-bull",
-  amber: "badge-flag",
-  red: "badge-bear",
-  unknown: "badge-muted",
-  error: "badge-muted",
-};
-
-const STATUS_LABEL: Record<IndicatorStatus, string> = {
-  green: "GREEN",
-  amber: "AMBER",
-  red: "RED",
-  unknown: "UNKNOWN",
-  error: "ERROR",
-};
 
 function formatFetchedAt(iso: string): string {
   if (!iso) return "—";
@@ -52,10 +34,13 @@ export function RegimeHealthPanel({ alwaysExpanded = false }: RegimeHealthPanelP
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Collapsed by default on Home — the header row (overall badge + stale
+  // capex + drivers) is the summary; the four tier grids live one click away
+  // here or fully expanded on /regime-health. Expanding persists.
   const [collapsed, setCollapsed] = useState(() => {
     if (alwaysExpanded) return false;
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(STORAGE_KEY) === "1";
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem(STORAGE_KEY) !== "0";
   });
 
   const fetchSnapshot = useCallback(async () => {

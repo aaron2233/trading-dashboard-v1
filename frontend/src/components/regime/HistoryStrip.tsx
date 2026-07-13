@@ -1,25 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client";
-import type {
-  IndicatorStatus,
-  RegimeHealthSnapshot,
-} from "../../api/types";
-
-const STATUS_BADGE_CLASS: Record<IndicatorStatus, string> = {
-  green: "badge-bull",
-  amber: "badge-flag",
-  red: "badge-bear",
-  unknown: "badge-muted",
-  error: "badge-muted",
-};
-
-const STATUS_GLYPH: Record<IndicatorStatus, string> = {
-  green: "🟢",
-  amber: "🟡",
-  red: "🔴",
-  unknown: "⬜",
-  error: "⚠",
-};
+import type { RegimeHealthSnapshot } from "../../api/types";
+import { STATUS_BADGE_CLASS, STATUS_GLYPH } from "../../lib/glyphs";
 
 /** Compact history strip on the /regime-health detail page — one row per day,
  * newest first, showing overall status + drivers. v2 will replace this with

@@ -1,4 +1,7 @@
 import type {
+  AccountKeysResponse,
+  BrokerAccountsResponse,
+  CoreStateResponse,
   DashboardState,
   DisciplineScoreDTO,
   DisciplineStatsDTO,
@@ -46,6 +49,12 @@ export const api = {
   health: () => request<{ status: string; version: string }>("/api/v1/health"),
 
   dashboardState: () => request<DashboardState>("/api/v1/dashboard/state"),
+
+  brokerAccounts: () => request<BrokerAccountsResponse>("/api/v1/accounts/broker"),
+
+  accountKeys: () => request<AccountKeysResponse>("/api/v1/accounts/keys"),
+
+  coreState: () => request<CoreStateResponse>("/api/v1/core/state"),
 
   lottoState: () => request<LottoState>("/api/v1/lotto/state"),
 

@@ -1,20 +1,5 @@
-import type { IndicatorReading, IndicatorStatus } from "../../api/types";
-
-const STATUS_GLYPH: Record<IndicatorStatus, string> = {
-  green: "🟢",
-  amber: "🟡",
-  red: "🔴",
-  unknown: "⬜",
-  error: "⚠",
-};
-
-const STATUS_BADGE_CLASS: Record<IndicatorStatus, string> = {
-  green: "badge-bull",
-  amber: "badge-flag",
-  red: "badge-bear",
-  unknown: "badge-muted",
-  error: "badge-muted",
-};
+import type { IndicatorReading } from "../../api/types";
+import { STATUS_BADGE_CLASS, STATUS_GLYPH } from "../../lib/glyphs";
 
 interface IndicatorPillProps {
   reading: IndicatorReading;

@@ -98,7 +98,8 @@ class LottoState:
     # Cash reserve
     open_premium_usd: float          # capital tied up in open lotto options
     cash_available_usd: float        # base_balance - open_premium (excl. reserve)
-    cash_reserve_status: Literal["ok", "below_floor"]  # vs $200 floor
+    cash_reserve_status: Literal["ok", "below_floor"]  # vs cash_floor_usd
+    cash_floor_usd: float            # the floor itself, so UI copy can't drift
 
     # Growth ladder
     growth_ladder_stage: str         # human-readable stage label
@@ -324,6 +325,7 @@ def compute_lotto_state(
         open_premium_usd=open_premium,
         cash_available_usd=cash_available,
         cash_reserve_status=cash_reserve_status,
+        cash_floor_usd=CASH_FLOOR_USD,
         growth_ladder_stage=growth_stage,
         cooldown=cooldown,
         size_lock_active=size_lock_active,

@@ -490,6 +490,7 @@ class LottoStateResponse(BaseModel):
     open_premium_usd: float
     cash_available_usd: float
     cash_reserve_status: Literal["ok", "below_floor"]
+    cash_floor_usd: float
     growth_ladder_stage: str
     cooldown: LottoCooldownResponse
     size_lock_active: bool
@@ -700,6 +701,40 @@ class SparklineResponse(BaseModel):
     timeframe: str
     dates: list[str] = Field(default_factory=list)
     closes: list[float] = Field(default_factory=list)
+
+
+# ─── Accounts ─────────────────────────────────────────────────────────────────
+
+
+class BrokerAccountResponse(BaseModel):
+    """One real broker account from the user's local broker_accounts config.
+    Balances come from local snapshot files — never from repo code."""
+    key: str
+    label: str
+    account_masked: str
+    sleeves: list[str] = Field(default_factory=list)
+    total_value_usd: float | None = None
+    cash_usd: float | None = None
+    as_of: str | None = None
+    age_hours: float | None = None
+    stale: bool = True
+    error: str | None = None
+
+
+class UnmappedSleeveResponse(BaseModel):
+    key: str
+    name: str
+    balance_usd: float
+
+
+class BrokerAccountsResponse(BaseModel):
+    accounts: list[BrokerAccountResponse] = Field(default_factory=list)
+    unmapped_sleeves: list[UnmappedSleeveResponse] = Field(default_factory=list)
+
+
+class AccountKeysResponse(BaseModel):
+    """Sleeve keys selectable in new-position / kill-sheet forms."""
+    keys: list[str] = Field(default_factory=list)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

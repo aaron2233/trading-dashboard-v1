@@ -1,28 +1,29 @@
 import type { ActionState, ActionVerdict } from "../api/types";
+import { ACTION_GLYPH } from "../lib/glyphs";
 
 const VERDICT_STYLE: Record<
   ActionState,
-  { container: string; pill: string; glyph: string; label: string }
+  { container: string; pill: string; label: string }
 > = {
   enter_now: {
     container: "border-l-4 border-signal-bull bg-signal-bull/10",
-    pill: "badge-bull", glyph: "🟢", label: "ENTER NOW",
+    pill: "badge-bull", label: "ENTER NOW",
   },
   setup_forming: {
     container: "border-l-4 border-signal-flag bg-signal-flag/10",
-    pill: "badge-flag", glyph: "🟡", label: "SETUP FORMING",
+    pill: "badge-flag", label: "SETUP FORMING",
   },
   chase_zone: {
     container: "border-l-4 border-signal-bear bg-signal-bear/10",
-    pill: "badge-bear", glyph: "🟠", label: "CHASE ZONE",
+    pill: "badge-bear", label: "CHASE ZONE",
   },
   stale: {
     container: "border-l-4 border-text-muted bg-bg-elevated",
-    pill: "badge-muted", glyph: "⚪", label: "STALE",
+    pill: "badge-muted", label: "STALE",
   },
   disqualified: {
     container: "border-l-4 border-text-muted bg-bg-elevated",
-    pill: "badge-muted", glyph: "⛔", label: "DISQUALIFIED",
+    pill: "badge-muted", label: "DISQUALIFIED",
   },
 };
 
@@ -47,7 +48,7 @@ export function ActionVerdictBanner({ verdict, compact = false }: ActionVerdictB
   return (
     <div className={`px-3 py-2 mb-2 rounded-r ${style.container}`}>
       <div className="flex items-center gap-2 flex-wrap">
-        <span aria-hidden="true">{style.glyph}</span>
+        <span aria-hidden="true">{ACTION_GLYPH[verdict.state]}</span>
         <span className={`badge ${style.pill} text-[10px] uppercase tracking-widest`}>
           {style.label}
         </span>

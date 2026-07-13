@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useDashboardState } from "../state/DashboardStateContext";
 
 /**
- * Bloomberg-style fixed footer status bar. Shows live clock, dashboard
- * stage, account balance read, build identifier. Brutalist by design —
- * monospace, uppercase, hairline indicators.
+ * Bloomberg-style fixed footer status bar. Shows backend link state, live
+ * clock, build identifier. Brutalist by design — monospace, uppercase,
+ * hairline indicators. Stage + balance live in the nav StageBanner only:
+ * one balance display, one source of truth.
  */
 function nowIso(): string {
   // YYYY-MM-DD HH:MM:SS in local time. Compact, no timezone abbrev.
@@ -13,14 +14,6 @@ function nowIso(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
     d.getHours(),
   )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-function fmtUsd(n: number): string {
-  return n.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
 }
 
 export function StatusBar() {
@@ -32,8 +25,6 @@ export function StatusBar() {
     return () => clearInterval(id);
   }, []);
 
-  const stage = state?.stage === "stage_2" ? "STAGE_2" : "STAGE_1";
-  const balance = state ? fmtUsd(state.account_balance_usd) : "—";
   const link = error
     ? { cls: "status-cell--bad", label: "OFFLINE" }
     : state
@@ -49,14 +40,6 @@ export function StatusBar() {
       <span className="status-cell">
         <span>UTC_LOCAL</span>
         <strong>{clock}</strong>
-      </span>
-      <span className="status-cell">
-        <span>STAGE</span>
-        <strong>{stage}</strong>
-      </span>
-      <span className="status-cell">
-        <span>BAL</span>
-        <strong>{balance}</strong>
       </span>
       <span className="status-cell ml-auto">
         <span>BUILD</span>

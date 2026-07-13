@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { BrokerAccountsPanel } from "../components/BrokerAccountsPanel";
 import { DailyWisdom } from "../components/DailyWisdom";
 import { PendingCapexCTA } from "../components/regime/PendingCapexCTA";
 import { RegimeHealthPanel } from "../components/RegimeHealthPanel";
@@ -93,10 +94,10 @@ export function HomeView() {
         ╞══ The dashboard that won&apos;t let you break your own rules ══╡
       </p>
 
-      <DailyWisdom />
-
       <UnreviewedWeeksCTA />
       <PendingCapexCTA />
+
+      <BrokerAccountsPanel />
 
       <RegimeHealthPanel />
 
@@ -130,6 +131,8 @@ export function HomeView() {
           rotate="left"
         />
       </div>
+
+      <DailyWisdom />
     </div>
   );
 }

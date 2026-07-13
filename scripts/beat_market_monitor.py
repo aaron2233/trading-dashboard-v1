@@ -194,6 +194,42 @@ flags.sort(key=lambda x: order.get(x[0], 9))
 headline = flags[0][1] if actionable else ("HOLD -- signal ON, core per plan" if core_on else "FLAT -- signal OFF")
 
 q = M.get("QQQ")
+
+# Optional machine-readable state for the dashboard Core view — written only
+# when QQQM_CORE_JSON_OUT is set (the local launchd wrapper points it at
+# ~/.trading-dashboard/qqqm_core_monitor/latest.json). The cloud routine
+# reads stdout and never sets it. GET /api/v1/core/state serves this file.
+_json_out = os.environ.get("QQQM_CORE_JSON_OUT")
+if _json_out:
+    import json
+    doc = {
+        "generated": TODAY.isoformat(),
+        "as_of_close": q["date"] if q else None,
+        "actionable": actionable,
+        "headline": headline,
+        "core_held": CORE_HELD,
+        "core_expiry": CORE_EXPIRY.isoformat() if CORE_EXPIRY else None,
+        "core_state_note": CORE_STATE,
+        "signal": None,
+        "actions": [{"tag": t, "title": title, "detail": d} for t, title, d in flags],
+        "levels": {t: ({**m, "regime": reg100(m["sqn100"])} if (m := M.get(t)) else None)
+                   for t in TICKERS},
+        "track_a": TA,
+    }
+    if core_on is not None:
+        _last = completed.iloc[-1]
+        doc["signal"] = {
+            "on": core_on,
+            "since": since.isoformat(),
+            "completed_week": completed.index[-1].date().isoformat(),
+            "close": round(float(_last.Close), 2),
+            "ma40": round(float(_last.ma40), 2),
+            "sqn100": round(float(_last.sqn), 2),
+            "provisional_on": part_state,
+        }
+    with open(_json_out, "w") as f:
+        json.dump(doc, f, indent=1)
+
 print(f"ACTIONABLE: {'YES' if actionable else 'NO'}")
 print(f"HEADLINE: {headline}")
 print(f"AS OF CLOSE: {q['date'] if q else 'n/a'}  (report generated {TODAY.isoformat()})")

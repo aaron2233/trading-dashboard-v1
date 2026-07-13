@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { fmtUsdWhole } from "./lib/format";
 import { RegimeHeader } from "./components/RegimeHeader";
 import { StatusBar } from "./components/StatusBar";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -10,8 +11,8 @@ import { KillSheetView } from "./views/KillSheetView";
 import { LottoView } from "./views/LottoView";
 import { WeeklyTrendView } from "./views/WeeklyTrendView";
 import { IndexSwingView } from "./views/IndexSwingView";
-import { PositionsView } from "./views/PositionsView";
-import { JournalView } from "./views/JournalView";
+import { BookView } from "./views/BookView";
+import { CoreView } from "./views/CoreView";
 import { RegimeHealthView } from "./views/RegimeHealthView";
 import { WeeklyReviewView } from "./views/WeeklyReviewView";
 
@@ -24,26 +25,30 @@ interface NavGroupDef {
   items: NavItem[];
 }
 
-// Single Scan dropdown groups every "find me a setup" tool. General-purpose
-// scanners come first; the divider separates them from the Lotto playbook
-// which outputs setups for its own account only. Kill sheet, Positions,
-// Journal, Weekly review live at the top level — each is one click away.
+// The three strategies of the book — one scan entry per strategy, ordered by
+// horizon (short → long). Nothing else scans: utility readouts live under
+// the Regime group, per the 3-strategy consolidation.
 const SCAN_GROUP: NavGroupDef = {
   label: "Scan",
   items: [
-    { kind: "link", to: "/scan", label: "Scan ticker" },
-    { kind: "link", to: "/weekly", label: "Weekly trend" },
-    { kind: "link", to: "/index-swing", label: "Index swing" },
-    { kind: "divider" },
     { kind: "link", to: "/lotto", label: "Lotto · $1K playbook" },
+    { kind: "link", to: "/index-swing", label: "Index swing" },
+    { kind: "link", to: "/core", label: "Core · QQQM" },
+  ],
+};
+
+// Regime lens + diagnostics: weekly-trend is the bias lens (no entries) and
+// Scan ticker is the single-ticker unified-stack readout.
+const REGIME_GROUP: NavGroupDef = {
+  label: "Regime",
+  items: [
+    { kind: "link", to: "/regime-health", label: "Regime health" },
+    { kind: "link", to: "/weekly", label: "Weekly trend · lens" },
+    { kind: "link", to: "/scan", label: "Scan ticker" },
   ],
 };
 
 const TOP_LEVEL_LINKS: { to: string; label: string }[] = [
-  { to: "/regime-health", label: "Regime" },
-  { to: "/kill-sheet", label: "Kill Sheet" },
-  { to: "/positions", label: "Positions" },
-  { to: "/journal", label: "Journal" },
   { to: "/weekly-review", label: "Weekly Review" },
 ];
 
@@ -134,8 +139,20 @@ function NavGroup({ group }: { group: NavGroupDef }) {
   );
 }
 
-function fmtUsd(n: number): string {
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+// Book (Positions + Journal as tabs) — active for either tab and for the
+// kill-sheet flow launched from it. Kill Sheet left the nav 2026-07-12: it's
+// a gate inside the open-position flow, not a standalone destination (the
+// /kill-sheet route still works for deep links and scan-card pre-fills).
+function BookNavLink() {
+  const location = useLocation();
+  const active = ["/positions", "/journal", "/kill-sheet"].some((p) =>
+    location.pathname.startsWith(p),
+  );
+  return (
+    <NavLink to="/positions" className={() => topLevelClass(active)}>
+      Book
+    </NavLink>
+  );
 }
 
 // Brand wordmark — single-color amber for visual consistency with the
@@ -161,18 +178,21 @@ function StageBanner() {
   }
   const isStage1 = state.stage === "stage_1";
   const cls = isStage1 ? "text-signal-flag" : "text-signal-bull";
-  const balance = fmtUsd(state.account_balance_usd);
-  const threshold = fmtUsd(state.threshold_usd);
+  const balance = fmtUsdWhole(state.account_balance_usd);
+  const threshold = fmtUsdWhole(state.threshold_usd);
   const subtext = isStage1
     ? `${balance} / ${threshold}`
     : `${balance} · floor`;
   const pnl = state.realized_pnl_usd;
   const pnlCls = pnl >= 0 ? "text-signal-bull" : "text-signal-bear";
-  const pnlText = `${pnl >= 0 ? "+" : "−"}${fmtUsd(Math.abs(pnl))}`;
+  const pnlText = `${pnl >= 0 ? "+" : "−"}${fmtUsdWhole(Math.abs(pnl))}`;
   return (
-    <span className={`ml-auto sticker ${cls}`}>
+    <span
+      className={`ml-auto sticker ${cls}`}
+      title="Options book only — broker balance anchor + realized P&L since anchor date. Other accounts/sleeves: Home → Accounts panel."
+    >
       <span>{isStage1 ? "STAGE_1" : "STAGE_2"}</span>
-      <span className="opacity-80">· {subtext} ·</span>
+      <span className="opacity-80">· BOOK {subtext} ·</span>
       <span className={pnlCls}>{pnlText}</span>
     </span>
   );
@@ -210,6 +230,8 @@ export function App() {
           Home
         </NavLink>
         <NavGroup group={SCAN_GROUP} />
+        <NavGroup group={REGIME_GROUP} />
+        <BookNavLink />
         {TOP_LEVEL_LINKS.map((l) => (
           <NavLink
             key={l.to}
@@ -230,10 +252,11 @@ export function App() {
           <Route path="/index-swing" element={<IndexSwingView />} />
           <Route path="/kill-sheet" element={<KillSheetView />} />
           <Route path="/lotto" element={<LottoView />} />
+          <Route path="/core" element={<CoreView />} />
           <Route path="/regime-health" element={<RegimeHealthView />} />
           <Route path="/weekly-review" element={<WeeklyReviewView />} />
-          <Route path="/positions" element={<PositionsView />} />
-          <Route path="/journal" element={<JournalView />} />
+          <Route path="/positions" element={<BookView />} />
+          <Route path="/journal" element={<BookView />} />
         </Routes>
       </main>
       <StatusBar />

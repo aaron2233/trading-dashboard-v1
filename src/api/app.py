@@ -17,6 +17,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.models import HealthResponse
+from api.routes.accounts import make_accounts_router
+from api.routes.core import make_core_router
 from api.routes.discipline import make_discipline_router
 from api.routes.indicators import make_indicators_router
 from api.routes.journal import make_journal_router
@@ -65,6 +67,8 @@ def create_app(
     def health():
         return HealthResponse(status="ok", version=VERSION)
 
+    app.include_router(make_accounts_router(config_loader))
+    app.include_router(make_core_router(store_factory, config_loader))
     app.include_router(make_lotto_router(store_factory, config_loader))
     app.include_router(make_tier_scans_router())
     app.include_router(make_regime_router(store_factory, config_loader, cache_factory))

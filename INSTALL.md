@@ -104,7 +104,7 @@ cd frontend
 npm run dev
 ```
 
-Open http://localhost:5173. You should see the dark-themed dashboard with a regime header (SPY/QQQ/IWM) up top and a nav with a Scan group (Scan ticker, Weekly trend, Index swing, Regime-levered trend, Lotto) plus Regime, Kill Sheet, Positions, Journal, Weekly Review.
+Open http://localhost:5173. You should see the dark-themed dashboard with a regime header (SPY/QQQ/IWM) up top and a nav with a Scan group (Lotto, Index swing, Core · QQQM), a Regime group (Regime health, Weekly trend, Scan ticker), Book, and Weekly Review.
 
 Click **Scan**, type a ticker, hit scan. If you get an indicator panel back, you're done.
 
