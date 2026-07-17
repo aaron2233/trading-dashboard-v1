@@ -118,7 +118,7 @@ def make_lotto_router(store_factory, config_loader) -> APIRouter:
     @router.post("/api/v1/lotto/scan", response_model=LottoScanResponse)
     def lotto_scan(req: LottoScanRequest):
         """Lotto setup scan across the configured universe(s) — defaults to
-        the curated lotto high-vol watchlist ("lotto_high_vol", 36 names,
+        the curated lotto high-vol watchlist ("lotto_high_vol", 25 names,
         ~15-25s); broad indexes remain available by passing them explicitly.
         Each ticker yields TWO setups (long + short) classified
         independently. Each setup is tagged with `source_universe` so the
