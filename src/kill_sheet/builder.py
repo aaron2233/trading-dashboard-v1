@@ -135,6 +135,8 @@ def _dte_band_for(
         return "365+ DTE LEAPS (Track A; 75–90 delta deep ITM; roll at 180 DTE)"
 
     # ── Account / intent / TF defaults ──
+    if account_key == "beatmarket":
+        return "365+ DTE at entry (qqqm-core; 75–85 delta deep ITM; roll at 60 DTE)"
     if account_key == "lotto":
         return "5–14 DTE (lotto band; 0DTE allowed once/week, $50 cap)"
     if account_key == "weekly" or intent == "POSITION" or trigger_tf == "Weekly":
@@ -475,11 +477,18 @@ def build_standard(
         and direction == "long"
     )
 
+    # Chop is evaluated on the TRIGGER timeframe's ribbon: a Weekly-trigger
+    # sheet (qqqm-core, Track A) trades the weekly stack — a tangled daily
+    # ribbon inside an intact weekly trend is consolidation, not chop.
+    chop_stack = ma_stack_state
+    if trigger_tf == "Weekly" and weekly_stack and weekly_stack != "n/a":
+        chop_stack = weekly_stack
+
     user_inputs = attestation_user_inputs or {}
     attestation = DisciplineAttestation(
         iv_rank_over_70=(iv_rank is not None and iv_rank > 70),
         dte_under_7=(dte is not None and dte < 7),
-        daily_chop=(ma_stack_state in DAILY_CHOP_STATES),
+        daily_chop=(chop_stack in DAILY_CHOP_STATES),
         fighting_sqn_regime=(not sqn_authorizes and regime != "neutral"),
         averaging_down=averaging_down,
         lotto_chase_warning=lotto_chase_warning,

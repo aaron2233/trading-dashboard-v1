@@ -1,14 +1,27 @@
-"""Beat-the-Market $10K daily scaling-in monitor (cloud routine).
+"""QQQM-core signal monitor (cloud routine).
 
-Recomputes a few indicators off the most recent CONFIRMED daily close and
-prints the plan's TRIGGER STATE. The scheduled cloud routine reads this stdout
-and drafts a Gmail only when ACTIONABLE.
+Successor to the beat-market $10K plan babysitter (rewritten 2026-07-11 when
+the qqqm-core skill replaced the plan's wait-for-the-dip entry). Recomputes
+the core's two-state signal off the most recent CONFIRMED daily close and
+prints the state. The scheduled cloud routine reads this stdout and drafts a
+Gmail only when ACTIONABLE.
+
+The signal (qqqm-core skill; evidence: scripts/qqqm_core_backtest.py):
+  LONG while QQQ weekly close > 40WMA AND daily SQN(100) >= +0.7
+  EXIT on weekly close < 40WMA OR SQN(100) <= -0.7
+  (-60% premium cut is the position-side backstop; this monitor is
+  position-blind and cannot see premium.)
+
+Signal flips are evaluated on COMPLETED weekly bars (Friday close). Midweek
+the monitor also reports a provisional read of the in-progress week as a
+heads-up — act only on the Friday close.
+
+Also watched: Track A 19/39 weekly crosses (MU/META/ETH/BTC — weekly-trend-
+trader) and the rule-11 Bull-regime Stoch-oversold dip (informational for the
+rest of the book; NOT a core entry or add — that was backtested and rejected).
 
 Reads daily bars from pre-staged CSVs under STAGED_DATA_DIR (the cloud sandbox
-can't reach Yahoo; a GitHub Action stages bars to the cloud-data branch — see
-scripts/stage_market_data.py and src/data/staged_loader.py). Was previously an
-inline yf.download script in the routine prompt; moved in-repo so it's testable
-and version-controlled.
+can't reach Yahoo; scripts/publish_results.py stages them in Actions).
 """
 import os
 import datetime as dt
@@ -20,40 +33,28 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 TODAY = dt.date.today()
-EXPIRY = dt.date(2026, 12, 18)
-QQQM_DERISK = 270.0
-# Manually revised on plan-state changes (the monitor is position-blind and
-# cannot read fills). Last revised 2026-07-07: June thematic fills (NVDA/MP/GLD
-# shares) all exited on invalidation; MP + GLD legs are DEAD (thesis-broken).
-# The QQQM Dec-18 $270 core was never bought — it is the plan's one open
-# decision, backstopped by the Sep 15-16 FOMC no-dip fallback.
-PLAN_STATE = "core UNBOUGHT (QQQM Dec-18 270C); thematic legs exited; book is cash"
-CATALYSTS = {
-    "PLTR earnings": dt.date(2026, 8, 10), "NVDA earnings": dt.date(2026, 8, 26),
-    "MP Q3 print (re-underwrite decision, date unconfirmed)": dt.date(2026, 11, 6),
-    "FOMC": dt.date(2026, 7, 29),
-    "FOMC ": dt.date(2026, 9, 16), "FOMC  ": dt.date(2026, 10, 28), "FOMC   ": dt.date(2026, 12, 9),
-}
-TICKERS = ["QQQ", "SPY", "QQQM", "NVDA", "QLD"]
+# Manually revised on fills (the monitor is position-blind). Last revised
+# 2026-07-11: qqqm-core adopted; signal ON since 2026-04-17; entry pending
+# kill sheet + trade-devil. On purchase set CORE_HELD=True and CORE_EXPIRY.
+CORE_HELD = False
+CORE_EXPIRY = None  # dt.date(YYYY, M, D) of the held call when CORE_HELD
+CORE_STATE = "core UNBOUGHT — qqqm-core adopted 2026-07-11, entry pending kill sheet"
+TICKERS = ["QQQ", "SPY", "QQQM"]
 # Track A (weekly-trend-trader) 19/39 weekly-MA cross watch — Tier 1 refresh
 # 2026-07-01: MU / META / ETH / BTC. A fresh weekly 19>39 cross is the Track A
 # LEAPS entry signal; a fresh 19<39 cross is the exit / stand-aside signal.
 TRACK_A = {"MU": "MU", "META": "META", "ETH": "ETH-USD", "BTC": "BTC-USD"}
 
 
-def sqn(close, n):
+def sqn(close, n=100):
     lr = np.log(close / close.shift(1))
     m = lr.rolling(n).mean()
     s = lr.rolling(n).std(ddof=1)
-    return float(((m / s.where(s != 0)) * np.sqrt(n)).iloc[-1])
+    return (m / s.where(s != 0)) * np.sqrt(n)
 
 
 def reg100(v):
     return ("strong_bull" if v > 1.5 else "bull" if v > 0.7 else "neutral" if v >= -0.7 else "bear" if v >= -1.5 else "strong_bear")
-
-
-def reg20(v):
-    return ("strong_bull" if v > 1.4 else "bull" if v > 0.5 else "neutral" if v >= -1.1 else "bear" if v >= -1.9 else "strong_bear")
 
 
 def stoch_k(df, length=14, smooth=7):
@@ -83,23 +84,46 @@ if all(v is None for v in data.values()):
     print("=" * 60)
     print(f"STAGED DATA MISSING -- no 1d CSVs found under {STAGED}. The cloud-data")
     print("branch clone likely failed, or the stage-market-data GitHub Action did")
-    print("not run. No triggers were evaluated. Fix staging, then re-run.")
+    print("not run. No signals were evaluated. Fix staging, then re-run.")
     raise SystemExit(0)
 
 
-def metrics(t):
+def core_signal(df):
+    """Weekly two-state signal on QQQ with entry/exit hysteresis: turns ON at
+    close > 40WMA AND SQN(100) >= +0.7; stays ON until close < 40WMA OR
+    SQN <= -0.7 (SQN drifting into Neutral does NOT exit). Returns
+    (completed-week states, partial week state or None, weekly frame). A
+    weekly bar is 'completed' only if the last daily bar lands on its Friday
+    label."""
+    w = df.resample("W-FRI").agg({"Close": "last"}).dropna()
+    w["ma40"] = w["Close"].rolling(40).mean()
+    w["sqn"] = sqn(df["Close"]).resample("W-FRI").last()
+    states, on = [], False
+    for close, ma40, s in zip(w["Close"], w["ma40"], w["sqn"]):
+        if np.isnan(ma40) or np.isnan(s):
+            states.append(False)
+            continue
+        if on:
+            on = not (close < ma40 or s <= -0.7)
+        else:
+            on = close > ma40 and s >= 0.7
+        states.append(on)
+    w["on"] = states
+    partial = df.index[-1].date() < w.index[-1].date()
+    completed = w.iloc[:-1] if partial else w
+    part_state = bool(w["on"].iloc[-1]) if partial else None
+    return completed, part_state, w
+
+
+def daily_metrics(t):
     df = data.get(t)
     if df is None or len(df) < 220:
         return None
     c = df["Close"]
     k = stoch_k(df)
-    k_now = float(k.iloc[-1])
-    k_prev = float(k.iloc[-2])
-    ma200 = float(c.rolling(200).mean().iloc[-1])
-    hi10 = float(c.iloc[-10:].max())
     return dict(close=float(c.iloc[-1]), date=str(df.index[-1].date()),
-                sqn100=sqn(c, 100), sqn20=sqn(c, 20), k=k_now, k_prev=k_prev, ma200=ma200,
-                pull10=float(c.iloc[-1] / hi10 - 1))
+                sqn100=float(sqn(c).iloc[-1]), sqn20=float(sqn(c, 20).iloc[-1]),
+                k=float(k.iloc[-1]), ma200=float(c.rolling(200).mean().iloc[-1]))
 
 
 def track_a_cross(t):
@@ -115,64 +139,74 @@ def track_a_cross(t):
     return dict(state=state, fresh=fresh, close=float(w.iloc[-1]))
 
 
-M = {t: metrics(t) for t in TICKERS}
+M = {t: daily_metrics(t) for t in TICKERS}
 TA = {name: track_a_cross(sym) for name, sym in TRACK_A.items()}
-q = M["QQQ"]
 flags = []
-if q:
-    if q["sqn20"] < -1.9:
-        if q["sqn100"] > -0.7:
-            flags.append(("B", "DEEP DIP -- DEPLOY THE BOOK", f"QQQ SQN(20) {q['sqn20']:.2f} < -1.9 with SQN(100) {q['sqn100']:.2f} ({reg100(q['sqn100'])}) still constructive -- rule-12 high-edge dip. Deploy the unbought book: QQQM Dec-18 $270 core (or QLD shares, the no-vega alternative) at the deep-dip price."))
+
+qdf = data.get("QQQ")
+core_on = None
+if qdf is not None and len(qdf) > 300:
+    completed, part_state, w = core_signal(qdf)
+    core_on = bool(completed["on"].iloc[-1])
+    prev_on = bool(completed["on"].iloc[-2])
+    last = completed.iloc[-1]
+    since = None
+    run = completed["on"][::-1]
+    streak = int((run == core_on).cummin().sum())
+    since = completed.index[-streak].date()
+
+    if core_on != prev_on:
+        if core_on:
+            flags.append(("S", "CORE SIGNAL FLIPPED ON", f"QQQ completed weekly close {last.Close:.2f} > 40WMA {last.ma40:.2f} with SQN(100) {last.sqn:+.2f} -- qqqm-core signal is ON as of {completed.index[-1].date()}. ENTER per the skill: QQQM deep-ITM call D0.75-0.85, >=365 DTE, premium = 50% of sleeve. Kill sheet + trade-devil first."))
         else:
-            flags.append(("B", "SKIP / PRESERVE", f"QQQ SQN(20) {q['sqn20']:.2f} < -1.9 BUT SQN(100) {q['sqn100']:.2f} ({reg100(q['sqn100'])}) = regime break (rule 18). Do NOT deploy -- stay in cash."))
-    if q["sqn20"] < -1.9 and q["k"] < 25 and q["sqn100"] > -0.7:
-        flags.append(("B+", "CORE BUY -- STOCH-CONFIRMED DIP", f"HIGH-CONVICTION CORE ENTRY: QQQ daily Stoch %K {q['k']:.0f} < 25 AND SQN(20) {q['sqn20']:.2f} < -1.9, SQN(100) {q['sqn100']:.2f} ({reg100(q['sqn100'])}) still bull -- the daily washout we've been waiting for (Apr-2026 analog). BUY the QQQM Dec-18 $270 CORE. Verify the 270C live ask before entry."))
-    reset = q["k_prev"] > 80 and q["k"] <= 80
-    if reset or q["pull10"] <= -0.03:
-        why = []
-        if reset:
-            why.append(f"daily Stoch reset out of overbought ({q['k_prev']:.0f}->{q['k']:.0f})")
-        if q["pull10"] <= -0.03:
-            why.append(f"QQQ {q['pull10']:+.1%} off its 10-day high")
-        flags.append(("A", "QQQM CORE ENTRY WINDOW", f"{' & '.join(why)} -- the core (QQQM Dec-18 $270C) is UNBOUGHT and this is the pullback entry window committed to on 2026-06-03. Buy at the better price (QLD shares = no-vega alternative), or consciously pass and wait for the next reset / Sep FOMC fallback. Verify the 270C live ask."))
-# Rule-19 dip-buy: the validated Bull-regime oversold edge (~+17-18%/12mo,
-# n~17-18 Bull episodes per name). Gate is strict: SQN(100) Bull/Strong Bull
-# ONLY — Neutral tested ~baseline, Bear is a knife-catch. Stop structure is
-# the options-book -60% premium cut; tight stops whipsaw 50-71% (rules 18/19).
+            flags.append(("S", "CORE SIGNAL FLIPPED OFF", f"QQQ completed weekly close {last.Close:.2f} vs 40WMA {last.ma40:.2f}, SQN(100) {last.sqn:+.2f} -- qqqm-core signal is OFF as of {completed.index[-1].date()}. EXIT the core if held (intraday limit, no GTC); if unbought, stand down."))
+    if part_state is not None and part_state != core_on:
+        verb = "ON" if part_state else "OFF"
+        flags.append(("P", f"PROVISIONAL FLIP {verb}", f"Week-to-date QQQ would flip the core signal {verb} if held to Friday's close (close {w.Close.iloc[-1]:.2f} vs 40WMA {w.ma40.iloc[-1]:.2f}, SQN {w.sqn.iloc[-1]:+.2f}). Heads-up only -- the signal acts on COMPLETED weekly closes."))
+    if core_on and not CORE_HELD:
+        flags.append(("E", "SIGNAL ON, CORE UNBOUGHT", f"qqqm-core signal has been ON since {since} and the core is not held. Late entry is valid per the skill (62% WR / avg +24.7% at week 12 historically, vs ~+3% waiting in cash). Enter this week: kill sheet + trade-devil + live QQQM chain check."))
+    if not core_on and CORE_HELD:
+        flags.append(("E", "SIGNAL OFF, CORE STILL HELD", f"Signal went OFF (completed week {completed.index[-1].date()}) and CORE_HELD is still True -- exit the position or update the monitor constant."))
+
+if CORE_HELD and CORE_EXPIRY:
+    dte = (CORE_EXPIRY - TODAY).days
+    if dte <= 60:
+        flags.append(("R", "ROLL THE CORE", f"{dte} DTE remaining on the held QQQM call -- at/below the 60 DTE floor. Roll out to >=365 DTE D0.75-0.85 this week if the signal is still ON; otherwise exit."))
+    elif dte <= 75:
+        flags.append(("R", "ROLL WINDOW APPROACHING", f"{dte} DTE remaining on the held QQQM call -- plan the roll before the 60 DTE floor."))
+
+# Rule-11 dip-buy: validated Bull-regime oversold edge (~+17-18%/12mo). NOT a
+# qqqm-core entry/add (backtested and rejected 2026-07-11) -- informational
+# timing context for the rest of the book, with the -60% premium cut and no
+# tight stop if taken as a standalone long-horizon trade.
 for t in ("QQQ", "SPY"):
     m = M.get(t)
     if m and m["k"] < 20 and m["sqn100"] > 0.7:
-        flags.append(("D", "RULE-19 DIP-BUY", f"{t} daily Stoch %K {m['k']:.0f} < 20 with SQN(100) {m['sqn100']:+.2f} ({reg100(m['sqn100'])}) -- validated Bull-regime oversold edge. Express as a long-horizon deep-ITM call (120-180+ DTE) with the -60% premium cut, NO tight stop, NO 2R cap. If the QQQM core is still unbought, this is a core-entry signal."))
+        flags.append(("D", "RULE-11 DIP (INFO)", f"{t} daily Stoch %K {m['k']:.0f} < 20 with SQN(100) {m['sqn100']:+.2f} ({reg100(m['sqn100'])}) -- validated Bull-regime oversold. Standalone signal only; the QQQM core neither waits for nor adds on dips."))
+
 for name, ta in TA.items():
     if ta and ta["fresh"]:
         flags.append(("W", "TRACK A 19/39 CROSS", f"{name} weekly 19/39 MA cross flipped to {ta['state']} (close {ta['close']:.2f}) -- Track A LEAPS {'entry' if '>' in ta['state'] else 'exit / stand-aside'} signal (weekly-trend-trader)."))
-qm = M["QQQM"]
-if qm and qm["close"] < QQQM_DERISK:
-    flags.append(("C", "CORE DE-RISK / ENTRY INVALID", f"QQQM closed {qm['close']:.2f} < {QQQM_DERISK:.0f} (call de-risk level) -- de-risk if the core is held; if still unbought, the entry setup is invalidated."))
-dte = (EXPIRY - TODAY).days
-if 0 <= dte <= 21:
-    flags.append(("C", "ROLL CORE CALL", f"{dte} days to Dec-18 expiry -- roll or close the QQQM call if held (don't hold into expiry)."))
-for t in ["QQQM", "NVDA"]:
-    m = M[t]
-    if m and m["close"] < m["ma200"]:
-        flags.append(("T", f"{t} < 200DMA", f"{t} {m['close']:.2f} below its 200DMA {m['ma200']:.2f} -- trend deteriorating, reassess."))
-for name, d in CATALYSTS.items():
-    delta = (d - TODAY).days
-    if 0 <= delta <= 5:
-        flags.append(("K", "CATALYST NEAR", f"{name.strip()} in {delta}d ({d.isoformat()})."))
-if dt.date(2026, 9, 15) <= TODAY <= dt.date(2026, 9, 30):
-    flags.append(("F", "NO-DIP FALLBACK", "Sep FOMC window reached -- the QQQM core is the plan's engine; if no dip ever came, deploy it now (or QLD shares) to stay invested for Q4."))
 
 actionable = len(flags) > 0
-order = {"B+": -1, "D": -0.5, "B": 0, "C": 1, "A": 2, "W": 2.5, "F": 3, "K": 4, "T": 5}
+order = {"S": 0, "E": 1, "R": 2, "P": 3, "W": 4, "D": 5}
 flags.sort(key=lambda x: order.get(x[0], 9))
-headline = flags[0][1] if actionable else "HOLD -- no triggers"
+headline = flags[0][1] if actionable else ("HOLD -- signal ON, core per plan" if core_on else "FLAT -- signal OFF")
 
+q = M.get("QQQ")
 print(f"ACTIONABLE: {'YES' if actionable else 'NO'}")
 print(f"HEADLINE: {headline}")
 print(f"AS OF CLOSE: {q['date'] if q else 'n/a'}  (report generated {TODAY.isoformat()})")
-print(f"PLAN STATE (manual, rev 2026-07-07): {PLAN_STATE}")
+print(f"CORE STATE (manual, rev 2026-07-11): {CORE_STATE}")
 print("=" * 60)
+if core_on is not None:
+    last = completed.iloc[-1]
+    print(f"CORE SIGNAL: {'ON' if core_on else 'OFF'} since {since}  "
+          f"(completed wk {completed.index[-1].date()}: close {last.Close:.2f} "
+          f"vs 40WMA {last.ma40:.2f}, SQN(100) {last.sqn:+.2f})")
+    if part_state is not None:
+        print(f"  week-to-date provisional: {'ON' if part_state else 'OFF'}")
+    print("=" * 60)
 if actionable:
     print("TODAY'S ACTIONS:")
     for _, tag, detail in flags:
@@ -184,11 +218,7 @@ for t in TICKERS:
     if not m:
         print(f"  {t}: no data")
         continue
-    extra = ""
-    if t == "QQQ":
-        extra = f" Stoch {m['k']:.0f}"
-    if t == "QQQM":
-        extra = f" (de-risk<{QQQM_DERISK:.0f})"
+    extra = f" Stoch {m['k']:.0f}" if t == "QQQ" else ""
     print(f"  {t}: {m['close']:.2f}  SQN100 {m['sqn100']:+.2f}({reg100(m['sqn100'])}) SQN20 {m['sqn20']:+.2f}  vs200DMA {m['close']/m['ma200']-1:+.1%}{extra}")
 print("=" * 60)
 print("TRACK A 19/39 WEEKLY (MU/META/ETH/BTC):")
@@ -198,4 +228,7 @@ for name, ta in TA.items():
         continue
     print(f"  {name}: {ta['close']:.2f}  {ta['state']}{'  ** FRESH CROSS **' if ta['fresh'] else ''}")
 print("=" * 60)
-print("NOTE: position-blind -- this is the plan's TRIGGER STATE, not your fills. PLAN STATE above is a manual constant (revise it in scripts/beat_market_monitor.py on any fill or exit). Verify live quotes before trading.")
+print("NOTE: position-blind -- this is the qqqm-core SIGNAL STATE, not your fills.")
+print("CORE_HELD / CORE_EXPIRY / CORE_STATE are manual constants (revise in")
+print("scripts/beat_market_monitor.py on any fill, exit, or roll). Signal acts on")
+print("completed Friday closes; verify live quotes before trading.")
