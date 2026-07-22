@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -190,13 +191,17 @@ def _bool_int(v: Any) -> int:
 
 
 class Cache:
-    """SQLite cache. Open one per process. Methods are not thread-safe; if
-    needed in async contexts, wrap in a lock or use one cache per worker."""
+    """SQLite cache. Open one per process. Safe to share across threads:
+    the connection is opened with check_same_thread=False (Python sqlite3
+    is serialized-mode here) and write transactions serialize on an
+    internal lock — required because FastAPI runs sync endpoints on a
+    threadpool while get_cache() hands out one process-wide instance."""
 
     def __init__(self, path: Path | None = None):
         self.path = path if path is not None else DEFAULT_CACHE_PATH
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.path))
+        self._lock = threading.RLock()
+        self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.execute("PRAGMA journal_mode = WAL")
@@ -213,13 +218,14 @@ class Cache:
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Cursor]:
-        cur = self.conn.cursor()
-        try:
-            yield cur
-            self.conn.commit()
-        except Exception:
-            self.conn.rollback()
-            raise
+        with self._lock:
+            cur = self.conn.cursor()
+            try:
+                yield cur
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
 
     # ── Schema management ──────────────────────────────────────────────────
 
