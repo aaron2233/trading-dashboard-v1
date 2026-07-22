@@ -57,7 +57,7 @@ def _snapshot(option_positions=(), option_instruments=(),
     return {
         "source": "robinhood-mcp",
         "fetched_at": "2026-07-11T20:15:00Z",
-        "account": "…4907",
+        "account": "…0000",
         "option_positions": list(option_positions),
         "option_instruments": list(option_instruments),
         "equity_positions": list(equity_positions),

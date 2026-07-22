@@ -1,0 +1,40 @@
+name: PII scan
+
+# Backstop against real Robinhood account identifiers reaching the public repo.
+# Mirrors the mask heuristic in the local ~/.claude/scripts/pii-scan.sh (the
+# pre-commit hook + Claude Code commit guard). CI is pattern-only — it has no
+# access to the local real-value denylist — so it flags any account mask
+# …NNNN / "...NNNN" whose last 4 digits are not obviously synthetic.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pii-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan tracked files for real account last-4s
+        run: |
+          synthetic=' 0000 1111 2222 3333 4444 5555 6666 7777 8888 9999
+            1234 2345 3456 4567 5678 6789 4321 5432 6543 7654 8765 9876 0123
+            1000 0001 0100 1200
+            2019 2020 2021 2022 2023 2024 2025 2026 2027 2028 2029 2030 2031 2032 2033 2034 2035 '
+          synthetic=" $(echo $synthetic) "
+          fail=0
+          masks="$(git grep -hoE '(…|"\.\.\.)[0-9]{4}' -- '*.py' '*.ts' '*.tsx' '*.md' 2>/dev/null | sed 's/^"//' | sort -u || true)"
+          while IFS= read -r tok; do
+            [ -z "$tok" ] && continue
+            d="${tok: -4}"
+            case "$synthetic" in *" $d "*) continue ;; esac
+            echo "::error::possible real account last-4 in a committed file: '$tok' — use a synthetic value (e.g. …0000)"
+            git grep -nF "$tok" -- '*.py' '*.ts' '*.tsx' '*.md' || true
+            fail=1
+          done <<< "$masks"
+          if [ "$fail" = 1 ]; then
+            echo "PII scan FAILED — replace real account last-4s with synthetic fixtures."
+            exit 1
+          fi
+          echo "PII scan clean — no non-synthetic account masks in tracked files."

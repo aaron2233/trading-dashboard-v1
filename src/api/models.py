@@ -655,7 +655,8 @@ class LottoScanRequest(BaseModel):
     `universe` (list of FreeRangeUniverseName) — scans every ticker in the
         listed indexes; each result is tagged with its source_universe so the
         UI can group by index. Default = the curated lotto high-vol watchlist
-        ("lotto_high_vol", 36 names, ~15-25s) — the only cohort the
+        ("lotto_high_vol", 25 names, ~15-25s) — in-band-only singles since the
+        2026-07-17 rotation (scripts/lotto_universe_review.py) — the cohort the
         2026-05-16 backtests scored profitable for lotto (PF 1.39-1.48;
         broad NDX-100 / broad-ETF universes scored PF 0.75-0.89 = skip, and
         most broad-index names are hard-blocked by the $10-50 band anyway).

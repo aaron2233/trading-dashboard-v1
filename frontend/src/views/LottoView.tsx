@@ -418,7 +418,7 @@ function LottoSetupScanSection({
           disabled={loading}
         >
           {loading
-            ? "Scanning 36-name watchlist (~20s)…"
+            ? "Scanning 25-name watchlist (~20s)…"
             : scan === null
             ? "Run lotto universe scan"
             : "Re-scan universe"}
@@ -426,7 +426,7 @@ function LottoSetupScanSection({
       </div>
       {loading && scan === null ? (
         <div className="panel p-3 text-sm text-text-secondary">
-          Scanning the curated lotto high-vol watchlist (36 tickers ×
+          Scanning the curated lotto high-vol watchlist (25 tickers ×
           daily + 2H reads). Typical run: 15-25 seconds.
         </div>
       ) : scan === null ? (
@@ -519,7 +519,7 @@ export function LottoView() {
 
   useEffect(() => {
     // NOTE: the lotto setup scan is not auto-triggered on mount — it
-    // scans the 36-name curated high-vol watchlist (~15-25s). The user
+    // scans the 25-name curated high-vol watchlist (~15-25s). The user
     // runs it explicitly via the section's "Run lotto universe scan"
     // button.
     void refresh();
