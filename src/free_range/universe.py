@@ -82,27 +82,30 @@ RUSSELL_2000_TOP_50: tuple[str, ...] = (
 
 
 # Curated high-vol single-stock + leveraged-ETF watchlist for lotto.
-# Derived from three backtests (2026-05-16, 2,803 trades, 168 tickers):
-#   - 14 v2 single stocks: PF 1.48 (G4 lift to 2.63)
-#   - 19 NDX-100 high-beta subset: PF 1.39 (G4 lift to 1.64)
-#   - 8 high-vol ETFs: PF 1.39
-#   - Broad-ETF universe: PF 0.75 (skip)
-#   - Full NDX-100 broad: PF 0.89 (skip — mega-cap-stable + biotech drag)
-# Lotto edge is a high-vol-single-stock effect. Adding diversified or
-# mean-reverting names dilutes the asymmetric payoff. Keep this list
-# tight and refresh from forward results, not from "more tickers".
+# Lotto edge is a high-vol-single-stock effect (2026-05-16 backtests: 2,803
+# trades, 168 tickers — broad/diversified universes PF 0.75-0.89, skip).
+# Keep this list tight and refresh from forward results, not "more tickers".
+#
+# 2026-07-17 rotation (scripts/lotto_universe_review.py, quarterly process):
+# singles are IN-BAND ONLY ($10-50) — names that drift above the band are
+# unbuyable under the R1 $150 cap and rotate out on price alone (the prior
+# list had 18 of 21 singles above the $50 cap, so the live scan could act on
+# almost none of its backtested edge). Kept incumbents IONQ/TTD + promoted
+# PL/RGTI/APLD/CDE/CIFR/OKLO/WULF/VIAV (trailing-2y harness: PF >= 1.3,
+# n >= 8, ~100% of simulated contracts within the R1 cap). The 19 rotated-out
+# names (incl. SMCI, dropped on PF 0.29/n=11) are SHADOW_ROTATED in the
+# review script and stay in every quarterly backtest as the control cohort.
+# Next review: 2026-10-15.
 # See [[project-lotto-g4-trigger-bar]] memory for the underlying analysis.
 # Lives here (not lotto/scanner.py) so it can be a named universe without
 # an import cycle (lotto.scanner -> free_range.filters -> this module);
 # lotto re-exports it, so `from lotto import LOTTO_HIGH_VOL_WATCHLIST`
 # still works for the cloud scripts.
 LOTTO_HIGH_VOL_WATCHLIST: tuple[str, ...] = (
-    # v2 single stocks (in-system, G4-validated)
-    "AAPL", "AMD", "AMZN", "AVGO", "COIN", "GOOGL", "IONQ",
-    "META", "MSFT", "MSTR", "NVDA", "PLTR", "TSLA",
-    # NDX-100 high-beta additions (2026-05-16 backtest)
-    "ARM", "ASML", "CRWD", "DDOG", "LULU", "MDB", "MELI",
-    "MRVL", "MU", "PANW", "PDD", "PYPL", "SMCI", "TTD", "ZS",
+    # Mag 7 (LOTTO_MAG7_PRICE_EXEMPT — band-exempt for lotto)
+    "AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA", "TSLA",
+    # In-band singles (2026-07-17 rotation; see block comment above)
+    "APLD", "CDE", "CIFR", "IONQ", "OKLO", "PL", "RGTI", "TTD", "VIAV", "WULF",
     # Leveraged / high-vol ETFs (preserve lotto edge, G4 no-op)
     "TQQQ", "SQQQ", "SOXL", "SOXS", "TNA", "UPRO", "ARKK", "BITO",
 )
