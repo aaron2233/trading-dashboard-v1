@@ -25,9 +25,10 @@ NASDAQ_100_SNAPSHOT_DATE = "2026-04-01"
 # Nasdaq 100 constituents, snapshot-dated above. Sourced from the index
 # composition list as of that date. Symbols match yfinance conventions
 # (uppercase, no exchange suffix).
+# ANSS removed 2026-07-22 (delisted — yfinance returns no data for it).
 NASDAQ_100: tuple[str, ...] = (
     "AAPL", "ABNB", "ADBE", "ADI", "ADP", "ADSK", "AEP", "AMAT", "AMD", "AMGN",
-    "AMZN", "ANSS", "ARM", "ASML", "AVGO", "AZN", "BIIB", "BKNG", "BKR", "CCEP",
+    "AMZN", "ARM", "ASML", "AVGO", "AZN", "BIIB", "BKNG", "BKR", "CCEP",
     "CDNS", "CDW", "CEG", "CHTR", "CMCSA", "COST", "CPRT", "CRWD", "CSCO", "CSGP",
     "CSX", "CTAS", "CTSH", "DASH", "DDOG", "DLTR", "DXCM", "EA", "EXC", "FANG",
     "FAST", "FTNT", "GEHC", "GFS", "GILD", "GOOG", "GOOGL", "HON", "IDXX", "ILMN",
