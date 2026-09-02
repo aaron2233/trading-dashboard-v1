@@ -5,3 +5,4 @@ date,ticker,dir,open_unique,why_now
 2026-07-24,AAPL,long,True,LONG · daily full_bull · 2H bull cross oversold · (mid) · SQN(100) bull · SQN(20) +2.28
 2026-07-30,TTD,short,True,SHORT · daily full_bear · 2H bear cross overbought · (overbought) · SQN(100) bear · SQN(20) -0.36
 2026-08-25,NVDA,long,True,LONG · daily bull_developing · 2H bull cross oversold · (oversold) · SQN(100) bull · SQN(20) +0.78
+2026-09-02,CDE,long,True,LONG · daily bull_developing · 2H bull cross oversold · (mid) · SQN(100) neutral · SQN(20) +0.89
