@@ -18,40 +18,42 @@ on:
       - scripts/publish_results.py
       - .github/workflows/stage-market-data.yml
 
-  # INERT until on main.
-  #
   # PUNCTUALITY: GitHub cron is best-effort — measured 1.5-3.3h late on this
-  # repo (2026-06/07). Each cron fires ~3h (PDT; ~4h PST) BEFORE its publish
-  # target and the job sleeps to the exact PT time via
-  # scripts/sleep_until_pt.py. Targets are PT wall times, so NO PDT/PST cron
-  # swap is needed. Keep the cron→target map in the "Resolve publish target"
-  # step in sync with these entries.
+  # repo in 2026-06/07 and 2.5-6.3h late by 2026-09. A cron mapped 1:1 to a
+  # publish target cannot absorb that: once the delay exceeds the lead, the
+  # run finds its target already passed and publishes late (the 08:31 slot
+  # was landing at 09:30-11:07 PT for weeks). So: fire a cron every 30 min
+  # through the morning and let EVERY run sleep to the NEXT slot still ahead
+  # of it (scripts/sleep_until_pt.py with the full slot list). The
+  # concurrency group below serializes them — one run holds each slot,
+  # GitHub cancels the surplus pending runs, and runs that start after the
+  # last slot publish immediately (harmless post-close refresh).
   #
-  # Lotto targets are :31 — ~1 min AFTER each 2H bar close (08:30/10:30/12:30
-  # PT) — so the 08:35/10:35/12:35 routine windows read a result computed on
-  # the just-closed bar. The old ":15 before the window" timing meant a
-  # punctual publish could only ever see the PREVIOUS bar.
+  # Slots are PT wall times (05:40 beat-market; 08:31/10:31/12:31 lotto —
+  # ~1 min AFTER each 2H bar close so the 08:35/10:35/12:35 routine windows
+  # read a result computed on the just-closed bar). Crons are fixed UTC:
+  # 09:00-16:30Z = 02:00-09:30 PDT; during PST they fire an hour earlier in
+  # PT, which only adds lead. No PDT/PST swap needed. Keep the slot list in
+  # the "Sleep until next slot" step in sync with these comments.
   schedule:
-    - cron: "40 9 * * 1-5"    # target 05:40 PT — before beat-market (06:00 PT)
-    - cron: "31 12 * * 1-5"   # target 08:31 PT — lotto window 1 (08:35 PT)
-    - cron: "31 14 * * 1-5"   # target 10:31 PT — lotto window 2 (10:35 PT)
-    - cron: "31 16 * * 1-5"   # target 12:31 PT — lotto window 3 (12:35 PT)
+    - cron: "0,30 9-16 * * 1-5"
 
 permissions:
   contents: write
 
 concurrency:
   group: publish-results
-  # NOT cancel-in-progress: a run sleeping toward its window must survive the
-  # next cron's run starting early — later runs queue behind it instead.
+  # NOT cancel-in-progress: a run sleeping toward its slot must survive the
+  # next cron's run starting — later runs queue behind it (GitHub keeps one
+  # pending run per group and cancels the rest, which is the dedup we want).
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Scheduled runs sleep up to ~4h waiting for their publish target (see
-    # cron comments above), then the scans need a few minutes.
-    timeout-minutes: 320
+    # Scheduled runs sleep up to 5h (sleep_until_pt.py cap) waiting for the
+    # next slot, then the scans need a few minutes.
+    timeout-minutes: 330
     steps:
       - name: Checkout (triggering branch — holds scripts + src)
         uses: actions/checkout@v4
@@ -64,24 +66,12 @@ jobs:
       - name: Install package
         run: pip install -e . "yfinance==1.3.0"
 
-      # Map the firing cron to its PT target, then hold until that wall time.
-      # Deps install BEFORE the sleep so the scans start fetching at the
-      # target, not minutes after. Push / manual runs skip both steps.
-      - name: Resolve publish target
-        id: window
+      # Hold until the next PT slot. Deps install BEFORE the sleep so the
+      # scans start fetching at the slot, not minutes after. Push / manual
+      # runs skip the wait.
+      - name: Sleep until next slot (PT)
         if: github.event_name == 'schedule'
-        run: |
-          case "${{ github.event.schedule }}" in
-            "40 9 * * 1-5")  echo "target=05:40" >> "$GITHUB_OUTPUT" ;;
-            "31 12 * * 1-5") echo "target=08:31" >> "$GITHUB_OUTPUT" ;;
-            "31 14 * * 1-5") echo "target=10:31" >> "$GITHUB_OUTPUT" ;;
-            "31 16 * * 1-5") echo "target=12:31" >> "$GITHUB_OUTPUT" ;;
-            *) echo "unknown cron '${{ github.event.schedule }}'" >&2; exit 1 ;;
-          esac
-
-      - name: Sleep until target (PT)
-        if: github.event_name == 'schedule'
-        run: python3 scripts/sleep_until_pt.py "${{ steps.window.outputs.target }}"
+        run: python3 scripts/sleep_until_pt.py "05:40,08:31,10:31,12:31"
 
       - name: Run both scans live + write results
         run: |
