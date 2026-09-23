@@ -1,0 +1,94 @@
+name: publish-slot
+
+# One publish slot of publish-results (stage-market-data.yml), which chains
+# a job per slot. Called only via workflow_call; the caller owns the
+# schedule, permissions and concurrency group. No concurrency block here —
+# the caller's group already holds, and a matching group would deadlock.
+
+on:
+  workflow_call:
+    inputs:
+      slot:
+        description: PT wall time HH:MM to publish at
+        required: true
+        type: string
+      final:
+        description: Last slot of the day — publish even if already passed
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Sleeps up to 5h (sleep_until_pt.py cap) waiting for the slot, then the
+    # scans need a few minutes. Per job — each slot gets its own 6h limit.
+    timeout-minutes: 330
+    steps:
+      - name: Checkout (triggering branch — holds scripts + src)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install -e . "yfinance==1.3.0"
+
+      # Hold until this job's PT slot. Deps install BEFORE the sleep so the
+      # scans start fetching at the slot, not minutes after. Push / manual
+      # runs skip the wait. Non-final slots skip entirely once passed (a
+      # late run doesn't publish a stale-window result); the final slot
+      # always publishes so cloud-data still advances on a late day.
+      - name: Sleep until slot (PT)
+        id: wait
+        if: github.event_name == 'schedule'
+        run: >-
+          python3 scripts/sleep_until_pt.py "${{ inputs.slot }}"
+          ${{ !inputs.final && '--skip-if-passed' || '' }}
+
+      - name: Run both scans live + write results
+        if: steps.wait.outputs.skip != 'true'
+        run: |
+          python scripts/publish_results.py \
+            --out results_out \
+            --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      # Freshness contract: cloud-data must ALWAYS advance, even when the
+      # scan step crashed — otherwise the previous window's ACTIONABLE:YES
+      # file stays latest and the routine re-emails stale trades as fresh.
+      - name: Ensure result files exist (failure fallback)
+        if: always() && steps.wait.outputs.skip != 'true'
+        run: |
+          mkdir -p results_out
+          for f in lotto_result.md beat_market_result.md; do
+            if [ ! -f "results_out/$f" ]; then
+              {
+                echo "GENERATED: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                echo "ACTIONABLE: YES"
+                echo "STATUS: FAILED"
+                echo "SUBJECT: Scan pipeline FAILED — $f not produced"
+                echo "---"
+                echo "⚠️ The publish job failed before writing this result" \
+                     "(Actions run ${GITHUB_RUN_ID}). Do NOT trade off any" \
+                     "earlier scan email — its levels are stale."
+              } > "results_out/$f"
+            fi
+          done
+
+      - name: Publish results to cloud-data branch
+        if: always() && steps.wait.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd results_out
+          git init -q
+          git checkout -q -b cloud-data
+          git add -A
+          git -c user.email='github-actions[bot]@users.noreply.github.com' \
+              -c user.name='github-actions[bot]' \
+              commit -qm "publish results (run ${GITHUB_RUN_ID})"
+          git push -f \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            cloud-data
