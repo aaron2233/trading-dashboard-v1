@@ -75,3 +75,40 @@ def test_cap_refuses_absurd_sleep():
     remaining, msg = choose_target(at(0, 5), SLOTS)
     assert remaining == 0
     assert "refusing" in msg
+
+
+def test_all_passed_only_when_every_slot_is_behind():
+    # Per-slot jobs pass --skip-if-passed so a run that starts late (the
+    # 2026-09-21 08:38 PT run) skips the 08:31 job instead of publishing late.
+    assert sleep_until_pt.all_passed(at(8, 38), [(8, 31)])
+    assert not sleep_until_pt.all_passed(at(8, 38), [(10, 31)])
+    assert not sleep_until_pt.all_passed(at(8, 38), [(8, 31), (10, 31)])
+
+
+def test_skip_if_passed_writes_output_and_does_not_sleep(monkeypatch, tmp_path):
+    out = tmp_path / "gh_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setattr(sleep_until_pt, "datetime", _FrozenDT(at(8, 38)))
+    monkeypatch.setattr(sleep_until_pt.time, "sleep",
+                        lambda s: pytest.fail("must not sleep"))
+    monkeypatch.setattr(sys, "argv", ["x", "08:31", "--skip-if-passed"])
+    assert sleep_until_pt.main() == 0
+    assert "skip=true" in out.read_text()
+
+
+def test_passed_slot_without_flag_still_proceeds(monkeypatch, tmp_path):
+    # Final job: no flag -> a late run still publishes (cloud-data advances).
+    out = tmp_path / "gh_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setattr(sleep_until_pt, "datetime", _FrozenDT(at(13, 15)))
+    monkeypatch.setattr(sys, "argv", ["x", "12:31"])
+    assert sleep_until_pt.main() == 0
+    assert not out.exists() or "skip=true" not in out.read_text()
+
+
+class _FrozenDT:
+    def __init__(self, now):
+        self._now = now
+
+    def now(self, tz=None):
+        return self._now

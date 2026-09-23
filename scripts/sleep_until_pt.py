@@ -5,16 +5,18 @@ late in 2026-06/07, then 2.5-6.3h late by 2026-09. A cron mapped 1:1 to a
 publish target can't absorb that variance — once the delay exceeds the
 lead, the target has already passed and the run publishes late.
 
-So the scheduled workflow fires MANY crons (every 30 min through the
-morning) and every run calls this script with the FULL slot list. Whatever
-fires, the run sleeps to the next slot still ahead of it; the workflow's
-concurrency group serializes the runs so one holds each slot and the extra
-pending runs are cancelled by GitHub.
+GitHub also DROPS most crons: 09-18..09-22 it fired 2 of 16 per day. So one
+run must cover every slot still ahead of it. The publish workflow chains one
+job per slot (each job gets its own 6h limit); each job calls this script
+with its slot, and non-final jobs pass --skip-if-passed so a late run skips
+the slots it missed instead of publishing late.
 
 Behavior:
   - some target is still ahead today  -> sleep until the earliest one
   - every target has already passed   -> return immediately, run proceeds
     (keeps the "cloud-data always advances" contract)
+    ... unless --skip-if-passed: write skip=true to $GITHUB_OUTPUT so the
+    job's later steps skip
   - sleep would exceed the sanity cap -> return immediately (bad target /
     misconfigured cron; don't hold a runner for hours)
 
@@ -22,11 +24,12 @@ DST-proof: targets are computed in America/Los_Angeles, so the UTC moment
 shifts automatically at the spring/fall changes. Fixed-UTC crons simply
 fire an hour earlier in PT during PST, i.e. they gain lead.
 
-Usage: python3 scripts/sleep_until_pt.py HH:MM[,HH:MM...]
+Usage: python3 scripts/sleep_until_pt.py HH:MM[,HH:MM...] [--skip-if-passed]
 Stdlib only — runs on the runner's system python3 before any pip install.
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 from datetime import datetime
@@ -69,18 +72,37 @@ def choose_target(now: datetime, targets: list[tuple[int, int]],
                        f"until {label} PT")
 
 
+def all_passed(now: datetime, targets: list[tuple[int, int]]) -> bool:
+    """True when every target is already behind `now` today."""
+    return all(now.replace(hour=hh, minute=mm, second=0, microsecond=0) <= now
+               for hh, mm in targets)
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: sleep_until_pt.py HH:MM[,HH:MM...]", file=sys.stderr)
+    args = sys.argv[1:]
+    skip_if_passed = "--skip-if-passed" in args
+    args = [a for a in args if a != "--skip-if-passed"]
+    if len(args) != 1:
+        print("usage: sleep_until_pt.py HH:MM[,HH:MM...] [--skip-if-passed]",
+              file=sys.stderr)
         return 2
     try:
-        targets = parse_targets(sys.argv[1])
+        targets = parse_targets(args[0])
     except ValueError:
-        print(f"invalid target list {sys.argv[1]!r} — expected HH:MM[,HH:MM...]",
+        print(f"invalid target list {args[0]!r} — expected HH:MM[,HH:MM...]",
               file=sys.stderr)
         return 2
 
-    remaining, msg = choose_target(datetime.now(PT), targets)
+    now = datetime.now(PT)
+    if skip_if_passed and all_passed(now, targets):
+        print(f"{args[0]} PT already passed (now {now:%H:%M:%S} PT) — skipping "
+              "this slot; a later slot's job publishes")
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("skip=true\n")
+        return 0
+
+    remaining, msg = choose_target(now, targets)
     print(msg)
     if remaining > 0:
         time.sleep(remaining)
