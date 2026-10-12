@@ -46,10 +46,10 @@ permissions:
 concurrency:
   # Per event type. Scheduled runs share one lane; manual dispatches get
   # their own so they publish NOW instead of queueing behind a scheduled
-  # run that sleeps until 12:31. The 08:31 backstop depends on this: a local
-  # launchd job (com.aaron.lotto-0831-dispatch) dispatches at 08:31 PT
-  # whenever the scheduled run hasn't published that slot — since 2026-09-28
-  # GitHub's first scheduled run of the day usually starts after 08:31.
+  # run that sleeps until 12:31. The local backstop depends on this: a
+  # launchd job (com.aaron.lotto-0831-dispatch) dispatches 2 min after each
+  # lotto slot whenever the scheduled run hasn't published it — since
+  # 2026-09-28 GitHub's first scheduled run usually starts after 08:31.
   group: publish-results-${{ github.event_name }}
   # NOT cancel-in-progress: a run sleeping through its slots must survive
   # the next cron's run starting — later runs queue behind it (GitHub keeps
