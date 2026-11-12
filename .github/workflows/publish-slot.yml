@@ -92,3 +92,18 @@ jobs:
           git push -f \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             cloud-data
+
+      # Draft the lotto email here instead of in the relay routine: its
+      # WebFetch hop paraphrased trade cards and turned them into STALE
+      # drafts (2026-11-11, 11-12). Lotto slots only — 05:40 is the
+      # pre-market beat-market slot. Push / manual runs only run the final
+      # job, so they draft too (the local 08:33 backstop dispatch relies on
+      # that). Without the GMAIL_* secrets this is a dry run.
+      - name: Draft lotto email (Gmail API)
+        if: always() && steps.wait.outputs.skip != 'true' && inputs.slot != '05:40'
+        env:
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_TO: ${{ secrets.GMAIL_TO }}
+        run: python3 scripts/draft_gmail.py results_out/lotto_result.md
