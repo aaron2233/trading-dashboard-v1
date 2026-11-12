@@ -7,6 +7,9 @@ name: publish-results
 # branch. The routines then just WebFetch their result + draft via Gmail MCP
 # (channels that bypass the sandbox proxy — capex proves it). No staged CSVs,
 # no in-sandbox git/python. See project-cloud-routine-egress-allowlist.
+# Exception (2026-11): the LOTTO draft is now created here, by
+# scripts/draft_gmail.py in publish-slot.yml — the relay's WebFetch copy
+# paraphrased trade cards into STALE drafts. Beat-market still relays.
 
 on:
   workflow_dispatch:
@@ -72,6 +75,7 @@ jobs:
     needs: slot-0540
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/publish-slot.yml
+    secrets: inherit  # GMAIL_* for the lotto draft step
     with:
       slot: "08:31"
 
@@ -79,6 +83,7 @@ jobs:
     needs: slot-0831
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/publish-slot.yml
+    secrets: inherit  # GMAIL_* for the lotto draft step
     with:
       slot: "10:31"
 
@@ -86,6 +91,7 @@ jobs:
     needs: slot-1031
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/publish-slot.yml
+    secrets: inherit  # GMAIL_* for the lotto draft step
     with:
       slot: "12:31"
       final: true
